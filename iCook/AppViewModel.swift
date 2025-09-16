@@ -1,11 +1,3 @@
-//
-//  AppViewModel.swift
-//  iCook
-//
-//  Created by George Babichev on 9/16/25.
-//
-
-
 import Foundation
 import Combine
 
@@ -28,6 +20,7 @@ final class AppViewModel: ObservableObject {
             categories = cats
         } catch {
             self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            print("Categories error: \(error)")
         }
     }
 
@@ -37,12 +30,19 @@ final class AppViewModel: ObservableObject {
 
     func loadRandomRecipes(count: Int = 6) async {
         isLoading = true
-        defer { isLoading = false }
+        defer { isLoading = false } // Fix: Uncomment this line
+        
         do {
+            print("Fetching recipes...")
             let all = try await APIClient.fetchRecipes(page: 1, limit: 100)
+            print("Received \(all.count) recipes")
             self.randomRecipes = Array(all.shuffled().prefix(count))
+            print("Set \(randomRecipes.count) random recipes")
         } catch {
-            self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            let errorMsg = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            self.error = errorMsg
+            print("Random recipes error: \(error)")
+            print("Error details: \(errorMsg)")
         }
     }
 }

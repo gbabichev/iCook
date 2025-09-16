@@ -5,6 +5,7 @@ import Foundation
 public struct Category: Identifiable, Codable, Hashable {
     public let id: Int
     public let name: String
+    public let icon: String
 }
 
 public struct Recipe: Identifiable, Codable, Hashable {
@@ -12,7 +13,7 @@ public struct Recipe: Identifiable, Codable, Hashable {
     public let category_id: Int
     public let name: String
     public let recipe_time: Int
-    public let details: String
+    public let details: String?
     public let image: String?
 }
 
@@ -107,6 +108,8 @@ public enum APIClient {
         }
 
         let url = try makeURL(route: "/recipes", extraQuery: query)
+        print("Fetching URL: \(url)")
+        
         var request = URLRequest(url: url)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
@@ -115,15 +118,36 @@ public enum APIClient {
             guard let http = response as? HTTPURLResponse else {
                 throw APIError.transport("No HTTP response")
             }
+            
+            print("HTTP Status: \(http.statusCode)")
+            
             guard (200..<300).contains(http.statusCode) else {
                 let body = String(data: data, encoding: .utf8) ?? "<no body>"
+                print("Error response body: \(body)")
                 throw APIError.badStatus(http.statusCode, body)
             }
+            
+            // Log the raw JSON response
+            if let jsonString = String(data: data, encoding: .utf8) {
+                print("Raw JSON response: \(jsonString)")
+            }
+            
             do {
                 let page = try JSONDecoder().decode(Page<Recipe>.self, from: data)
+                print("Successfully decoded \(page.data.count) recipes")
                 return page.data
             } catch {
-                throw APIError.decoding(error.localizedDescription)
+                print("JSON decoding failed: \(error)")
+                
+                // Try to decode as plain array (in case it's not wrapped in Page)
+                do {
+                    let recipes = try JSONDecoder().decode([Recipe].self, from: data)
+                    print("Successfully decoded as plain array: \(recipes.count) recipes")
+                    return recipes
+                } catch {
+                    print("Plain array decoding also failed: \(error)")
+                    throw APIError.decoding(error.localizedDescription)
+                }
             }
         } catch {
             throw APIError.transport(error.localizedDescription)

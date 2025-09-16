@@ -72,6 +72,10 @@ struct CategoryDetail: View {
     let category: Category
     var body: some View {
         VStack(spacing: 8) {
+            Image(systemName: category.icon)
+                .font(.system(size: 48))
+                .foregroundStyle(.primary)
+                .padding(.bottom, 8)
             Text(category.name)
                 .font(.title2).bold()
             Text("Next: recipes list & details view.")
@@ -87,92 +91,20 @@ struct CategoryDetail: View {
 struct CategoryRow: View {
     let category: Category
     var body: some View {
-        Text(category.name)
-            .font(.body)
+        HStack(spacing: 12) {
+            Image(systemName: category.icon)
+                .font(.title2)
+                .foregroundStyle(.primary)
+                .frame(width: 24, height: 24)
+            
+            Text(category.name)
+                .font(.body)
+        }
     }
 }
 
-struct HomeView: View {
-    @EnvironmentObject private var model: AppViewModel
-    private let columns = [GridItem(.adaptive(minimum: 160), spacing: 12)]
 
-    var body: some View {
-        ScrollView(showsIndicators: false) {
-            LazyVStack(alignment: .leading, spacing: 20) {
-                // Featured header image - similar to LandmarkFeaturedItemView
-                Image("HomePlaceholder")
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: 350)
-                    .clipped()
-                    .backgroundExtensionEffect()
-//                    .overlay(alignment: .bottom) {
-//                        VStack(spacing: 8) {
-//                            Text("Featured Recipes")
-//                                .font(.subheadline)
-//                                .fontWeight(.bold)
-//                                .foregroundColor(.white)
-//                                .opacity(0.8)
-//                            Text("Try something delicious")
-//                                .font(.largeTitle)
-//                                .fontWeight(.bold)
-//                                .foregroundColor(.white)
-//                            Button("Browse Recipes") {
-//                                if let first = model.categories.first {
-//                                    model.selectedCategoryID = first.id
-//                                }
-//                            }
-//                            .buttonStyle(.borderedProminent)
-//                            .padding(.bottom, 12)
-//                        }
-//                        .padding(.bottom, 16)
-//                    }
 
-                
-                // Recipes grid section
-                VStack(alignment: .leading, spacing: 16) {
-                    Text("Popular Recipes")
-                        .font(.title2)
-                        .bold()
-                        .padding(.top, 20)
-                        .padding(.leading, 16)
-                    
-                    if model.randomRecipes.isEmpty {
-                        ProgressView("Loading recipes…")
-                            .frame(maxWidth: .infinity, minHeight: 80)
-                    } else {
-                        LazyVGrid(columns: columns, spacing: 12) {
-                            ForEach(model.randomRecipes) { recipe in
-                                Button {
-                                    selectionFromHome(recipe)
-                                } label: {
-                                    RecipeLargeButton(recipe: recipe)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                        .padding(.horizontal, 16)
-                    }
-                }
-            }
-        }
-        .toolbar {
-            ToolbarSpacer(.flexible)
-        }
-        .toolbar(removing: .title)
-        .ignoresSafeArea(edges: .top)
-        .task {
-            if model.randomRecipes.isEmpty {
-                await model.loadRandomRecipes()
-            }
-        }
-    }
-
-    private func selectionFromHome(_ recipe: Recipe) {
-        // For now, just select the recipe's category. Later we can deep-link to a recipe detail.
-        model.selectCategory(recipe.category_id)
-    }
-}
 
 struct RecipeLargeButton: View {
     let recipe: Recipe
@@ -217,7 +149,7 @@ struct RecipeLargeButton: View {
     }
 }
 
-private extension Recipe {
+extension Recipe {
     var imageURL: URL? {
         guard let path = image, !path.isEmpty else { return nil }
         var comps = URLComponents(url: APIConfig.base, resolvingAgainstBaseURL: false)
@@ -226,4 +158,3 @@ private extension Recipe {
         return comps?.url
     }
 }
-
