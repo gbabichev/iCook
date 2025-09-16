@@ -71,4 +71,22 @@ final class AppViewModel: ObservableObject {
             throw error
         }
     }
+    
+    func createCategory(name: String, icon: String) async -> Bool {
+        error = nil
+        
+        do {
+            let newCategory = try await APIClient.createCategory(name: name, icon: icon)
+            
+            // Add the new category to our list and sort alphabetically
+            categories.append(newCategory)
+            categories.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            
+            return true
+        } catch {
+            self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            print("Create category error: \(error)")
+            return false
+        }
+    }
 }

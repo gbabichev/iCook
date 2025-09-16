@@ -95,6 +95,59 @@ public enum APIClient {
             throw APIError.transport(error.localizedDescription)
         }
     }
+    
+    public static func createCategory(name: String, icon: String) async throws -> Category {
+        let url = try makeURL(route: "/categories")
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        
+        let categoryData = [
+            "name": name,
+            "icon": icon
+        ]
+        
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: categoryData)
+        } catch {
+            throw APIError.transport("Failed to encode category data: \(error.localizedDescription)")
+        }
+        
+        print("Creating category: \(name) with icon: \(icon)")
+        print("Request URL: \(url)")
+        
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                throw APIError.transport("No HTTP response")
+            }
+            
+            print("Create category HTTP Status: \(http.statusCode)")
+            
+            guard (200..<300).contains(http.statusCode) else {
+                let body = String(data: data, encoding: .utf8) ?? "<no body>"
+                print("Create category error response body: \(body)")
+                throw APIError.badStatus(http.statusCode, body)
+            }
+            
+            // Log the raw JSON response
+            if let jsonString = String(data: data, encoding: .utf8) {
+                print("Create category raw JSON response: \(jsonString)")
+            }
+            
+            do {
+                let category = try JSONDecoder().decode(Category.self, from: data)
+                print("Successfully created category: \(category.name)")
+                return category
+            } catch {
+                print("JSON decoding failed: \(error)")
+                throw APIError.decoding(error.localizedDescription)
+            }
+        } catch {
+            throw APIError.transport(error.localizedDescription)
+        }
+    }
 
     public static func fetchRecipes(categoryID: Int? = nil,
                                     page: Int = 1,
