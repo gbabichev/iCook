@@ -142,55 +142,97 @@ struct AddCategoryView: View {
     
     var body: some View {
         NavigationStack {
-            Form {
-                Section("Category Name") {
-                    TextField("Enter category name", text: $categoryName)
-                        .textFieldStyle(.roundedBorder)
-                        .textInputAutocapitalization(.words)
-                        .disableAutocorrection(true)
+            ZStack {
+                // Subtle background for a more "carded" form look on iOS
+                #if os(iOS)
+                Color(.systemGroupedBackground).ignoresSafeArea()
+                #endif
+
+                Form {
+                    Section("Category Name") {
+                        TextField("Enter category name", text: $categoryName)
+                            .submitLabel(.done)
+                            .onSubmit {
+                                let trimmed = categoryName.trimmingCharacters(in: .whitespacesAndNewlines)
+                                if !trimmed.isEmpty && !isCreating { createCategory() }
+                            }
+                        #if os(iOS)
+                            .textInputAutocapitalization(.words)
+                        #endif
+                            .disableAutocorrection(true)
+                            .accessibilityLabel("Category name")
+                            .accessibilityHint("Enter a short, descriptive name")
+                            .padding(.vertical, 6)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .stroke(.red, lineWidth: 2)
+                                    .opacity(categoryName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 1 : 0)
+                            )
+                            .animation(.easeInOut(duration: 0.15), value: categoryName)
+                    }
+
+                    Section("Icon") {
+                        IconSelectionGrid(selectedIcon: $selectedIcon)
+                            .accessibilityLabel("Icon picker")
+                    }
                 }
-                
-                Section("Icon") {
-                    IconSelectionGrid(selectedIcon: $selectedIcon)
-                }
+                .scrollContentBackground(.hidden) // lets our background show through
+                .formStyle(.grouped)
             }
             .navigationTitle("Add Category")
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
+                // iOS keyboard dismiss
+                #if os(iOS)
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") { UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil) }
                 }
-                
+                #endif
+
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                        .disabled(isCreating)
+                }
+
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
+                    Button {
                         createCategory()
+                    } label: {
+                        if isCreating {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Text("Save")
+                                .fontWeight(.semibold)
+                        }
                     }
+                    .keyboardShortcut(.defaultAction) // macOS default ⏎ action; harmless on iOS
                     .disabled(categoryName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isCreating)
                 }
             }
         }
-        .disabled(isCreating)
-        .overlay(
-            Group {
-                if isCreating {
-                    ZStack {
-                        Color.black.opacity(0.3)
-                            .ignoresSafeArea()
-                        
-                        VStack(spacing: 12) {
-                            ProgressView()
-                            Text("Creating...")
-                        }
-                        .padding(24)
-                        .background(.regularMaterial)  // Added background for better visibility
-                        .cornerRadius(12)
+        .interactiveDismissDisabled(isCreating) // don’t swipe-dismiss mid-save
+        .disabled(isCreating) // prevent taps while saving
+        .overlay {
+            // Dimmed progress overlay with a smooth fade
+            if isCreating {
+                ZStack {
+                    Color.black.opacity(0.25).ignoresSafeArea()
+                    VStack(spacing: 12) {
+                        ProgressView()
+                            .progressViewStyle(.circular)
+                        Text("Creating…")
+                            .font(.callout)
+                            .foregroundStyle(.primary)
                     }
+                    .padding(20)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
+                .transition(.opacity.combined(with: .scale))
             }
-        )
+        }
+        .animation(.easeInOut(duration: 0.2), value: isCreating)
     }
-    
     private func createCategory() {
         Task {
             await createCategoryAsync()
