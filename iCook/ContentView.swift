@@ -23,12 +23,6 @@ struct ContentView: View {
                     })
                 }
             }
-            .navigationDestination(for: Category.self) { category in
-                CategoryHomeView(category: category)
-            }
-            .navigationDestination(for: Recipe.self) { recipe in
-                RecipeDetailView(recipe: recipe)
-            }
         }
         .navigationTitle("iCook")
         .searchable(text: $searchText, placement: .automatic, prompt: "Search categories")

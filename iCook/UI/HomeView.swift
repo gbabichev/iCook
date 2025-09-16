@@ -16,132 +16,123 @@ struct HomeView: View {
     var onRecipeSelected: ((Recipe) -> Void)?
 
     var body: some View {
-        ScrollView(showsIndicators: false) {
-            LazyVStack(alignment: .leading, spacing: 20) {
-                // Featured header image - using random recipe image
-                if let featuredRecipe = model.randomRecipes.first {
-                    AsyncImage(url: featuredRecipe.imageURL) { phase in
-                        switch phase {
-                        case .empty:
-                            ZStack {
-                                Rectangle()
-                                    .fill(.ultraThinMaterial)
+            ScrollView(showsIndicators: false) {
+                LazyVStack(alignment: .leading, spacing: 20) {
+                    // Featured header image - using random recipe image
+                    if let featuredRecipe = model.randomRecipes.first {
+                        AsyncImage(url: featuredRecipe.imageURL) { phase in
+                            switch phase {
+                            case .empty:
+                                ZStack {
+                                    Rectangle()
+                                        .fill(.ultraThinMaterial)
+                                    ProgressView()
+                                        .scaleEffect(1.5)
+                                }
+                                .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: 350)
+                                
+                            case .success(let image):
+                                image
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fill)
+                                    .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: 350)
+                                    .clipped()
+                                    .overlay(alignment: .bottom) {
+                                        VStack(spacing: 8) {
+                                            Text(featuredRecipe.name)
+                                                .font(.largeTitle)
+                                                .fontWeight(.bold)
+                                                .foregroundColor(.white)
+                                                .multilineTextAlignment(.center)
+                                            Text("\(featuredRecipe.recipe_time) minutes")
+                                                .font(.headline)
+                                                .opacity(0.8)
+                                            NavigationLink(destination: RecipeDetailView(recipe: featuredRecipe)) {
+                                                Text("View Recipe")
+                                                    .foregroundColor(.white)
+                                            }
+                                            .controlSize(.large)
+                                        }
+                                        .padding(.bottom, 32)
+                                        .padding(.horizontal, 20)
+
+                                    }
+                                    
+                            case .failure:
+                                ZStack {
+                                    Rectangle()
+                                        .fill(.ultraThinMaterial)
+                                    VStack(spacing: 12) {
+                                        Image(systemName: "photo.badge.exclamationmark")
+                                            .font(.system(size: 48))
+                                            .foregroundStyle(.secondary)
+                                        Text("Image not available")
+                                            .font(.headline)
+                                            .foregroundStyle(.secondary)
+                                        Text(featuredRecipe.name)
+                                            .font(.title2)
+                                            .fontWeight(.bold)
+                                        NavigationLink(destination: RecipeDetailView(recipe: featuredRecipe)) {
+                                            Text("View Recipe")
+                                        }
+                                        .buttonStyle(.borderedProminent)
+                                    }
+                                    .padding()
+                                }
+                                .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: 350)
+                                
+                            @unknown default:
+                                EmptyView()
+                            }
+                        }
+                        .backgroundExtensionEffect()
+                    } else {
+                        // Fallback while loading recipes
+                        ZStack {
+                            Rectangle()
+                                .fill(.ultraThinMaterial)
+                            VStack(spacing: 16) {
                                 ProgressView()
                                     .scaleEffect(1.5)
+                                Text("Loading featured recipe...")
+                                    .font(.headline)
+                                    .foregroundStyle(.secondary)
                             }
-                            .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: 350)
-                            
-                        case .success(let image):
-                            image
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                                .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: 350)
-                                .clipped()
-                                .overlay(alignment: .bottom) {
-                                    VStack(spacing: 8) {
-                                        Text(featuredRecipe.name)
-                                            .font(.largeTitle)
-                                            .fontWeight(.bold)
-                                            .foregroundColor(.white)
-                                            .multilineTextAlignment(.center)
-                                        Text("\(featuredRecipe.recipe_time) minutes")
-                                            .font(.headline)
-                                            .opacity(0.8)
-                                        NavigationLink(value: featuredRecipe) {
-                                            Text("View Recipe")
-                                                .foregroundColor(.white)
-                                        }
-                                        .controlSize(.large)
-                                        .simultaneousGesture(TapGesture().onEnded {
-                                            onRecipeSelected?(featuredRecipe)
-                                        })
-                                    }
-                                    .padding(.bottom, 32)
-                                    .padding(.horizontal, 20)
-
-                                }
-                                
-                        case .failure:
-                            ZStack {
-                                Rectangle()
-                                    .fill(.ultraThinMaterial)
-                                VStack(spacing: 12) {
-                                    Image(systemName: "photo.badge.exclamationmark")
-                                        .font(.system(size: 48))
-                                        .foregroundStyle(.secondary)
-                                    Text("Image not available")
-                                        .font(.headline)
-                                        .foregroundStyle(.secondary)
-                                    Text(featuredRecipe.name)
-                                        .font(.title2)
-                                        .fontWeight(.bold)
-                                    NavigationLink(value: featuredRecipe) {
-                                        Text("View Recipe")
-                                    }
-                                    .buttonStyle(.borderedProminent)
-                                    .simultaneousGesture(TapGesture().onEnded {
-                                        onRecipeSelected?(featuredRecipe)
-                                    })
-                                }
-                                .padding()
-                            }
-                            .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: 350)
-                            
-                        @unknown default:
-                            EmptyView()
                         }
+                        .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: 350)
+                        .backgroundExtensionEffect()
                     }
-                    .backgroundExtensionEffect()
-                } else {
-                    // Fallback while loading recipes
-                    ZStack {
-                        Rectangle()
-                            .fill(.ultraThinMaterial)
-                        VStack(spacing: 16) {
-                            ProgressView()
-                                .scaleEffect(1.5)
-                            Text("Loading featured recipe...")
-                                .font(.headline)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: 350)
-                    .backgroundExtensionEffect()
-                }
-                
-                // Recipes grid section - skip the first recipe since it's featured above
-                VStack(alignment: .leading, spacing: 16) {
-                    Text("More Recipes")
-                        .font(.title2)
-                        .bold()
-                        .padding(.top, 20)
-                        .padding(.leading, 16)
                     
-                    if model.randomRecipes.count <= 1 {
-                        ProgressView("Loading recipes...")
-                            .frame(maxWidth: .infinity, minHeight: 80)
-                    } else {
-                        LazyVGrid(columns: columns, spacing: 12) {
-                            ForEach(Array(model.randomRecipes.dropFirst())) { recipe in
-                                NavigationLink(value: recipe) {
-                                    RecipeLargeButton(recipe: recipe)
+                    // Recipes grid section - skip the first recipe since it's featured above
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text("More Recipes")
+                            .font(.title2)
+                            .bold()
+                            .padding(.top, 20)
+                            .padding(.leading, 16)
+                        
+                        if model.randomRecipes.count <= 1 {
+                            ProgressView("Loading recipes...")
+                                .frame(maxWidth: .infinity, minHeight: 80)
+                        } else {
+                            LazyVGrid(columns: columns, spacing: 12) {
+                                ForEach(Array(model.randomRecipes.dropFirst())) { recipe in
+                                    NavigationLink(destination: RecipeDetailView(recipe: recipe)) {
+                                        RecipeLargeButton(recipe: recipe)
+                                    }
+                                    .buttonStyle(.plain)
                                 }
-                                .buttonStyle(.plain)
-                                .simultaneousGesture(TapGesture().onEnded {
-                                    onRecipeSelected?(recipe)
-                                })
                             }
+                            .padding(.horizontal, 16)
                         }
-                        .padding(.horizontal, 16)
                     }
                 }
             }
-        }
-        .toolbar {
-            ToolbarSpacer(.flexible)
-        }
-        .toolbar(removing: .title)
-        .ignoresSafeArea(edges: .top)
+            .toolbar {
+                ToolbarSpacer(.flexible)
+            }
+            .toolbar(removing: .title)
+            .ignoresSafeArea(edges: .top)
         .task {
             // Cancel any existing task
             loadingTask?.cancel()
