@@ -21,14 +21,18 @@ struct ContentView: View {
                 } else {
                     // Show home view when selectedCategoryID is nil or -1
                     RecipeCollectionView()
-                        .toolbar {
-                            ToolbarSpacer(.flexible)
-                        }
-                        .toolbar(removing: .title)
-                        .ignoresSafeArea(edges: .top)
+
                 }
             }
-            // Add navigation destinations at the NavigationStack level
+#if os(macOS)
+            .toolbar(removing: .title)
+#else
+            .navigationBarHidden(true)
+#endif
+            .toolbar{
+                ToolbarSpacer(.flexible)
+            }
+            .ignoresSafeArea(edges: .top)
             .navigationDestination(for: Recipe.self) { recipe in
                 RecipeDetailView(recipe: recipe)
             }
