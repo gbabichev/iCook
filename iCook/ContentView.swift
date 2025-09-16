@@ -16,11 +16,14 @@ struct ContentView: View {
             NavigationStack {
                 if let id = selectedCategoryID,
                    let cat = model.categories.first(where: { $0.id == id }) {
-                    CategoryHomeView(category: cat)
+                    RecipeCollectionView(category: cat)
                 } else {
-                    HomeView(onRecipeSelected: { recipe in
-                        selectedCategoryID = recipe.category_id
-                    })
+                    RecipeCollectionView()
+                        .toolbar {
+                            ToolbarSpacer(.flexible)
+                        }
+                        .toolbar(removing: .title)
+                        .ignoresSafeArea(edges: .top)
                 }
             }
         }
@@ -69,7 +72,7 @@ struct CategoryList: View {
             }
             .navigationTitle("Categories")
             .navigationDestination(for: Category.self) { category in
-                CategoryHomeView(category: category)
+                RecipeCollectionView(category: category)
             }
             .navigationDestination(for: Recipe.self) { recipe in
                 RecipeDetailView(recipe: recipe)
@@ -78,25 +81,7 @@ struct CategoryList: View {
     }
 }
 
-// MARK: - Detail Column (Landmarks: *Detail)
 
-struct CategoryDetail: View {
-    let category: Category
-    var body: some View {
-        VStack(spacing: 8) {
-            Image(systemName: category.icon)
-                .font(.system(size: 48))
-                .foregroundStyle(.primary)
-                .padding(.bottom, 8)
-            Text(category.name)
-                .font(.title2).bold()
-            Text("Next: recipes list & details view.")
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .navigationTitle(category.name)
-    }
-}
 
 // MARK: - Row (Landmarks: *Row)
 
@@ -222,5 +207,3 @@ extension Recipe {
         return comps?.url
     }
 }
-
-// MARK: - Make Category and Recipe Hashable for NavigationLink(value:)
