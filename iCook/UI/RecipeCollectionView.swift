@@ -7,7 +7,7 @@
 
 import SwiftUI
 
-enum RecipeCollectionType {
+enum RecipeCollectionType: Equatable {
     case home
     case category(Category)
     
@@ -53,6 +53,18 @@ enum RecipeCollectionType {
             return "fork.knife"
         case .category(let category):
             return category.icon
+        }
+    }
+    
+    // Add this for proper comparison
+    static func == (lhs: RecipeCollectionType, rhs: RecipeCollectionType) -> Bool {
+        switch (lhs, rhs) {
+        case (.home, .home):
+            return true
+        case (.category(let lhsCat), .category(let rhsCat)):
+            return lhsCat.id == rhsCat.id
+        default:
+            return false
         }
     }
 }
@@ -338,7 +350,7 @@ struct RecipeCollectionView: View {
 //                }
 //            }
 //        }
-        .task {
+        .task(id: collectionType) {
             await loadRecipes()
         }
         .refreshable {

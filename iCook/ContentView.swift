@@ -7,17 +7,19 @@ struct ContentView: View {
     @State private var searchText = ""
     @State private var searchTask: Task<Void, Never>? = nil
     @State private var preferredColumn: NavigationSplitViewColumn = .detail
-    @State private var selectedCategoryID: Category.ID?
+    @State private var selectedCategoryID: Category.ID? = -1 // Use -1 as sentinel for "Home"
 
     var body: some View {
         NavigationSplitView(preferredCompactColumn: $preferredColumn) {
             CategoryList(selection: $selectedCategoryID)
         } detail: {
+            // Single NavigationStack for the detail view
             NavigationStack {
-                if let id = selectedCategoryID,
+                if let id = selectedCategoryID, id != -1,
                    let cat = model.categories.first(where: { $0.id == id }) {
                     RecipeCollectionView(category: cat)
                 } else {
+                    // Show home view when selectedCategoryID is nil or -1
                     RecipeCollectionView()
                         .toolbar {
                             ToolbarSpacer(.flexible)
@@ -25,6 +27,10 @@ struct ContentView: View {
                         .toolbar(removing: .title)
                         .ignoresSafeArea(edges: .top)
                 }
+            }
+            // Add navigation destinations at the NavigationStack level
+            .navigationDestination(for: Recipe.self) { recipe in
+                RecipeDetailView(recipe: recipe)
             }
         }
         .navigationTitle("iCook")
@@ -64,24 +70,36 @@ struct CategoryList: View {
     @Binding var selection: Category.ID?
 
     var body: some View {
-        NavigationStack {
-            List(model.categories, selection: $selection) { category in
-                NavigationLink(value: category) {
-                    CategoryRow(category: category)
+        List(selection: $selection) {
+            // Home section at the top
+            Section {
+                NavigationLink(value: -1) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "house.fill")
+                            .font(.title2)
+                            .foregroundStyle(.primary)
+                            .frame(width: 24, height: 24)
+                        
+                        Text("Home")
+                            .font(.body)
+                    }
+                }
+                .tag(-1 as Category.ID?)
+            }
+            
+            // Categories section
+            Section("Categories") {
+                ForEach(model.categories) { category in
+                    NavigationLink(value: category.id) {
+                        CategoryRow(category: category)
+                    }
+                    .tag(category.id)
                 }
             }
-            .navigationTitle("Categories")
-            .navigationDestination(for: Category.self) { category in
-                RecipeCollectionView(category: category)
-            }
-            .navigationDestination(for: Recipe.self) { recipe in
-                RecipeDetailView(recipe: recipe)
-            }
         }
+        .navigationTitle("iCook")
     }
 }
-
-
 
 // MARK: - Row (Landmarks: *Row)
 
