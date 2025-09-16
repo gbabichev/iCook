@@ -7,16 +7,27 @@ struct ContentView: View {
     @State private var searchText = ""
     @State private var searchTask: Task<Void, Never>? = nil
     @State private var preferredColumn: NavigationSplitViewColumn = .detail
+    @State private var selectedCategoryID: Category.ID?
 
     var body: some View {
         NavigationSplitView(preferredCompactColumn: $preferredColumn) {
-            CategoryList(selection: $model.selectedCategoryID)
+            CategoryList(selection: $selectedCategoryID)
         } detail: {
-            if let id = model.selectedCategoryID,
-               let cat = model.categories.first(where: { $0.id == id }) {
-                CategoryDetail(category: cat)
-            } else {
-                HomeView()
+            NavigationStack {
+                if let id = selectedCategoryID,
+                   let cat = model.categories.first(where: { $0.id == id }) {
+                    CategoryHomeView(category: cat)
+                } else {
+                    HomeView(onRecipeSelected: { recipe in
+                        selectedCategoryID = recipe.category_id
+                    })
+                }
+            }
+            .navigationDestination(for: Category.self) { category in
+                CategoryHomeView(category: category)
+            }
+            .navigationDestination(for: Recipe.self) { recipe in
+                RecipeDetailView(recipe: recipe)
             }
         }
         .navigationTitle("iCook")
@@ -34,7 +45,9 @@ struct ContentView: View {
             }
         }
         .task {
-            if model.categories.isEmpty { await model.loadCategories() }
+            if model.categories.isEmpty {
+                await model.loadCategories()
+            }
         }
         .alert("Error",
                isPresented: .init(
@@ -54,15 +67,20 @@ struct CategoryList: View {
     @Binding var selection: Category.ID?
 
     var body: some View {
-        List(model.categories) { category in
-            Button {
-                selection = category.id
-            } label: {
-                CategoryRow(category: category)
+        NavigationStack {
+            List(model.categories, selection: $selection) { category in
+                NavigationLink(value: category) {
+                    CategoryRow(category: category)
+                }
             }
-            .buttonStyle(.plain)
+            .navigationTitle("Categories")
+            .navigationDestination(for: Category.self) { category in
+                CategoryHomeView(category: category)
+            }
+            .navigationDestination(for: Recipe.self) { recipe in
+                RecipeDetailView(recipe: recipe)
+            }
         }
-        .navigationTitle("Categories")
     }
 }
 
@@ -102,9 +120,6 @@ struct CategoryRow: View {
         }
     }
 }
-
-
-
 
 struct RecipeLargeButton: View {
     let recipe: Recipe
@@ -149,6 +164,61 @@ struct RecipeLargeButton: View {
     }
 }
 
+// MARK: - Placeholder Recipe Detail View
+
+struct RecipeDetailView: View {
+    let recipe: Recipe
+    
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                AsyncImage(url: recipe.imageURL) { phase in
+                    switch phase {
+                    case .empty:
+                        ZStack {
+                            Rectangle().opacity(0.08)
+                            ProgressView()
+                        }
+                        .frame(height: 250)
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(height: 250)
+                            .clipped()
+                    case .failure:
+                        ZStack {
+                            Rectangle().opacity(0.08)
+                            Image(systemName: "photo")
+                        }
+                        .frame(height: 250)
+                    @unknown default:
+                        EmptyView()
+                    }
+                }
+                
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(recipe.name)
+                        .font(.largeTitle)
+                        .bold()
+                    
+                    Text("\(recipe.recipe_time) minutes")
+                        .font(.headline)
+                        .foregroundStyle(.secondary)
+                    
+                    Text("Recipe details would go here...")
+                        .font(.body)
+                }
+                .padding(.horizontal)
+                
+                Spacer()
+            }
+        }
+        .navigationTitle(recipe.name)
+        //.navigationBarTitleDisplayMode(.inline)
+    }
+}
+
 extension Recipe {
     var imageURL: URL? {
         guard let path = image, !path.isEmpty else { return nil }
@@ -158,3 +228,5 @@ extension Recipe {
         return comps?.url
     }
 }
+
+// MARK: - Make Category and Recipe Hashable for NavigationLink(value:)
