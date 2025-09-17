@@ -348,39 +348,55 @@ struct RecipeCollectionView: View {
     
     // MARK: - UI View
     
+    // Replace the entire body property with this:
     var body: some View {
-        ScrollView(showsIndicators: false) {
-            LazyVStack(alignment: .leading, spacing: 20) {
-                // Featured header image
-                if let featuredRecipe = featuredRecipe {
-                    featuredRecipeHeader(featuredRecipe)
-                } else if isLoading || (isHome && model.randomRecipes.isEmpty) {
-                    loadingHeader()
-                } else if recipes.isEmpty {
-                    emptyStateHeader()
-                }
-                
-                // Recipes grid section
-                recipesGridSection()
+        // Check if we should show centered empty state
+        if !isLoading && recipes.isEmpty && !(isHome && model.randomRecipes.isEmpty) {
+            // Centered empty state
+            VStack(spacing: 16) {
+                Image(systemName: collectionType.emptyStateIcon)
+                    .font(.system(size: 48))
+                    .foregroundStyle(.secondary)
+                Text(collectionType.emptyStateText)
+                    .font(.headline)
+                    .foregroundStyle(.secondary)
             }
-        }
-        .navigationTitle(collectionType.title)
-        .task(id: collectionType) {
-            await loadRecipes()
-        }
-        .refreshable {
-            await loadRecipes()
-        }
-        .alert("Error", isPresented: .init(
-            get: { error != nil },
-            set: { if !$0 { error = nil } }
-        )) {
-            Button("OK") { error = nil }
-        } message: {
-            Text(error ?? "")
-        }
-        .onDisappear {
-            currentLoadTask?.cancel()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .navigationTitle(collectionType.title)
+        } else {
+            // Normal content
+            ScrollView(showsIndicators: false) {
+                LazyVStack(alignment: .leading, spacing: 20) {
+                    // Featured header image
+                    if let featuredRecipe = featuredRecipe {
+                        featuredRecipeHeader(featuredRecipe)
+                    } else if isLoading || (isHome && model.randomRecipes.isEmpty) {
+                        loadingHeader()
+                    }
+                    // Remove the empty state from here - it's now handled above
+                    
+                    // Recipes grid section
+                    recipesGridSection()
+                }
+            }
+            .navigationTitle(collectionType.title)
+            .task(id: collectionType) {
+                await loadRecipes()
+            }
+            .refreshable {
+                await loadRecipes()
+            }
+            .alert("Error", isPresented: .init(
+                get: { error != nil },
+                set: { if !$0 { error = nil } }
+            )) {
+                Button("OK") { error = nil }
+            } message: {
+                Text(error ?? "")
+            }
+            .onDisappear {
+                currentLoadTask?.cancel()
+            }
         }
     }
 
