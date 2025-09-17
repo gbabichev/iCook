@@ -69,6 +69,8 @@ struct ContentView: View {
             }
 #if os(macOS)
             .toolbar(removing: .title)
+#else
+            .navigationBarTitleDisplayMode(.inline)
 #endif
             .toolbar{
                 ToolbarSpacer(.flexible)
