@@ -17,6 +17,9 @@ struct ContentView: View {
     @State private var searchResults: [Recipe] = []
     @State private var isSearching = false
     @State private var showingSearchResults = false
+    
+    // Recipe management state
+    @State private var showingAddRecipe = false
 
     var body: some View {
         NavigationSplitView(preferredCompactColumn: $preferredColumn) {
@@ -73,6 +76,14 @@ struct ContentView: View {
             .navigationBarTitleDisplayMode(.inline)
 #endif
             .toolbar{
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        showingAddRecipe = true
+                    } label: {
+                        Image(systemName: "plus.circle.fill")
+                    }
+                    .accessibilityLabel("Add Recipe")
+                }
                 ToolbarSpacer(.flexible)
             }
             .ignoresSafeArea(edges: .top)
@@ -126,6 +137,10 @@ struct ContentView: View {
             AddCategoryView(editingCategory: category)
                 .environmentObject(model)
         }
+        .sheet(isPresented: $showingAddRecipe) {
+            AddEditRecipeView()
+                .environmentObject(model)
+        }
     }
     
     private func performSearch() {
@@ -156,13 +171,6 @@ struct ContentView: View {
         }
     }
 }
-
-
-
-
-
-
-
 
 extension Recipe {
     var imageURL: URL? {

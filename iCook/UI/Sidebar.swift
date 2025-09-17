@@ -8,61 +8,73 @@
 import SwiftUI
 // MARK: - List Column (Landmarks: *List)
 
+import SwiftUI
+
 struct CategoryList: View {
     @EnvironmentObject private var model: AppViewModel
     @Binding var selection: Category.ID?
     @Binding var editingCategory: Category?
-
+    
+    init(selection: Binding<Category.ID?>, editingCategory: Binding<Category?>) {
+        self._selection = selection
+        self._editingCategory = editingCategory
+    }
+    
     var body: some View {
         List(selection: $selection) {
-            // Home section at the top
-            Section {
-                NavigationLink(value: -1) {
-                    HStack(spacing: 12) {
-                        Image(systemName: "house.fill")
-                            .font(.title2)
-                            .foregroundStyle(.primary)
-                            .frame(width: 24, height: 24)
-                        
-                        Text("Home")
-                            .font(.body)
+            // Home/Featured section
+            NavigationLink(value: -1) {
+                HStack {
+                    Image(systemName: "house.fill")
+                        .foregroundStyle(.blue)
+                        .frame(width: 24)
+                    Text("Home")
+                }
+            }
+            .tag(-1)
+            
+            if !model.categories.isEmpty {
+                Section("Categories") {
+                    ForEach(model.categories) { category in
+                        NavigationLink(value: category.id) {
+                            HStack {
+                                Text(category.icon)
+                                    .frame(width: 24)
+                                Text(category.name)
+                            }
+                        }
+                        .tag(category.id)
+                        .contextMenu {
+                            Button {
+                                editingCategory = category
+                            } label: {
+                                Label("Edit Category", systemImage: "pencil")
+                            }
+                            
+                            Button(role: .destructive) {
+                                Task {
+                                    await model.deleteCategory(id: category.id)
+                                }
+                            } label: {
+                                Label("Delete Category", systemImage: "trash")
+                            }
+                        }
                     }
                 }
-                .tag(-1 as Category.ID?)
             }
             
-            // Categories section
-            Section("Categories") {
-                ForEach(model.categories) { category in
-                    NavigationLink(value: category.id) {
-                        CategoryRow(category: category)
-                    }
-                    .tag(category.id)
-                    .contextMenu {
-                        Button {
-                            editingCategory = category
-                        } label: {
-                            Label("Edit", systemImage: "pencil")
-                        }
-                        
-                        Divider()
-                        
-                        Button(role: .destructive) {
-                            Task {
-                                // If we're deleting the currently selected category, reset to home
-                                if selection == category.id {
-                                    selection = -1
-                                }
-                                await model.deleteCategory(id: category.id)
-                            }
-                        } label: {
-                            Label("Delete", systemImage: "trash")
-                        }
-                    }
+            if model.isLoadingCategories {
+                HStack {
+                    ProgressView()
+                        .scaleEffect(0.8)
+                    Text("Loading categories...")
+                        .foregroundStyle(.secondary)
                 }
+                .padding(.vertical, 8)
             }
         }
         .navigationTitle("iCook")
+        .listStyle(.sidebar)
     }
 }
 

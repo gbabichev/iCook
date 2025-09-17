@@ -321,4 +321,225 @@ public enum APIClient {
             throw APIError.transport(error.localizedDescription)
         }
     }
+    
+
+    public static func createRecipe(categoryId: Int, name: String, recipeTime: Int?, details: String?, image: String?) async throws -> Recipe {
+        let url = try makeURL(route: "/recipes")
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        
+        var recipeData: [String: Any] = [
+            "category_id": categoryId,
+            "name": name
+        ]
+        
+        if let recipeTime = recipeTime {
+            recipeData["recipe_time"] = recipeTime
+        }
+        if let details = details {
+            recipeData["details"] = details
+        }
+        if let image = image {
+            recipeData["image"] = image
+        }
+        
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: recipeData)
+        } catch {
+            throw APIError.transport("Failed to encode recipe data: \(error.localizedDescription)")
+        }
+        
+        print("Creating recipe: \(name) in category: \(categoryId)")
+        print("Request URL: \(url)")
+        
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                throw APIError.transport("No HTTP response")
+            }
+            
+            print("Create recipe HTTP Status: \(http.statusCode)")
+            
+            guard (200..<300).contains(http.statusCode) else {
+                let body = String(data: data, encoding: .utf8) ?? "<no body>"
+                print("Create recipe error response body: \(body)")
+                throw APIError.badStatus(http.statusCode, body)
+            }
+            
+            if let jsonString = String(data: data, encoding: .utf8) {
+                print("Create recipe raw JSON response: \(jsonString)")
+            }
+            
+            do {
+                let recipe = try JSONDecoder().decode(Recipe.self, from: data)
+                print("Successfully created recipe: \(recipe.name)")
+                return recipe
+            } catch {
+                print("JSON decoding failed: \(error)")
+                throw APIError.decoding(error.localizedDescription)
+            }
+        } catch {
+            throw APIError.transport(error.localizedDescription)
+        }
+    }
+
+    public static func updateRecipe(id: Int, categoryId: Int?, name: String?, recipeTime: Int?, details: String?, image: String?) async throws -> Recipe {
+        let url = try makeURL(route: "/recipes/\(id)")
+        var request = URLRequest(url: url)
+        request.httpMethod = "PUT"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        
+        var recipeData: [String: Any] = [:]
+        
+        if let categoryId = categoryId {
+            recipeData["category_id"] = categoryId
+        }
+        if let name = name {
+            recipeData["name"] = name
+        }
+        if let recipeTime = recipeTime {
+            recipeData["recipe_time"] = recipeTime
+        }
+        if let details = details {
+            recipeData["details"] = details
+        }
+        if let image = image {
+            recipeData["image"] = image
+        }
+        
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: recipeData)
+        } catch {
+            throw APIError.transport("Failed to encode recipe data: \(error.localizedDescription)")
+        }
+        
+        print("Updating recipe \(id)")
+        print("Request URL: \(url)")
+        
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                throw APIError.transport("No HTTP response")
+            }
+            
+            print("Update recipe HTTP Status: \(http.statusCode)")
+            
+            guard (200..<300).contains(http.statusCode) else {
+                let body = String(data: data, encoding: .utf8) ?? "<no body>"
+                print("Update recipe error response body: \(body)")
+                throw APIError.badStatus(http.statusCode, body)
+            }
+            
+            if let jsonString = String(data: data, encoding: .utf8) {
+                print("Update recipe raw JSON response: \(jsonString)")
+            }
+            
+            do {
+                let recipe = try JSONDecoder().decode(Recipe.self, from: data)
+                print("Successfully updated recipe: \(recipe.name)")
+                return recipe
+            } catch {
+                print("JSON decoding failed: \(error)")
+                throw APIError.decoding(error.localizedDescription)
+            }
+        } catch {
+            throw APIError.transport(error.localizedDescription)
+        }
+    }
+
+    public static func deleteRecipe(id: Int) async throws {
+        let url = try makeURL(route: "/recipes/\(id)")
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        
+        print("Deleting recipe \(id)")
+        print("Request URL: \(url)")
+        
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                throw APIError.transport("No HTTP response")
+            }
+            
+            print("Delete recipe HTTP Status: \(http.statusCode)")
+            
+            guard (200..<300).contains(http.statusCode) else {
+                let body = String(data: data, encoding: .utf8) ?? "<no body>"
+                print("Delete recipe error response body: \(body)")
+                throw APIError.badStatus(http.statusCode, body)
+            }
+            
+            print("Successfully deleted recipe \(id)")
+        } catch {
+            throw APIError.transport(error.localizedDescription)
+        }
+    }
+
+    public static func uploadImage(imageData: Data, fileName: String) async throws -> String {
+        let url = try makeURL(route: "/media")
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        
+        let boundary = "Boundary-\(UUID().uuidString)"
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        
+        var body = Data()
+        
+        // Add file data
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(fileName)\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: image/jpeg\r\n\r\n".data(using: .utf8)!)
+        body.append(imageData)
+        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+        
+        request.httpBody = body
+        
+        print("Uploading image: \(fileName)")
+        print("Request URL: \(url)")
+        
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                throw APIError.transport("No HTTP response")
+            }
+            
+            print("Upload image HTTP Status: \(http.statusCode)")
+            
+            guard (200..<300).contains(http.statusCode) else {
+                let body = String(data: data, encoding: .utf8) ?? "<no body>"
+                print("Upload image error response body: \(body)")
+                throw APIError.badStatus(http.statusCode, body)
+            }
+            
+            if let jsonString = String(data: data, encoding: .utf8) {
+                print("Upload image raw JSON response: \(jsonString)")
+            }
+            
+            struct UploadResponse: Codable {
+                let path: String
+                let filename: String
+                let mime: String
+                let bytes: Int
+                let width: Int?
+                let height: Int?
+            }
+            
+            do {
+                let uploadResponse = try JSONDecoder().decode(UploadResponse.self, from: data)
+                print("Successfully uploaded image: \(uploadResponse.path)")
+                return uploadResponse.path
+            } catch {
+                print("JSON decoding failed: \(error)")
+                throw APIError.decoding(error.localizedDescription)
+            }
+        } catch {
+            throw APIError.transport(error.localizedDescription)
+        }
+    }
+    
+    
 }

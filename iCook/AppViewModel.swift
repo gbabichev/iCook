@@ -122,4 +122,80 @@ final class AppViewModel: ObservableObject {
         }
     }
     
+    @MainActor
+    func createRecipe(categoryId: Int, name: String, recipeTime: Int?, details: String?, image: String?) async -> Bool {
+        error = nil
+        
+        do {
+            let newRecipe = try await APIClient.createRecipe(
+                categoryId: categoryId,
+                name: name,
+                recipeTime: recipeTime,
+                details: details,
+                image: image
+            )
+            
+            print("Successfully created recipe: \(newRecipe.name)")
+            return true
+        } catch {
+            self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            print("Create recipe error: \(error)")
+            return false
+        }
+    }
+
+    @MainActor
+    func updateRecipe(id: Int, categoryId: Int?, name: String?, recipeTime: Int?, details: String?, image: String?) async -> Bool {
+        error = nil
+        
+        do {
+            let updatedRecipe = try await APIClient.updateRecipe(
+                id: id,
+                categoryId: categoryId,
+                name: name,
+                recipeTime: recipeTime,
+                details: details,
+                image: image
+            )
+            
+            print("Successfully updated recipe: \(updatedRecipe.name)")
+            return true
+        } catch {
+            self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            print("Update recipe error: \(error)")
+            return false
+        }
+    }
+
+    @MainActor
+    func deleteRecipe(id: Int) async -> Bool {
+        error = nil
+        
+        do {
+            try await APIClient.deleteRecipe(id: id)
+            print("Successfully deleted recipe \(id)")
+            return true
+        } catch {
+            self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            print("Delete recipe error: \(error)")
+            return false
+        }
+    }
+
+    @MainActor
+    func uploadImage(imageData: Data, fileName: String) async -> String? {
+        error = nil
+        
+        do {
+            let imagePath = try await APIClient.uploadImage(imageData: imageData, fileName: fileName)
+            print("Successfully uploaded image: \(imagePath)")
+            return imagePath
+        } catch {
+            self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            print("Upload image error: \(error)")
+            return nil
+        }
+    }
+    
+    
 }

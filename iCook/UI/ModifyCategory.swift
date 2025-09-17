@@ -56,146 +56,144 @@ struct IconButton: View {
     }
 }
 
+
 struct AddCategoryView: View {
     @EnvironmentObject private var model: AppViewModel
     @Environment(\.dismiss) private var dismiss
-    @State private var categoryName = ""
-    @State private var selectedIcon = "fork.knife"
-    @State private var isCreating = false
     
     let editingCategory: Category?
+    
+    @State private var categoryName: String = ""
+    @State private var selectedIcon: String = "🍽️"
+    @State private var isSaving = false
+    
+    private let commonIcons = [
+        "🍽️", "🍝", "🍕", "🍔", "🍟", "🌮", "🥗", "🍲", "🥘", "🍛",
+        "🍜", "🍣", "🍤", "🥟", "🍱", "🥙", "🧆", "🥞", "🧇", "🥓",
+        "🥯", "🍞", "🥐", "🥖", "🫓", "🥨", "🧀", "🥚", "🥓", "🥩",
+        "🍗", "🥶", "🍖", "🌭", "🥪", "🌯", "🫔", "🥫", "🍿", "🧈",
+        "🥛", "🍼", "☕", "🫖", "🍵", "🧃", "🥤", "🧋", "🍺", "🍻",
+        "🥂", "🍷", "🥃", "🍸", "🍹", "🧊", "🥄", "🍴", "🥢", "🔪"
+    ]
+    
+    var isEditing: Bool { editingCategory != nil }
     
     init(editingCategory: Category? = nil) {
         self.editingCategory = editingCategory
     }
     
-    private var isEditing: Bool {
-        editingCategory != nil
-    }
-    
     var body: some View {
         NavigationStack {
-            ZStack {
-                // Subtle background for a more "carded" form look on iOS
-                #if os(iOS)
-                Color(.systemGroupedBackground).ignoresSafeArea()
-                #endif
-
-                Form {
-                    Section("Category Name") {
-                        TextField("Enter category name", text: $categoryName)
-                            .submitLabel(.done)
-                            .onSubmit {
-                                let trimmed = categoryName.trimmingCharacters(in: .whitespacesAndNewlines)
-                                if !trimmed.isEmpty && !isCreating { saveCategory() }
+            Form {
+                Section("Category Information") {
+                    TextField("Category Name", text: $categoryName)
+                        //.textInputAutocapitalization(.words)
+                }
+                
+                Section("Choose an Icon") {
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 8), spacing: 12) {
+                        ForEach(commonIcons, id: \.self) { icon in
+                            Button {
+                                selectedIcon = icon
+                            } label: {
+                                Text(icon)
+                                    .font(.title2)
+                                    .frame(width: 40, height: 40)
+                                    .background(
+                                        selectedIcon == icon ?
+                                        Color.accentColor.opacity(0.2) :
+                                        Color.clear
+                                    )
+                                    .cornerRadius(8)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .stroke(
+                                                selectedIcon == icon ? Color.accentColor : Color.clear,
+                                                lineWidth: 2
+                                            )
+                                    )
                             }
-                        #if os(iOS)
-                            .textInputAutocapitalization(.words)
-                        #endif
-                            .disableAutocorrection(true)
-                            .accessibilityLabel("Category name")
-                            .accessibilityHint("Enter a short, descriptive name")
-                            .padding(.vertical, 6)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .stroke(.red, lineWidth: 2)
-                                    .opacity(categoryName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 1 : 0)
-                            )
-                            .animation(.easeInOut(duration: 0.15), value: categoryName)
-                    }
-
-                    Section("Icon") {
-                        IconSelectionGrid(selectedIcon: $selectedIcon)
-                            .accessibilityLabel("Icon picker")
-                    }
-                }
-                .scrollContentBackground(.hidden) // lets our background show through
-                .formStyle(.grouped)
-            }
-            .navigationTitle(isEditing ? "Edit Category" : "Add Category")
-            .toolbar {
-                // iOS keyboard dismiss
-                #if os(iOS)
-                ToolbarItemGroup(placement: .keyboard) {
-                    Spacer()
-                    Button("Done") { UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil) }
-                }
-                #endif
-
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                        .disabled(isCreating)
-                }
-
-                ToolbarItem(placement: .confirmationAction) {
-                    Button {
-                        saveCategory()
-                    } label: {
-                        if isCreating {
-                            ProgressView()
-                                .controlSize(.small)
-                        } else {
-                            Text("Save")
-                                .fontWeight(.semibold)
+                            .buttonStyle(PlainButtonStyle())
                         }
                     }
-                    .keyboardShortcut(.defaultAction) // macOS default ⌘ action; harmless on iOS
-                    .disabled(categoryName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isCreating)
+                    .padding(.vertical, 8)
                 }
-            }
-        }
-        .interactiveDismissDisabled(isCreating) // don't swipe-dismiss mid-save
-        .disabled(isCreating) // prevent taps while saving
-        .overlay {
-            // Dimmed progress overlay with a smooth fade
-            if isCreating {
-                ZStack {
-                    Color.black.opacity(0.25).ignoresSafeArea()
-                    VStack(spacing: 12) {
-                        ProgressView()
-                            .progressViewStyle(.circular)
-                        Text(isEditing ? "Updating…" : "Creating…")
-                            .font(.callout)
-                            .foregroundStyle(.primary)
+                
+                Section("Custom Icon") {
+                    HStack {
+                        TextField("Or enter custom emoji", text: $selectedIcon)
+                            //.textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                        
+                        if !selectedIcon.isEmpty {
+                            Text(selectedIcon)
+                                .font(.title2)
+                                .padding(.leading, 8)
+                        }
                     }
-                    .padding(20)
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
-                .transition(.opacity.combined(with: .scale))
             }
-        }
-        .animation(.easeInOut(duration: 0.2), value: isCreating)
-        .onAppear {
-            if let category = editingCategory {
-                categoryName = category.name
-                selectedIcon = category.icon
+            .navigationTitle(isEditing ? "Edit Category" : "Add Category")
+            //.navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+                
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(isEditing ? "Update" : "Create") {
+                        Task {
+                            await saveCategory()
+                        }
+                    }
+                    .disabled(categoryName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSaving)
+                }
             }
-        }
-    }
-    
-    private func saveCategory() {
-        Task {
-            await saveCategoryAsync()
+            .task {
+                if let category = editingCategory {
+                    categoryName = category.name
+                    selectedIcon = category.icon
+                }
+            }
+            .alert("Error",
+                   isPresented: .init(
+                       get: { model.error != nil },
+                       set: { if !$0 { model.error = nil } }
+                   ),
+                   actions: { Button("OK") { model.error = nil } },
+                   message: { Text(model.error ?? "") }
+            )
         }
     }
     
     @MainActor
-    private func saveCategoryAsync() async {
-        isCreating = true
-        defer { isCreating = false }
+    private func saveCategory() async {
+        isSaving = true
+        defer { isSaving = false }
         
-        do {
-            let success: Bool
-            if let category = editingCategory {
-                success = await model.updateCategory(id: category.id, name: categoryName.trimmingCharacters(in: .whitespacesAndNewlines), icon: selectedIcon)
-            } else {
-                success = await model.createCategory(name: categoryName.trimmingCharacters(in: .whitespacesAndNewlines), icon: selectedIcon)
-            }
-            
-            if success {
-                dismiss()
-            }
+        let trimmedName = categoryName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedIcon = selectedIcon.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        guard !trimmedName.isEmpty && !trimmedIcon.isEmpty else { return }
+        
+        let success: Bool
+        if let category = editingCategory {
+            success = await model.updateCategory(id: category.id, name: trimmedName, icon: trimmedIcon)
+        } else {
+            success = await model.createCategory(name: trimmedName, icon: trimmedIcon)
+        }
+        
+        if success {
+            dismiss()
         }
     }
 }
 
+#Preview {
+    NavigationStack {
+        AddCategoryView()
+    }
+    .environmentObject(AppViewModel())
+}
