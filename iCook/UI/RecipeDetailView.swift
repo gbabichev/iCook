@@ -144,6 +144,5 @@ struct RecipeDetailView: View {
 
 extension Notification.Name {
     static let recipeDeleted = Notification.Name("recipeDeleted")
+    static let recipeUpdated = Notification.Name("recipeUpdated") // Add this line
 }
-
-

@@ -217,4 +217,16 @@ final class AppViewModel: ObservableObject {
         return success
     }
     
+    @MainActor
+    func updateRecipeWithUIFeedback(id: Int, categoryId: Int?, name: String?, recipeTime: Int?, details: String?, image: String?) async -> Bool {
+        let success = await updateRecipe(id: id, categoryId: categoryId, name: name, recipeTime: recipeTime, details: details, image: image)
+        
+        if success {
+            // Post notification for views to refresh
+            NotificationCenter.default.post(name: .recipeUpdated, object: id)
+        }
+        
+        return success
+    }
+    
 }

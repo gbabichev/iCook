@@ -26,7 +26,7 @@ struct AddEditRecipeView: View {
     @State private var isSaving = false
     @State private var fileImporterTrigger = UUID()
     @State private var isCompressingImage = false
-
+    
     
     // iOS specific photo states
 #if os(iOS)
@@ -74,7 +74,7 @@ struct AddEditRecipeView: View {
                 Section("Image") {
                     VStack(alignment: .leading, spacing: 12) {
                         // Photo Picker Button
- #if os(iOS)
+#if os(iOS)
                         Button {
                             showingImageActionSheet = true
                         } label: {
@@ -115,7 +115,7 @@ struct AddEditRecipeView: View {
                         .zIndex(1)
                         .allowsHitTesting(true)
                         .frame(maxWidth: .infinity, alignment: .leading)
-
+                        
                         // Add Remove Photo option for macOS when there's an image
                         if selectedImageData != nil || existingImagePath != nil {
                             Button("Remove Photo", role: .destructive) {
@@ -233,7 +233,7 @@ struct AddEditRecipeView: View {
                 if model.categories.isEmpty {
                     await model.loadCategories()
                 }
-
+                
                 // Initialize selection for create flow once categories are available
                 if !isEditing, selectedCategoryId == 0 {
                     // Use preselected category if available, otherwise use first category
@@ -245,7 +245,7 @@ struct AddEditRecipeView: View {
                         print("[AddEditRecipeView] Initialized categoryId to first available \(firstId)")
                     }
                 }
-
+                
                 // Setup for editing (unchanged)
                 if let recipe = editingRecipe {
                     selectedCategoryId = recipe.category_id
@@ -431,14 +431,14 @@ struct AddEditRecipeView: View {
                 isUploading = false
                 isCompressingImage = false
             }
-
-            #if os(macOS)
+            
+#if os(macOS)
             let didStartAccess = url.startAccessingSecurityScopedResource()
             defer {
                 if didStartAccess { url.stopAccessingSecurityScopedResource() }
             }
-            #endif
-
+#endif
+            
             do {
                 // Read file data
                 let originalData = try Data(contentsOf: url, options: .mappedIfSafe)
@@ -467,16 +467,16 @@ struct AddEditRecipeView: View {
             }
         }
     }
-
+    
     
     // New background compression function
     private func compressImageInBackground(_ data: Data, maxDimension: CGFloat = 1600, quality: CGFloat = 0.7) async -> Data? {
-        #if os(iOS)
+#if os(iOS)
         // iOS UIKit operations must happen on main thread
         return await MainActor.run {
             return compressImageData(data, maxDimension: maxDimension, quality: quality)
         }
-        #else
+#else
         // macOS can do compression on background thread
         return await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
@@ -484,145 +484,146 @@ struct AddEditRecipeView: View {
                 continuation.resume(returning: result)
             }
         }
-        #endif
+#endif
     }
-
+    
     
     
     // Cross-platform image compression helper
 #if os(iOS)
-nonisolated private func compressImageData(_ data: Data, maxDimension: CGFloat = 1600, quality: CGFloat = 0.7) -> Data? {
-    guard let image = UIImage(data: data) else {
-        print("[Compression] Failed to create UIImage from data")
-        return nil
-    }
-    
-    let originalSize = image.size
-    let maxSide = max(originalSize.width, originalSize.height)
-    
-    // Always apply JPEG compression, and resize if needed
-    let needsResize = maxSide > maxDimension
-    let targetSize: CGSize
-    
-    if needsResize {
-        let scale = maxDimension / maxSide
-        targetSize = CGSize(width: originalSize.width * scale, height: originalSize.height * scale)
-        print("[Compression] Resizing from \(originalSize) to \(targetSize)")
-    } else {
-        targetSize = originalSize
-        print("[Compression] No resize needed, original size: \(originalSize)")
-    }
-    
-    // Create the final image (resized if needed)
-    let finalImage: UIImage
-    if needsResize {
-        let renderer = UIGraphicsImageRenderer(size: targetSize)
-        finalImage = renderer.image { _ in
-            image.draw(in: CGRect(origin: .zero, size: targetSize))
-        }
-    } else {
-        finalImage = image
-    }
-    
-    // Always apply JPEG compression
-    guard let compressedData = finalImage.jpegData(compressionQuality: quality) else {
-        print("[Compression] Failed to create JPEG data")
-        return nil
-    }
-    
-    let originalKB = Double(data.count) / 1024.0
-    let compressedKB = Double(compressedData.count) / 1024.0
-    print("[Compression] \(Int(originalKB))KB → \(Int(compressedKB))KB (quality: \(quality))")
-    
-    return compressedData
-}
-#else
-// Fixed macOS version using modern APIs
-nonisolated private func compressImageData(_ data: Data, maxDimension: CGFloat = 1600, quality: CGFloat = 0.7) -> Data? {
-    guard let nsImage = NSImage(data: data) else {
-        print("[Compression] Failed to create NSImage from data")
-        return nil
-    }
-    
-    let originalSize = nsImage.size
-    let maxSide = max(originalSize.width, originalSize.height)
-    
-    let needsResize = maxSide > maxDimension
-    let targetSize: NSSize
-    
-    if needsResize {
-        let scale = maxDimension / maxSide
-        targetSize = NSSize(width: originalSize.width * scale, height: originalSize.height * scale)
-        print("[Compression] Resizing from \(originalSize) to \(targetSize)")
-    } else {
-        targetSize = originalSize
-        print("[Compression] No resize needed, original size: \(originalSize)")
-    }
-    
-    // Create bitmap representation directly instead of using lockFocus
-    guard let originalRep = NSBitmapImageRep(data: data) ?? nsImage.representations.first as? NSBitmapImageRep else {
-        print("[Compression] Failed to get bitmap representation")
-        return nil
-    }
-    
-    let finalRep: NSBitmapImageRep
-    
-    if needsResize {
-        // Create new bitmap rep with target size
-        let pixelsWide = Int(targetSize.width)
-        let pixelsHigh = Int(targetSize.height)
-        
-        guard let resizedRep = NSBitmapImageRep(
-            bitmapDataPlanes: nil,
-            pixelsWide: pixelsWide,
-            pixelsHigh: pixelsHigh,
-            bitsPerSample: 8,
-            samplesPerPixel: 4,
-            hasAlpha: true,
-            isPlanar: false,
-            colorSpaceName: .deviceRGB,
-            bitmapFormat: [],
-            bytesPerRow: 0,
-            bitsPerPixel: 0
-        ) else {
-            print("[Compression] Failed to create resized bitmap rep")
+    nonisolated private func compressImageData(_ data: Data, maxDimension: CGFloat = 1600, quality: CGFloat = 0.7) -> Data? {
+        guard let image = UIImage(data: data) else {
+            print("[Compression] Failed to create UIImage from data")
             return nil
         }
         
-        // Draw the original image into the new rep
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: resizedRep)
-        NSGraphicsContext.current?.imageInterpolation = .high
+        let originalSize = image.size
+        let maxSide = max(originalSize.width, originalSize.height)
         
-        nsImage.draw(
-            in: NSRect(origin: .zero, size: targetSize),
-            from: NSRect(origin: .zero, size: originalSize),
-            operation: .copy,
-            fraction: 1.0
-        )
+        // Always apply JPEG compression, and resize if needed
+        let needsResize = maxSide > maxDimension
+        let targetSize: CGSize
         
-        NSGraphicsContext.restoreGraphicsState()
-        finalRep = resizedRep
-    } else {
-        finalRep = originalRep
+        if needsResize {
+            let scale = maxDimension / maxSide
+            targetSize = CGSize(width: originalSize.width * scale, height: originalSize.height * scale)
+            print("[Compression] Resizing from \(originalSize) to \(targetSize)")
+        } else {
+            targetSize = originalSize
+            print("[Compression] No resize needed, original size: \(originalSize)")
+        }
+        
+        // Create the final image (resized if needed)
+        let finalImage: UIImage
+        if needsResize {
+            let renderer = UIGraphicsImageRenderer(size: targetSize)
+            finalImage = renderer.image { _ in
+                image.draw(in: CGRect(origin: .zero, size: targetSize))
+            }
+        } else {
+            finalImage = image
+        }
+        
+        // Always apply JPEG compression
+        guard let compressedData = finalImage.jpegData(compressionQuality: quality) else {
+            print("[Compression] Failed to create JPEG data")
+            return nil
+        }
+        
+        let originalKB = Double(data.count) / 1024.0
+        let compressedKB = Double(compressedData.count) / 1024.0
+        print("[Compression] \(Int(originalKB))KB → \(Int(compressedKB))KB (quality: \(quality))")
+        
+        return compressedData
     }
-    
-    // Create JPEG data with compression
-    guard let compressedData = finalRep.representation(
-        using: .jpeg,
-        properties: [.compressionFactor: quality]
-    ) else {
-        print("[Compression] Failed to create JPEG representation")
-        return nil
+#else
+    // Fixed macOS version using modern APIs
+    nonisolated private func compressImageData(_ data: Data, maxDimension: CGFloat = 1600, quality: CGFloat = 0.7) -> Data? {
+        guard let nsImage = NSImage(data: data) else {
+            print("[Compression] Failed to create NSImage from data")
+            return nil
+        }
+        
+        let originalSize = nsImage.size
+        let maxSide = max(originalSize.width, originalSize.height)
+        
+        let needsResize = maxSide > maxDimension
+        let targetSize: NSSize
+        
+        if needsResize {
+            let scale = maxDimension / maxSide
+            targetSize = NSSize(width: originalSize.width * scale, height: originalSize.height * scale)
+            print("[Compression] Resizing from \(originalSize) to \(targetSize)")
+        } else {
+            targetSize = originalSize
+            print("[Compression] No resize needed, original size: \(originalSize)")
+        }
+        
+        // Create bitmap representation directly instead of using lockFocus
+        guard let originalRep = NSBitmapImageRep(data: data) ?? nsImage.representations.first as? NSBitmapImageRep else {
+            print("[Compression] Failed to get bitmap representation")
+            return nil
+        }
+        
+        let finalRep: NSBitmapImageRep
+        
+        if needsResize {
+            // Create new bitmap rep with target size
+            let pixelsWide = Int(targetSize.width)
+            let pixelsHigh = Int(targetSize.height)
+            
+            guard let resizedRep = NSBitmapImageRep(
+                bitmapDataPlanes: nil,
+                pixelsWide: pixelsWide,
+                pixelsHigh: pixelsHigh,
+                bitsPerSample: 8,
+                samplesPerPixel: 4,
+                hasAlpha: true,
+                isPlanar: false,
+                colorSpaceName: .deviceRGB,
+                bitmapFormat: [],
+                bytesPerRow: 0,
+                bitsPerPixel: 0
+            ) else {
+                print("[Compression] Failed to create resized bitmap rep")
+                return nil
+            }
+            
+            // Draw the original image into the new rep
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: resizedRep)
+            NSGraphicsContext.current?.imageInterpolation = .high
+            
+            nsImage.draw(
+                in: NSRect(origin: .zero, size: targetSize),
+                from: NSRect(origin: .zero, size: originalSize),
+                operation: .copy,
+                fraction: 1.0
+            )
+            
+            NSGraphicsContext.restoreGraphicsState()
+            finalRep = resizedRep
+        } else {
+            finalRep = originalRep
+        }
+        
+        // Create JPEG data with compression
+        guard let compressedData = finalRep.representation(
+            using: .jpeg,
+            properties: [.compressionFactor: quality]
+        ) else {
+            print("[Compression] Failed to create JPEG representation")
+            return nil
+        }
+        
+        let originalKB = Double(data.count) / 1024.0
+        let compressedKB = Double(compressedData.count) / 1024.0
+        print("[Compression] \(Int(originalKB))KB → \(Int(compressedKB))KB (quality: \(quality))")
+        
+        return compressedData
     }
-    
-    let originalKB = Double(data.count) / 1024.0
-    let compressedKB = Double(compressedData.count) / 1024.0
-    print("[Compression] \(Int(originalKB))KB → \(Int(compressedKB))KB (quality: \(quality))")
-    
-    return compressedData
-}
 #endif
+
     @MainActor
     private func saveRecipe() async {
         isSaving = true
@@ -650,13 +651,13 @@ nonisolated private func compressImageData(_ data: Data, maxDimension: CGFloat =
             }
         }
 
-        // ... rest of your save logic stays the same
         let selectedName = model.categories.first(where: { $0.id == selectedCategoryId })?.name ?? "<unknown>"
         print("[AddEditRecipeView] create/update — categoryId=\(selectedCategoryId) (\(selectedName)), name=\(trimmedName), time=\(String(describing: timeValue)), hasImage=\(selectedImageData != nil || imagePathToSave != nil)")
         
         let success: Bool
         if let recipe = editingRecipe {
-            success = await model.updateRecipe(
+            // Use the new method with UI feedback for updates
+            success = await model.updateRecipeWithUIFeedback(
                 id: recipe.id,
                 categoryId: selectedCategoryId != recipe.category_id ? selectedCategoryId : nil,
                 name: trimmedName != recipe.name ? trimmedName : nil,
@@ -678,6 +679,8 @@ nonisolated private func compressImageData(_ data: Data, maxDimension: CGFloat =
             dismiss()
         }
     }
+    
+    
 }
 
 // iOS Camera Support

@@ -440,6 +440,19 @@ struct RecipeCollectionView: View {
                 }
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .recipeUpdated)) { notification in
+            if let updatedRecipeId = notification.object as? Int {
+                print("Recipe \(updatedRecipeId) was updated, refreshing view")
+                
+                // Refresh category data to ensure consistency
+                Task {
+                    if case .category = collectionType {
+                        await refreshCategoryRecipes()
+                    }
+                    // For home view, the model.randomRecipes will be refreshed by the AppViewModel
+                }
+            }
+        }
         .navigationTitle(collectionType.title)
         .task(id: collectionType) {
             await loadRecipes()
