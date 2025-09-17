@@ -13,6 +13,7 @@ struct AddEditRecipeView: View {
     @Environment(\.dismiss) private var dismiss
     
     let editingRecipe: Recipe?
+    let preselectedCategoryId: Int?
     
     @State private var selectedCategoryId: Int = 0
     @State private var recipeName: String = ""
@@ -36,8 +37,9 @@ struct AddEditRecipeView: View {
     
     var isEditing: Bool { editingRecipe != nil }
     
-    init(editingRecipe: Recipe? = nil) {
+    init(editingRecipe: Recipe? = nil, preselectedCategoryId: Int? = nil) {
         self.editingRecipe = editingRecipe
+        self.preselectedCategoryId = preselectedCategoryId
     }
     
     var body: some View {
@@ -237,13 +239,17 @@ struct AddEditRecipeView: View {
 
                 // Initialize selection for create flow once categories are available
                 if !isEditing, selectedCategoryId == 0 {
-                    if let firstId = model.categories.first?.id {
+                    // Use preselected category if available, otherwise use first category
+                    if let preselected = preselectedCategoryId, model.categories.contains(where: { $0.id == preselected }) {
+                        selectedCategoryId = preselected
+                        print("[AddEditRecipeView] Initialized categoryId to preselected \(preselected)")
+                    } else if let firstId = model.categories.first?.id {
                         selectedCategoryId = firstId
-                        print("[AddEditRecipeView] Initialized categoryId to \(firstId)")
+                        print("[AddEditRecipeView] Initialized categoryId to first available \(firstId)")
                     }
                 }
 
-                // Setup for editing
+                // Setup for editing (unchanged)
                 if let recipe = editingRecipe {
                     selectedCategoryId = recipe.category_id
                     recipeName = recipe.name
@@ -253,15 +259,33 @@ struct AddEditRecipeView: View {
                 }
             }
             .onChange(of: model.categories) { _, newCategories in
-                // Keep selection valid after categories load/refresh without clobbering user choice
-                guard !isEditing else { return }
                 let ids = Set(newCategories.map { $0.id })
-                if selectedCategoryId == 0 {
-                    selectedCategoryId = newCategories.first?.id ?? 0
-                    print("[AddEditRecipeView] Categories loaded; defaulted categoryId to \(selectedCategoryId)")
-                } else if !ids.contains(selectedCategoryId) {
-                    selectedCategoryId = newCategories.first?.id ?? 0
-                    print("[AddEditRecipeView] Previous selection invalid; reset to \(selectedCategoryId)")
+                
+                if isEditing {
+                    // For editing: ensure the recipe's category still exists, otherwise pick first available
+                    if let recipe = editingRecipe, !ids.contains(recipe.category_id) {
+                        selectedCategoryId = newCategories.first?.id ?? 0
+                        print("[AddEditRecipeView] Recipe's category \(recipe.category_id) not found; reset to \(selectedCategoryId)")
+                    }
+                } else {
+                    // For creating: prioritize preselected, then current selection, then default
+                    if selectedCategoryId == 0 {
+                        if let preselected = preselectedCategoryId, ids.contains(preselected) {
+                            selectedCategoryId = preselected
+                            print("[AddEditRecipeView] Categories loaded; set to preselected \(preselected)")
+                        } else {
+                            selectedCategoryId = newCategories.first?.id ?? 0
+                            print("[AddEditRecipeView] Categories loaded; defaulted categoryId to \(selectedCategoryId)")
+                        }
+                    } else if !ids.contains(selectedCategoryId) {
+                        if let preselected = preselectedCategoryId, ids.contains(preselected) {
+                            selectedCategoryId = preselected
+                            print("[AddEditRecipeView] Previous selection invalid; using preselected \(preselected)")
+                        } else {
+                            selectedCategoryId = newCategories.first?.id ?? 0
+                            print("[AddEditRecipeView] Previous selection invalid; reset to \(selectedCategoryId)")
+                        }
+                    }
                 }
             }
             // iOS specific photo handling

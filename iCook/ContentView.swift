@@ -139,9 +139,10 @@ struct ContentView: View {
                 .environmentObject(model)
         }
         .sheet(isPresented: $showingAddRecipe) {
-            AddEditRecipeView()
+            AddEditRecipeView(preselectedCategoryId: selectedCategoryID == -1 ? nil : selectedCategoryID)
                 .environmentObject(model)
         }
+
     }
     
     private func performSearch() {
