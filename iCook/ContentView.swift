@@ -40,8 +40,6 @@ struct ContentView: View {
             }
 #if os(macOS)
             .toolbar(removing: .title)
-#else
-            .navigationBarHidden(true)
 #endif
             .toolbar{
                 ToolbarSpacer(.flexible)

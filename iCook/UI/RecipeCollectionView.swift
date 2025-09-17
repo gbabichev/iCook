@@ -78,6 +78,8 @@ struct RecipeCollectionView: View {
     @State private var isLoading = false
     @State private var error: String?
     @State private var loadingTask: Task<Void, Never>?
+    @State private var currentLoadTask: Task<Void, Never>?
+
     
     private let columns = [GridItem(.adaptive(minimum: 160), spacing: 12)]
     
@@ -283,30 +285,36 @@ struct RecipeCollectionView: View {
     
     @MainActor
     private func loadRecipes() async {
-        switch collectionType {
-        case .home:
-            await loadHomeRecipes()
-        case .category(let category):
-            await loadCategoryRecipes(category)
+        // Cancel any existing task first
+        currentLoadTask?.cancel()
+        
+        currentLoadTask = Task {
+            switch collectionType {
+            case .home:
+                await loadHomeRecipes()
+            case .category(let category):
+                await loadCategoryRecipes(category)
+            }
         }
+        
+        await currentLoadTask?.value
     }
     
     @MainActor
     private func loadHomeRecipes() async {
-        // Cancel any existing task
-        loadingTask?.cancel()
+        currentLoadTask?.cancel()
         
-        // Only load if we don't have recipes
-        if model.randomRecipes.isEmpty {
-            loadingTask = Task {
-                await model.loadRandomRecipes()
-            }
+        currentLoadTask = Task {
+            await model.loadRandomRecipes()
         }
+        
+        await currentLoadTask?.value
     }
     
     @MainActor
     private func loadCategoryRecipes(_ category: Category) async {
-        guard !isLoading else { return }
+        guard !Task.isCancelled else { return }
+        
         isLoading = true
         error = nil
         defer { isLoading = false }
@@ -314,11 +322,19 @@ struct RecipeCollectionView: View {
         do {
             print("Loading recipes for category: \(category.name) (ID: \(category.id))")
             let recipes = try await APIClient.fetchRecipes(categoryID: category.id, page: 1, limit: 100)
+            
+            guard !Task.isCancelled else { return }
+            
             print("Loaded \(recipes.count) recipes for category \(category.name)")
             self.categoryRecipes = recipes
         } catch {
+            guard !Task.isCancelled else { return }
+            
             let errorMsg = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-            self.error = errorMsg
+            // Don't show cancellation errors to user
+            if !errorMsg.contains("cancelled") {
+                self.error = errorMsg
+            }
             print("Error loading category recipes: \(error)")
         }
     }
@@ -342,14 +358,6 @@ struct RecipeCollectionView: View {
             }
         }
         .navigationTitle(collectionType.title)
-//        .toolbar {
-//            ToolbarItem(placement: .automatic) {
-//                if isLoading || (isHome && model.randomRecipes.isEmpty) {
-//                    ProgressView()
-//                        .scaleEffect(0.8)
-//                }
-//            }
-//        }
         .task(id: collectionType) {
             await loadRecipes()
         }
@@ -365,7 +373,7 @@ struct RecipeCollectionView: View {
             Text(error ?? "")
         }
         .onDisappear {
-            loadingTask?.cancel()
+            currentLoadTask?.cancel()
         }
     }
 
