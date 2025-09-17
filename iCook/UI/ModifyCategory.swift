@@ -7,30 +7,6 @@
 
 import SwiftUI
 
-// MARK: - Icon Selection Grid
-struct IconSelectionGrid: View {
-    @Binding var selectedIcon: String
-    
-    private let iconOptions = [
-        "fork.knife", "cup.and.saucer", "birthday.cake", "carrot",
-        "leaf", "fish", "popcorn", "wineglass", "mug.fill",
-        "takeoutbag.and.cup.and.straw", "refrigerator", "cooktop",
-        "flame", "drop", "snowflake", "sun.max", "moon",
-        "star", "heart", "house"
-    ]
-    
-    var body: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 5), spacing: 16) {
-            ForEach(iconOptions, id: \.self) { icon in
-                IconButton(icon: icon, isSelected: selectedIcon == icon) {
-                    selectedIcon = icon
-                }
-            }
-        }
-        .padding(.vertical, 8)
-    }
-}
-
 // MARK: - Individual Icon Button
 struct IconButton: View {
     let icon: String
@@ -64,19 +40,35 @@ struct AddCategoryView: View {
     let editingCategory: Category?
     
     @State private var categoryName: String = ""
-    @State private var selectedIcon: String = "🍽️"
+    @State private var selectedIcon: String = "fork.knife"
     @State private var isSaving = false
     
     // Fixed: Removed duplicates from commonIcons array
     private let commonIcons = [
-        "🍽️", "🍕", "🍔", "🍟", "🌮", "🥗", "🍲", "🥘", "🍛", "🍜",
-        "🍣", "🍤", "🥟", "🍱", "🥙", "🧆", "🥞", "🧇", "🥓", "🥯",
-        "🍞", "🥐", "🥖", "🫓", "🥨", "🧀", "🥚", "🥔", "🥩", "🍗",
-        "🥶", "🍖", "🌭", "🥪", "🌯", "🫔", "🥫", "🍿", "🧈", "🥛",
-        "🍼", "☕", "🫖", "🍵", "🧃", "🥤", "🧋", "🍺", "🍻", "🥂",
-        "🍷", "🥃", "🍸", "🍹", "🧊", "🥄", "🍴", "🥢", "🔪"
+        "fork.knife",
+        "cup.and.saucer",
+        "cup.and.saucer.fill",
+        "birthday.cake.fill",
+        "carrot.fill",
+        "leaf.fill",
+        "fish.fill",
+        "popcorn.fill",
+        "wineglass.fill",
+        "mug.fill",
+        "takeoutbag.and.cup.and.straw",
+        "takeoutbag.and.cup.and.straw.fill",
+        "refrigerator.fill",
+        "cooktop.fill",
+        "flame.fill",
+        "drop.fill",
+        "snowflake",
+        "sun.max.fill",
+        "moon.fill",
+        "star.fill",
+        "heart.fill",
+        "house.fill",
+        "waterbottle.fill"
     ]
-    
     var isEditing: Bool { editingCategory != nil }
     
     init(editingCategory: Category? = nil) {
@@ -97,7 +89,7 @@ struct AddCategoryView: View {
                             Button {
                                 selectedIcon = icon
                             } label: {
-                                Text(icon)
+                                Image(systemName: icon)
                                     .font(.title2)
                                     .frame(width: 40, height: 40)
                                     .background(
