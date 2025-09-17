@@ -79,6 +79,11 @@ struct RecipeCollectionView: View {
     @State private var error: String?
     @State private var loadingTask: Task<Void, Never>?
     @State private var currentLoadTask: Task<Void, Never>?
+    @State private var refreshTrigger = UUID()
+    @State private var editingRecipe: Recipe?
+    @State private var deletingRecipe: Recipe?
+    @State private var showingDeleteAlert = false
+    @State private var isDeleting = false
 
     
     // Adaptive columns with consistent spacing - account for spacing in minimum width
@@ -278,6 +283,20 @@ struct RecipeCollectionView: View {
                                 RecipeLargeButton(recipe: recipe)
                             }
                             .buttonStyle(.plain)
+                            .contextMenu {
+                                Button {
+                                    editingRecipe = recipe
+                                } label: {
+                                    Label("Edit Recipe", systemImage: "pencil")
+                                }
+                                
+                                Button(role: .destructive) {
+                                    deletingRecipe = recipe
+                                    showingDeleteAlert = true
+                                } label: {
+                                    Label("Delete Recipe", systemImage: "trash")
+                                }
+                            }
                         }
                     }
                     .padding(.horizontal, 15)
@@ -346,6 +365,36 @@ struct RecipeCollectionView: View {
         }
     }
     
+    @MainActor
+    private func refreshCategoryRecipes() async {
+        guard case .category(let category) = collectionType else { return }
+        await loadCategoryRecipes(category)
+        refreshTrigger = UUID() // Force view refresh
+    }
+    
+    private func handleRecipeDeleted(_ recipeId: Int) {
+        Task {
+            if case .category = collectionType {
+                await refreshCategoryRecipes()
+            }
+            // Home view will automatically update via model.randomRecipes
+        }
+    }
+    
+    @MainActor
+    private func deleteRecipe(_ recipe: Recipe) async {
+        isDeleting = true
+        let success = await model.deleteRecipeWithUIFeedback(id: recipe.id)
+        isDeleting = false
+        
+        if success {
+            // Remove from local category array for immediate UI update
+            categoryRecipes.removeAll { $0.id == recipe.id }
+        }
+        
+        deletingRecipe = nil
+    }
+    
     // MARK: - UI View
     
     var body: some View {
@@ -378,9 +427,28 @@ struct RecipeCollectionView: View {
                 }
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .recipeDeleted)) { notification in
+            if let deletedRecipeId = notification.object as? Int {
+                // Remove from category recipes immediately for better UX
+                categoryRecipes.removeAll { $0.id == deletedRecipeId }
+                
+                // Refresh category data to ensure consistency
+                Task {
+                    if case .category = collectionType {
+                        await refreshCategoryRecipes()
+                    }
+                }
+            }
+        }
         .navigationTitle(collectionType.title)
         .task(id: collectionType) {
             await loadRecipes()
+        }
+        .task(id: model.randomRecipes.count) {
+            // This will trigger when recipes are added/deleted from home view
+            if case .home = collectionType {
+                // No need to reload, just let the view update
+            }
         }
         .refreshable {
             await loadRecipes()
@@ -395,6 +463,42 @@ struct RecipeCollectionView: View {
         }
         .onDisappear {
             currentLoadTask?.cancel()
+        }
+        .sheet(item: $editingRecipe) { recipe in
+            AddEditRecipeView(editingRecipe: recipe)
+                .environmentObject(model)
+        }
+        .alert("Delete Recipe", isPresented: $showingDeleteAlert) {
+            Button("Delete", role: .destructive) {
+                if let recipe = deletingRecipe {
+                    Task {
+                        await deleteRecipe(recipe)
+                    }
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                deletingRecipe = nil
+            }
+        } message: {
+            if let recipe = deletingRecipe {
+                Text("Are you sure you want to delete '\(recipe.name)'? This action cannot be undone.")
+            }
+        }
+        .overlay {
+            if isDeleting {
+                ZStack {
+                    Color.black.opacity(0.3)
+                        .ignoresSafeArea()
+                    
+                    VStack(spacing: 16) {
+                        ProgressView()
+                        Text("Deleting recipe...")
+                            .font(.headline)
+                    }
+                    .padding()
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                }
+            }
         }
     }
 }

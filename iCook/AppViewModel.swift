@@ -136,6 +136,8 @@ final class AppViewModel: ObservableObject {
             )
             
             print("Successfully created recipe: \(newRecipe.name)")
+            // Refresh the random recipes to include the new recipe
+            await loadRandomRecipes()
             return true
         } catch {
             self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
@@ -159,6 +161,8 @@ final class AppViewModel: ObservableObject {
             )
             
             print("Successfully updated recipe: \(updatedRecipe.name)")
+            // Refresh the random recipes to reflect changes
+            await loadRandomRecipes()
             return true
         } catch {
             self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
@@ -173,6 +177,10 @@ final class AppViewModel: ObservableObject {
         
         do {
             try await APIClient.deleteRecipe(id: id)
+            
+            // Remove the recipe from local arrays
+            randomRecipes.removeAll { $0.id == id }
+            
             print("Successfully deleted recipe \(id)")
             return true
         } catch {
@@ -197,5 +205,16 @@ final class AppViewModel: ObservableObject {
         }
     }
     
+    @MainActor
+    func deleteRecipeWithUIFeedback(id: Int) async -> Bool {
+        let success = await deleteRecipe(id: id)
+        
+        if success {
+            // Post notification for views to refresh
+            NotificationCenter.default.post(name: .recipeDeleted, object: id)
+        }
+        
+        return success
+    }
     
 }

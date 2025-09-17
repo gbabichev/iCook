@@ -132,7 +132,7 @@ struct RecipeDetailView: View {
     @MainActor
     private func deleteRecipe() async {
         isDeleting = true
-        let success = await model.deleteRecipe(id: recipe.id)
+        let success = await model.deleteRecipeWithUIFeedback(id: recipe.id)
         isDeleting = false
         
         if success {
@@ -140,3 +140,10 @@ struct RecipeDetailView: View {
         }
     }
 }
+
+
+extension Notification.Name {
+    static let recipeDeleted = Notification.Name("recipeDeleted")
+}
+
+
