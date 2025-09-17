@@ -329,49 +329,46 @@ public enum APIClient {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        
+
         var recipeData: [String: Any] = [
             "category_id": categoryId,
             "name": name
         ]
-        
-        if let recipeTime = recipeTime {
-            recipeData["recipe_time"] = recipeTime
-        }
-        if let details = details {
-            recipeData["details"] = details
-        }
-        if let image = image {
-            recipeData["image"] = image
-        }
-        
+        if let recipeTime = recipeTime { recipeData["recipe_time"] = recipeTime }
+        if let details = details { recipeData["details"] = details }
+        if let image = image { recipeData["image"] = image }
+
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: recipeData)
         } catch {
             throw APIError.transport("Failed to encode recipe data: \(error.localizedDescription)")
         }
-        
+
+        if let bodyString = String(data: request.httpBody ?? Data(), encoding: .utf8) {
+            print("Create recipe (json) body: \(bodyString)")
+        }
+
         print("Creating recipe: \(name) in category: \(categoryId)")
         print("Request URL: \(url)")
-        
+
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let http = response as? HTTPURLResponse else {
                 throw APIError.transport("No HTTP response")
             }
-            
+
             print("Create recipe HTTP Status: \(http.statusCode)")
-            
+
             guard (200..<300).contains(http.statusCode) else {
                 let body = String(data: data, encoding: .utf8) ?? "<no body>"
                 print("Create recipe error response body: \(body)")
                 throw APIError.badStatus(http.statusCode, body)
             }
-            
+
             if let jsonString = String(data: data, encoding: .utf8) {
                 print("Create recipe raw JSON response: \(jsonString)")
             }
-            
+
             do {
                 let recipe = try JSONDecoder().decode(Recipe.self, from: data)
                 print("Successfully created recipe: \(recipe.name)")

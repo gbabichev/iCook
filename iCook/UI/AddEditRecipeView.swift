@@ -14,7 +14,7 @@ struct AddEditRecipeView: View {
     
     let editingRecipe: Recipe?
     
-    @State private var selectedCategoryId: Int = 1
+    @State private var selectedCategoryId: Int = 0
     @State private var recipeName: String = ""
     @State private var recipeTime: String = ""
     @State private var recipeDetails: String = ""
@@ -24,6 +24,7 @@ struct AddEditRecipeView: View {
     @State private var isUploading = false
     @State private var isSaving = false
     @State private var fileImporterTrigger = UUID()
+    @State private var isCompressingImage = false
 
     
     // iOS specific photo states
@@ -47,10 +48,13 @@ struct AddEditRecipeView: View {
                     // Category Picker
                     Picker("Category", selection: $selectedCategoryId) {
                         ForEach(model.categories) { category in
-                            Text(category.name).tag(category.id)
+                            Text(category.name).tag(Int(category.id))
                         }
                     }
                     .pickerStyle(.menu)
+                    .onChange(of: selectedCategoryId) { oldValue, newValue in
+                        print("[AddEditRecipeView] User changed categoryId from \(oldValue) to \(newValue)")
+                    }
                     
                     // Recipe Name
                     TextField("Recipe Name", text: $recipeName)
@@ -185,11 +189,11 @@ struct AddEditRecipeView: View {
                             }
                         }
                         
-                        if isUploading {
+                        if isUploading || isCompressingImage {
                             HStack {
                                 ProgressView()
                                     .scaleEffect(0.8)
-                                Text("Uploading image...")
+                                Text(isCompressingImage ? "Compressing image..." : "Uploading image...")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -230,7 +234,15 @@ struct AddEditRecipeView: View {
                 if model.categories.isEmpty {
                     await model.loadCategories()
                 }
-                
+
+                // Initialize selection for create flow once categories are available
+                if !isEditing, selectedCategoryId == 0 {
+                    if let firstId = model.categories.first?.id {
+                        selectedCategoryId = firstId
+                        print("[AddEditRecipeView] Initialized categoryId to \(firstId)")
+                    }
+                }
+
                 // Setup for editing
                 if let recipe = editingRecipe {
                     selectedCategoryId = recipe.category_id
@@ -238,8 +250,18 @@ struct AddEditRecipeView: View {
                     recipeTime = String(recipe.recipe_time)
                     recipeDetails = recipe.details ?? ""
                     existingImagePath = recipe.image
-                } else if !model.categories.isEmpty {
-                    selectedCategoryId = model.categories.first?.id ?? 1
+                }
+            }
+            .onChange(of: model.categories) { _, newCategories in
+                // Keep selection valid after categories load/refresh without clobbering user choice
+                guard !isEditing else { return }
+                let ids = Set(newCategories.map { $0.id })
+                if selectedCategoryId == 0 {
+                    selectedCategoryId = newCategories.first?.id ?? 0
+                    print("[AddEditRecipeView] Categories loaded; defaulted categoryId to \(selectedCategoryId)")
+                } else if !ids.contains(selectedCategoryId) {
+                    selectedCategoryId = newCategories.first?.id ?? 0
+                    print("[AddEditRecipeView] Previous selection invalid; reset to \(selectedCategoryId)")
                 }
             }
             // iOS specific photo handling
@@ -251,19 +273,80 @@ struct AddEditRecipeView: View {
             )
             .onChange(of: selectedPhotoItem) { _, newItem in
                 Task {
-                    if let data = try? await newItem?.loadTransferable(type: Data.self) {
-                        await MainActor.run {
-                            selectedImageData = data
-                            existingImagePath = nil
+                    guard let newItem = newItem else { return }
+                    
+                    await MainActor.run {
+                        isUploading = true
+                        isCompressingImage = true
+                    }
+                    
+                    defer {
+                        Task { @MainActor in
+                            isUploading = false
+                            isCompressingImage = false
                         }
+                    }
+                    
+                    do {
+                        // Load the data
+                        guard let originalData = try await newItem.loadTransferable(type: Data.self) else {
+                            return
+                        }
+                        
+                        print("[Image] Loaded \(Int(Double(originalData.count) / 1024.0))KB from photo picker")
+                        
+                        // Compress on background thread
+                        let compressedData = await compressImageInBackground(originalData)
+                        
+                        await MainActor.run {
+                            if let compressed = compressedData {
+                                selectedImageData = compressed
+                                existingImagePath = nil
+                                print("[Image] Stored compressed image: \(Int(Double(compressed.count) / 1024.0))KB")
+                            } else {
+                                selectedImageData = originalData
+                                existingImagePath = nil
+                            }
+                        }
+                    } catch {
+                        print("Failed to load photo: \(error)")
                     }
                 }
             }
             .fullScreenCover(isPresented: $showingCamera) {
                 CameraView { image in
-                    if let imageData = image.jpegData(compressionQuality: 0.8) {
-                        selectedImageData = imageData
-                        existingImagePath = nil
+                    Task {
+                        await MainActor.run {
+                            isUploading = true
+                            isCompressingImage = true
+                        }
+                        
+                        defer {
+                            Task { @MainActor in
+                                isUploading = false
+                                isCompressingImage = false
+                            }
+                        }
+                        
+                        // Get original data
+                        guard let originalData = image.jpegData(compressionQuality: 0.95) else {
+                            return
+                        }
+                        
+                        print("[Camera] Captured \(Int(Double(originalData.count) / 1024.0))KB image")
+                        
+                        // Compress on background thread
+                        let compressedData = await compressImageInBackground(originalData)
+                        
+                        await MainActor.run {
+                            if let compressed = compressedData {
+                                selectedImageData = compressed
+                                existingImagePath = nil
+                            } else {
+                                selectedImageData = originalData
+                                existingImagePath = nil
+                            }
+                        }
                     }
                 }
             }
@@ -322,10 +405,13 @@ struct AddEditRecipeView: View {
     private func loadImageFromURL(_ url: URL) {
         Task {
             isUploading = true
-            defer { isUploading = false }
+            isCompressingImage = true
+            defer {
+                isUploading = false
+                isCompressingImage = false
+            }
 
             #if os(macOS)
-            // Gain temporary access to the user-selected file outside the sandbox
             let didStartAccess = url.startAccessingSecurityScopedResource()
             defer {
                 if didStartAccess { url.stopAccessingSecurityScopedResource() }
@@ -333,23 +419,189 @@ struct AddEditRecipeView: View {
             #endif
 
             do {
-                // Read the file contents into our sandboxed memory immediately
-                // Using .mappedIfSafe avoids unnecessary copies when possible
-                let data = try Data(contentsOf: url, options: .mappedIfSafe)
-
-                // Optionally: you could also copy into the app's caches directory if you
-                // need to keep a persistent on-disk copy beyond this session.
-                // For now we keep it in-memory as selectedImageData.
+                // Read file data
+                let originalData = try Data(contentsOf: url, options: .mappedIfSafe)
+                print("[Image] Loaded \(Int(Double(originalData.count) / 1024.0))KB from file")
+                
+                // Compress immediately on background thread
+                let compressedData = await compressImageInBackground(originalData)
+                
                 await MainActor.run {
-                    selectedImageData = data
-                    existingImagePath = nil
+                    if let compressed = compressedData {
+                        selectedImageData = compressed
+                        existingImagePath = nil
+                        print("[Image] Stored compressed image in memory: \(Int(Double(compressed.count) / 1024.0))KB")
+                    } else {
+                        print("[Image] Compression failed, storing original")
+                        selectedImageData = originalData
+                        existingImagePath = nil
+                    }
                 }
+                
             } catch {
                 print("Failed to load image from URL: \(error)")
+                await MainActor.run {
+                    // Could show an error alert here
+                }
             }
         }
     }
+
     
+    // New background compression function
+    private func compressImageInBackground(_ data: Data, maxDimension: CGFloat = 1600, quality: CGFloat = 0.7) async -> Data? {
+        #if os(iOS)
+        // iOS UIKit operations must happen on main thread
+        return await MainActor.run {
+            return compressImageData(data, maxDimension: maxDimension, quality: quality)
+        }
+        #else
+        // macOS can do compression on background thread
+        return await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let result = compressImageData(data, maxDimension: maxDimension, quality: quality)
+                continuation.resume(returning: result)
+            }
+        }
+        #endif
+    }
+
+    
+    
+    // Cross-platform image compression helper
+#if os(iOS)
+nonisolated private func compressImageData(_ data: Data, maxDimension: CGFloat = 1600, quality: CGFloat = 0.7) -> Data? {
+    guard let image = UIImage(data: data) else {
+        print("[Compression] Failed to create UIImage from data")
+        return nil
+    }
+    
+    let originalSize = image.size
+    let maxSide = max(originalSize.width, originalSize.height)
+    
+    // Always apply JPEG compression, and resize if needed
+    let needsResize = maxSide > maxDimension
+    let targetSize: CGSize
+    
+    if needsResize {
+        let scale = maxDimension / maxSide
+        targetSize = CGSize(width: originalSize.width * scale, height: originalSize.height * scale)
+        print("[Compression] Resizing from \(originalSize) to \(targetSize)")
+    } else {
+        targetSize = originalSize
+        print("[Compression] No resize needed, original size: \(originalSize)")
+    }
+    
+    // Create the final image (resized if needed)
+    let finalImage: UIImage
+    if needsResize {
+        let renderer = UIGraphicsImageRenderer(size: targetSize)
+        finalImage = renderer.image { _ in
+            image.draw(in: CGRect(origin: .zero, size: targetSize))
+        }
+    } else {
+        finalImage = image
+    }
+    
+    // Always apply JPEG compression
+    guard let compressedData = finalImage.jpegData(compressionQuality: quality) else {
+        print("[Compression] Failed to create JPEG data")
+        return nil
+    }
+    
+    let originalKB = Double(data.count) / 1024.0
+    let compressedKB = Double(compressedData.count) / 1024.0
+    print("[Compression] \(Int(originalKB))KB → \(Int(compressedKB))KB (quality: \(quality))")
+    
+    return compressedData
+}
+#else
+// Fixed macOS version using modern APIs
+nonisolated private func compressImageData(_ data: Data, maxDimension: CGFloat = 1600, quality: CGFloat = 0.7) -> Data? {
+    guard let nsImage = NSImage(data: data) else {
+        print("[Compression] Failed to create NSImage from data")
+        return nil
+    }
+    
+    let originalSize = nsImage.size
+    let maxSide = max(originalSize.width, originalSize.height)
+    
+    let needsResize = maxSide > maxDimension
+    let targetSize: NSSize
+    
+    if needsResize {
+        let scale = maxDimension / maxSide
+        targetSize = NSSize(width: originalSize.width * scale, height: originalSize.height * scale)
+        print("[Compression] Resizing from \(originalSize) to \(targetSize)")
+    } else {
+        targetSize = originalSize
+        print("[Compression] No resize needed, original size: \(originalSize)")
+    }
+    
+    // Create bitmap representation directly instead of using lockFocus
+    guard let originalRep = NSBitmapImageRep(data: data) ?? nsImage.representations.first as? NSBitmapImageRep else {
+        print("[Compression] Failed to get bitmap representation")
+        return nil
+    }
+    
+    let finalRep: NSBitmapImageRep
+    
+    if needsResize {
+        // Create new bitmap rep with target size
+        let pixelsWide = Int(targetSize.width)
+        let pixelsHigh = Int(targetSize.height)
+        
+        guard let resizedRep = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: pixelsWide,
+            pixelsHigh: pixelsHigh,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bitmapFormat: [],
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ) else {
+            print("[Compression] Failed to create resized bitmap rep")
+            return nil
+        }
+        
+        // Draw the original image into the new rep
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: resizedRep)
+        NSGraphicsContext.current?.imageInterpolation = .high
+        
+        nsImage.draw(
+            in: NSRect(origin: .zero, size: targetSize),
+            from: NSRect(origin: .zero, size: originalSize),
+            operation: .copy,
+            fraction: 1.0
+        )
+        
+        NSGraphicsContext.restoreGraphicsState()
+        finalRep = resizedRep
+    } else {
+        finalRep = originalRep
+    }
+    
+    // Create JPEG data with compression
+    guard let compressedData = finalRep.representation(
+        using: .jpeg,
+        properties: [.compressionFactor: quality]
+    ) else {
+        print("[Compression] Failed to create JPEG representation")
+        return nil
+    }
+    
+    let originalKB = Double(data.count) / 1024.0
+    let compressedKB = Double(compressedData.count) / 1024.0
+    print("[Compression] \(Int(originalKB))KB → \(Int(compressedKB))KB (quality: \(quality))")
+    
+    return compressedData
+}
+#endif
     @MainActor
     private func saveRecipe() async {
         isSaving = true
@@ -363,21 +615,26 @@ struct AddEditRecipeView: View {
         let detailsToSave = trimmedDetails.isEmpty ? nil : trimmedDetails
         
         var imagePathToSave = existingImagePath
-        
-        // Upload new image if selected
+
+        // Upload image if selected (already compressed!)
         if let imageData = selectedImageData {
+            let sizeKB = Double(imageData.count) / 1024.0
+            print("[Upload] Uploading pre-compressed image: \(Int(sizeKB))KB")
+
             let fileName = "recipe_\(Int(Date().timeIntervalSince1970))_\(UUID().uuidString.prefix(8)).jpg"
             if let uploadedPath = await model.uploadImage(imageData: imageData, fileName: String(fileName)) {
                 imagePathToSave = uploadedPath
             } else {
-                // Upload failed, but continue anyway
                 print("Image upload failed, continuing without image")
             }
         }
+
+        // ... rest of your save logic stays the same
+        let selectedName = model.categories.first(where: { $0.id == selectedCategoryId })?.name ?? "<unknown>"
+        print("[AddEditRecipeView] create/update — categoryId=\(selectedCategoryId) (\(selectedName)), name=\(trimmedName), time=\(String(describing: timeValue)), hasImage=\(selectedImageData != nil || imagePathToSave != nil)")
         
         let success: Bool
         if let recipe = editingRecipe {
-            // Update existing recipe
             success = await model.updateRecipe(
                 id: recipe.id,
                 categoryId: selectedCategoryId != recipe.category_id ? selectedCategoryId : nil,
@@ -387,7 +644,6 @@ struct AddEditRecipeView: View {
                 image: imagePathToSave != recipe.image ? imagePathToSave : nil
             )
         } else {
-            // Create new recipe
             success = await model.createRecipe(
                 categoryId: selectedCategoryId,
                 name: trimmedName,
