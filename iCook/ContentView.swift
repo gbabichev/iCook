@@ -10,6 +10,11 @@ struct ContentView: View {
     @State private var selectedCategoryID: Category.ID? = -1 // Use -1 as sentinel for "Home"
     @State private var showingAddCategory = false
     @State private var editingCategory: Category? = nil
+    
+    // New state for recipe search
+    @State private var searchResults: [Recipe] = []
+    @State private var isSearching = false
+    @State private var showingSearchResults = false
 
     var body: some View {
         NavigationSplitView(preferredCompactColumn: $preferredColumn) {
@@ -30,7 +35,14 @@ struct ContentView: View {
         } detail: {
             // Single NavigationStack for the detail view
             NavigationStack {
-                if let id = selectedCategoryID, id != -1,
+                if showingSearchResults {
+                    // Show search results view
+                    RecipeSearchResultsView(
+                        searchText: searchText,
+                        searchResults: searchResults,
+                        isSearching: isSearching
+                    )
+                } else if let id = selectedCategoryID, id != -1,
                    let cat = model.categories.first(where: { $0.id == id }) {
                     RecipeCollectionView(category: cat)
                 } else {
@@ -49,19 +61,28 @@ struct ContentView: View {
                 RecipeDetailView(recipe: recipe)
             }
         }
-        .searchable(text: $searchText, placement: .automatic, prompt: "Search categories")
+        .searchable(text: $searchText, placement: .automatic, prompt: "Search recipes")
         .onSubmit(of: .search) {
-            if !showingAddCategory && editingCategory == nil {
-                Task { await model.loadCategories(search: searchText) }
+            if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                performSearch()
             }
         }
         .onChange(of: searchText) { _, newValue in
-            if showingAddCategory || editingCategory != nil { return }
-            searchTask?.cancel()
-            searchTask = Task { [newValue] in
-                try? await Task.sleep(nanoseconds: 300_000_000) // 300ms debounce
-                if !Task.isCancelled {
-                    await model.loadCategories(search: newValue)
+            let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            
+            if trimmed.isEmpty {
+                // Clear search when text is empty
+                showingSearchResults = false
+                searchResults = []
+                searchTask?.cancel()
+            } else {
+                // Debounced search
+                searchTask?.cancel()
+                searchTask = Task { [trimmed] in
+                    try? await Task.sleep(nanoseconds: 500_000_000) // 500ms debounce
+                    if !Task.isCancelled && trimmed == searchText.trimmingCharacters(in: .whitespacesAndNewlines) {
+                        await performSearch(with: trimmed)
+                    }
                 }
             }
         }
@@ -86,6 +107,114 @@ struct ContentView: View {
             AddCategoryView(editingCategory: category)
                 .environmentObject(model)
         }
+    }
+    
+    private func performSearch() {
+        let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            Task {
+                await performSearch(with: trimmed)
+            }
+        }
+    }
+    
+    @MainActor
+    private func performSearch(with query: String) async {
+        guard !query.isEmpty else { return }
+        
+        isSearching = true
+        showingSearchResults = true
+        
+        defer { isSearching = false }
+        
+        do {
+            let results = try await APIClient.searchRecipes(query: query)
+            searchResults = results
+        } catch {
+            print("Search error: \(error)")
+            model.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            searchResults = []
+        }
+    }
+}
+
+// MARK: - Recipe Search Results View
+
+struct RecipeSearchResultsView: View {
+    let searchText: String
+    let searchResults: [Recipe]
+    let isSearching: Bool
+    
+    private let columns = [GridItem(.adaptive(minimum: 160), spacing: 12)]
+    
+    var body: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 20) {
+                // Header
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Search Results")
+                        .font(.largeTitle)
+                        .bold()
+                        .padding(.horizontal, 16)
+                        .padding(.top, 20)
+                    
+                    if !searchText.isEmpty {
+                        Text("Results for \"\(searchText)\"")
+                            .font(.headline)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 16)
+                    }
+                }
+                
+                // Content
+                if isSearching {
+                    // Loading state
+                    VStack(spacing: 16) {
+                        ProgressView()
+                            .scaleEffect(1.5)
+                        Text("Searching recipes...")
+                            .font(.headline)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 200)
+                } else if searchResults.isEmpty && !searchText.isEmpty {
+                    // Empty state
+                    VStack(spacing: 16) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 48))
+                            .foregroundStyle(.secondary)
+                        Text("No recipes found")
+                            .font(.headline)
+                            .foregroundStyle(.secondary)
+                        Text("Try searching with different keywords")
+                            .font(.body)
+                            .foregroundStyle(.tertiary)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 200)
+                } else if !searchResults.isEmpty {
+                    // Results grid
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text("\(searchResults.count) recipe\(searchResults.count == 1 ? "" : "s") found")
+                            .font(.body)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 16)
+                        
+                        LazyVGrid(columns: columns, spacing: 12) {
+                            ForEach(searchResults) { recipe in
+                                NavigationLink(destination: RecipeDetailView(recipe: recipe)) {
+                                    RecipeLargeButton(recipe: recipe)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                    }
+                }
+                
+                Spacer(minLength: 50)
+            }
+        }
+        .navigationTitle("")
     }
 }
 

@@ -288,4 +288,37 @@ public enum APIClient {
             throw APIError.transport(error.localizedDescription)
         }
     }
+    
+    public static func searchRecipes(query: String, page: Int = 1, limit: Int = 50) async throws -> [Recipe] {
+        var queryItems: [URLQueryItem] = [
+            .init(name: "q", value: query),
+            .init(name: "page", value: String(page)),
+            .init(name: "limit", value: String(limit))
+        ]
+
+        let url = try makeURL(route: "/recipes", extraQuery: queryItems)
+        var request = URLRequest(url: url)
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                throw APIError.transport("No HTTP response")
+            }
+            
+            guard (200..<300).contains(http.statusCode) else {
+                let body = String(data: data, encoding: .utf8) ?? "<no body>"
+                throw APIError.badStatus(http.statusCode, body)
+            }
+            
+            do {
+                let page = try JSONDecoder().decode(Page<Recipe>.self, from: data)
+                return page.data
+            } catch {
+                throw APIError.decoding(error.localizedDescription)
+            }
+        } catch {
+            throw APIError.transport(error.localizedDescription)
+        }
+    }
 }
