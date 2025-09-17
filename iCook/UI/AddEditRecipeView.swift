@@ -15,7 +15,7 @@ struct AddEditRecipeView: View {
     let editingRecipe: Recipe?
     let preselectedCategoryId: Int?
     
-    @State private var selectedCategoryId: Int = 0
+    @State private var selectedCategoryId: Int = 1
     @State private var recipeName: String = ""
     @State private var recipeTime: String = ""
     @State private var recipeDetails: String = ""
@@ -204,12 +204,9 @@ struct AddEditRecipeView: View {
                 }
                 
                 Section("Recipe Details") {
-                    TextField(
-                        "",
-                        text: $recipeDetails,
-                        axis: .vertical
-                    )
-                    .lineLimit(8...20)
+                    TextEditor(text: $recipeDetails)
+                        .frame(minHeight: 400)
+                        .scrollContentBackground(.hidden)
                 }
             }
             .formStyle(.grouped)
