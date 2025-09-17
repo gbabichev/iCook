@@ -38,7 +38,7 @@ struct CategoryList: View {
                     ForEach(model.categories) { category in
                         NavigationLink(value: category.id) {
                             HStack {
-                                Text(category.icon)
+                                Image(systemName: category.icon)
                                     .frame(width: 24)
                                 Text(category.name)
                             }
