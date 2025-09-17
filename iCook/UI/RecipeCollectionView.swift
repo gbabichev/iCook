@@ -81,7 +81,8 @@ struct RecipeCollectionView: View {
     @State private var currentLoadTask: Task<Void, Never>?
 
     
-    private let columns = [GridItem(.adaptive(minimum: 160), spacing: 12)]
+    // Adaptive columns with consistent spacing - account for spacing in minimum width
+    private let columns = [GridItem(.adaptive(minimum: 190), spacing: 15)]
     
     // Computed property to get the appropriate recipe list
     private var recipes: [Recipe] {
@@ -260,18 +261,18 @@ struct RecipeCollectionView: View {
                     .font(.title2)
                     .bold()
                     .padding(.top, 20)
-                    .padding(.leading, 16)
+                    .padding(.leading, 15)
                 
                 if remainingRecipes.isEmpty && recipes.count == 1 && isCategory {
                     Text("This is the only recipe in this category")
                         .font(.body)
                         .foregroundStyle(.secondary)
-                        .padding(.horizontal, 16)
+                        .padding(.horizontal, 15)
                 } else if remainingRecipes.isEmpty {
                     ProgressView("Loading recipes...")
                         .frame(maxWidth: .infinity, minHeight: 80)
                 } else {
-                    LazyVGrid(columns: columns, spacing: 12) {
+                    LazyVGrid(columns: columns, spacing: 15) {
                         ForEach(remainingRecipes) { recipe in
                             NavigationLink(destination: RecipeDetailView(recipe: recipe)) {
                                 RecipeLargeButton(recipe: recipe)
@@ -279,7 +280,7 @@ struct RecipeCollectionView: View {
                             .buttonStyle(.plain)
                         }
                     }
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, 15)
                 }
             }
         }
