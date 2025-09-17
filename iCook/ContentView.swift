@@ -9,20 +9,24 @@ struct ContentView: View {
     @State private var preferredColumn: NavigationSplitViewColumn = .detail
     @State private var selectedCategoryID: Category.ID? = -1 // Use -1 as sentinel for "Home"
     @State private var showingAddCategory = false
+    @State private var editingCategory: Category? = nil
 
     var body: some View {
         NavigationSplitView(preferredCompactColumn: $preferredColumn) {
-            CategoryList(selection: $selectedCategoryID)
-                .toolbar {
-                    ToolbarItem(placement: .primaryAction) {
-                        Button {
-                            showingAddCategory = true
-                        } label: {
-                            Image(systemName: "plus")
-                        }
-                        .accessibilityLabel("Add Category")
+            CategoryList(
+                selection: $selectedCategoryID,
+                editingCategory: $editingCategory
+            )
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        showingAddCategory = true
+                    } label: {
+                        Image(systemName: "plus")
                     }
+                    .accessibilityLabel("Add Category")
                 }
+            }
         } detail: {
             // Single NavigationStack for the detail view
             NavigationStack {
@@ -49,12 +53,12 @@ struct ContentView: View {
         }
         .searchable(text: $searchText, placement: .automatic, prompt: "Search categories")
         .onSubmit(of: .search) {
-            if !showingAddCategory {
+            if !showingAddCategory && editingCategory == nil {
                 Task { await model.loadCategories(search: searchText) }
             }
         }
         .onChange(of: searchText) { _, newValue in
-            if showingAddCategory { return }
+            if showingAddCategory || editingCategory != nil { return }
             searchTask?.cancel()
             searchTask = Task { [newValue] in
                 try? await Task.sleep(nanoseconds: 300_000_000) // 300ms debounce
@@ -80,9 +84,12 @@ struct ContentView: View {
             AddCategoryView()
                 .environmentObject(model)
         }
+        .sheet(item: $editingCategory) { category in
+            AddCategoryView(editingCategory: category)
+                .environmentObject(model)
+        }
     }
 }
-
 
 // MARK: - Icon Selection Grid
 struct IconSelectionGrid: View {
@@ -140,6 +147,16 @@ struct AddCategoryView: View {
     @State private var selectedIcon = "fork.knife"
     @State private var isCreating = false
     
+    let editingCategory: Category?
+    
+    init(editingCategory: Category? = nil) {
+        self.editingCategory = editingCategory
+    }
+    
+    private var isEditing: Bool {
+        editingCategory != nil
+    }
+    
     var body: some View {
         NavigationStack {
             ZStack {
@@ -154,7 +171,7 @@ struct AddCategoryView: View {
                             .submitLabel(.done)
                             .onSubmit {
                                 let trimmed = categoryName.trimmingCharacters(in: .whitespacesAndNewlines)
-                                if !trimmed.isEmpty && !isCreating { createCategory() }
+                                if !trimmed.isEmpty && !isCreating { saveCategory() }
                             }
                         #if os(iOS)
                             .textInputAutocapitalization(.words)
@@ -179,7 +196,7 @@ struct AddCategoryView: View {
                 .scrollContentBackground(.hidden) // lets our background show through
                 .formStyle(.grouped)
             }
-            .navigationTitle("Add Category")
+            .navigationTitle(isEditing ? "Edit Category" : "Add Category")
             .toolbar {
                 // iOS keyboard dismiss
                 #if os(iOS)
@@ -196,7 +213,7 @@ struct AddCategoryView: View {
 
                 ToolbarItem(placement: .confirmationAction) {
                     Button {
-                        createCategory()
+                        saveCategory()
                     } label: {
                         if isCreating {
                             ProgressView()
@@ -206,12 +223,12 @@ struct AddCategoryView: View {
                                 .fontWeight(.semibold)
                         }
                     }
-                    .keyboardShortcut(.defaultAction) // macOS default ⏎ action; harmless on iOS
+                    .keyboardShortcut(.defaultAction) // macOS default ⌘ action; harmless on iOS
                     .disabled(categoryName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isCreating)
                 }
             }
         }
-        .interactiveDismissDisabled(isCreating) // don’t swipe-dismiss mid-save
+        .interactiveDismissDisabled(isCreating) // don't swipe-dismiss mid-save
         .disabled(isCreating) // prevent taps while saving
         .overlay {
             // Dimmed progress overlay with a smooth fade
@@ -221,7 +238,7 @@ struct AddCategoryView: View {
                     VStack(spacing: 12) {
                         ProgressView()
                             .progressViewStyle(.circular)
-                        Text("Creating…")
+                        Text(isEditing ? "Updating…" : "Creating…")
                             .font(.callout)
                             .foregroundStyle(.primary)
                     }
@@ -232,20 +249,33 @@ struct AddCategoryView: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: isCreating)
+        .onAppear {
+            if let category = editingCategory {
+                categoryName = category.name
+                selectedIcon = category.icon
+            }
+        }
     }
-    private func createCategory() {
+    
+    private func saveCategory() {
         Task {
-            await createCategoryAsync()
+            await saveCategoryAsync()
         }
     }
     
     @MainActor
-    private func createCategoryAsync() async {
+    private func saveCategoryAsync() async {
         isCreating = true
         defer { isCreating = false }
         
         do {
-            let success = await model.createCategory(name: categoryName.trimmingCharacters(in: .whitespacesAndNewlines), icon: selectedIcon)
+            let success: Bool
+            if let category = editingCategory {
+                success = await model.updateCategory(id: category.id, name: categoryName.trimmingCharacters(in: .whitespacesAndNewlines), icon: selectedIcon)
+            } else {
+                success = await model.createCategory(name: categoryName.trimmingCharacters(in: .whitespacesAndNewlines), icon: selectedIcon)
+            }
+            
             if success {
                 dismiss()
             }
@@ -253,13 +283,12 @@ struct AddCategoryView: View {
     }
 }
 
-
-
 // MARK: - List Column (Landmarks: *List)
 
 struct CategoryList: View {
     @EnvironmentObject private var model: AppViewModel
     @Binding var selection: Category.ID?
+    @Binding var editingCategory: Category?
 
     var body: some View {
         List(selection: $selection) {
@@ -286,6 +315,27 @@ struct CategoryList: View {
                         CategoryRow(category: category)
                     }
                     .tag(category.id)
+                    .contextMenu {
+                        Button {
+                            editingCategory = category
+                        } label: {
+                            Label("Edit", systemImage: "pencil")
+                        }
+                        
+                        Divider()
+                        
+                        Button(role: .destructive) {
+                            Task {
+                                // If we're deleting the currently selected category, reset to home
+                                if selection == category.id {
+                                    selection = -1
+                                }
+                                await model.deleteCategory(id: category.id)
+                            }
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                    }
                 }
             }
         }

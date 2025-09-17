@@ -89,4 +89,37 @@ final class AppViewModel: ObservableObject {
             return false
         }
     }
+    
+    // Add these methods to your AppViewModel class
+
+    @MainActor
+    func updateCategory(id: Int, name: String, icon: String) async -> Bool {
+        do {
+            let updatedCategory = try await APIClient.updateCategory(id: id, name: name, icon: icon)
+            
+            // Update the category in the local array
+            if let index = categories.firstIndex(where: { $0.id == id }) {
+                categories[index] = updatedCategory
+            }
+            
+            return true
+        } catch {
+            self.error = error.localizedDescription
+            return false
+        }
+    }
+
+    @MainActor
+    func deleteCategory(id: Int) async {
+        do {
+            try await APIClient.deleteCategory(id: id)
+            
+            // Remove the category from the local array
+            categories.removeAll { $0.id == id }
+            
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+    
 }
