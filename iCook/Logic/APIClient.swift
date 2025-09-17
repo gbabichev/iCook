@@ -290,7 +290,7 @@ public enum APIClient {
     }
     
     public static func searchRecipes(query: String, page: Int = 1, limit: Int = 50) async throws -> [Recipe] {
-        var queryItems: [URLQueryItem] = [
+        let queryItems: [URLQueryItem] = [
             .init(name: "q", value: query),
             .init(name: "page", value: String(page)),
             .init(name: "limit", value: String(limit))

@@ -146,66 +146,70 @@ struct RecipeCollectionView: View {
     
     @ViewBuilder
     private func featuredRecipeHeader(_ recipe: Recipe) -> some View {
-        AsyncImage(url: recipe.imageURL) { phase in
-            switch phase {
-            case .empty:
-                headerPlaceholder {
-                    ProgressView()
-                        .scaleEffect(1.5)
-                }
-                
-            case .success(let image):
-                image
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: 350)
-                    .clipped()
-                    .overlay(alignment: .bottom) {
-                        VStack(spacing: 8) {
-                            Text(recipe.name)
-                                .font(.largeTitle)
-                                .fontWeight(.bold)
-                                .foregroundColor(.white)
-                                .multilineTextAlignment(.center)
-                            Text("\(recipe.recipe_time) minutes")
-                                .font(.headline)
-                                .foregroundColor(.white)
-                                .opacity(0.8)
-                            NavigationLink(destination: RecipeDetailView(recipe: recipe)) {
-                                Text("View Recipe")
+        NavigationLink(destination: RecipeDetailView(recipe: recipe)) {
+            AsyncImage(url: recipe.imageURL) { phase in
+                switch phase {
+                case .empty:
+                    headerPlaceholder {
+                        ProgressView()
+                            .scaleEffect(1.5)
+                    }
+                    
+                case .success(let image):
+                    image
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: 350)
+                        .clipped()
+                        .backgroundExtensionEffect() // This can stay now
+                        .overlay(alignment: .bottom) {
+                            VStack(spacing: 8) {
+                                Text(recipe.name)
+                                    .font(.largeTitle)
+                                    .fontWeight(.bold)
                                     .foregroundColor(.white)
+                                    .multilineTextAlignment(.center)
+                                Text("\(recipe.recipe_time) minutes")
+                                    .font(.headline)
+                                    .foregroundColor(.white)
+                                    .opacity(0.8)
+                                // Remove the NavigationLink from here - it's now the outer wrapper
+                                HStack {
+                                    Image(systemName: "eye")
+                                    Text("View Recipe")
+                                }
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 20)
+                                .padding(.vertical, 12)
+                                .background(.black.opacity(0.6))
+                                .cornerRadius(25)
                             }
-                            .controlSize(.large)
+                            .padding(.bottom, 32)
+                            .padding(.horizontal, 20)
                         }
-                        .padding(.bottom, 32)
-                        .padding(.horizontal, 20)
-                    }
-                
-            case .failure:
-                headerPlaceholder {
-                    VStack(spacing: 12) {
-                        Image(systemName: "photo.badge.exclamationmark")
-                            .font(.system(size: 48))
-                            .foregroundStyle(.secondary)
-                        Text("Image not available")
-                            .font(.headline)
-                            .foregroundStyle(.secondary)
-                        Text(recipe.name)
-                            .font(.title2)
-                            .fontWeight(.bold)
-                        NavigationLink(destination: RecipeDetailView(recipe: recipe)) {
-                            Text("View Recipe")
+                    
+                case .failure:
+                    headerPlaceholder {
+                        VStack(spacing: 12) {
+                            Image(systemName: "photo.badge.exclamationmark")
+                                .font(.system(size: 48))
+                                .foregroundStyle(.secondary)
+                            Text("Image not available")
+                                .font(.headline)
+                                .foregroundStyle(.secondary)
+                            Text(recipe.name)
+                                .font(.title2)
+                                .fontWeight(.bold)
                         }
-                        .buttonStyle(.borderedProminent)
+                        .padding()
                     }
-                    .padding()
+                    
+                @unknown default:
+                    EmptyView()
                 }
-                
-            @unknown default:
-                EmptyView()
             }
         }
-        .backgroundExtensionEffect()
+        .buttonStyle(.plain) // Add this like Apple does
     }
     
     @ViewBuilder
