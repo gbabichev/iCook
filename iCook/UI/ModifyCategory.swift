@@ -119,21 +119,8 @@ struct AddCategoryView: View {
                     }
                     .padding(.vertical, 8)
                 }
-                
-                Section("Custom Icon") {
-                    HStack {
-                        TextField("Or enter custom emoji", text: $selectedIcon)
-                            //.textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                        
-                        if !selectedIcon.isEmpty {
-                            Text(selectedIcon)
-                                .font(.title2)
-                                .padding(.leading, 8)
-                        }
-                    }
-                }
             }
+            .formStyle(.grouped)
             .navigationTitle(isEditing ? "Edit Category" : "Add Category")
             //.navigationBarTitleDisplayMode(.inline)
             .toolbar {

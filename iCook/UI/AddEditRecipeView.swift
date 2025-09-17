@@ -30,9 +30,7 @@ struct AddEditRecipeView: View {
     }
     
     var body: some View {
-        
-        Text("Hello")
-        
+                
         NavigationStack {
             Form {
                 Section("Basic Information") {
@@ -143,13 +141,14 @@ struct AddEditRecipeView: View {
                 
                 Section("Recipe Details") {
                     TextField(
-                        "Enter recipe instructions, ingredients, notes...",
+                        "",
                         text: $recipeDetails,
                         axis: .vertical
                     )
                     .lineLimit(8...20)
                 }
             }
+            .formStyle(.grouped)
             .navigationTitle(isEditing ? "Edit Recipe" : "Add Recipe")
             //.navigationBarTitleDisplayMode(.inline)
             .toolbar {
