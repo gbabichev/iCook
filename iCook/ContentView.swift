@@ -40,6 +40,7 @@ struct ContentView: View {
                     selection: $selectedCategoryID,
                     editingCategory: $editingCategory
                 )
+                .navigationSplitViewColumnWidth(min: 200, ideal: 250, max: 400)
                 .toolbar {
                     ToolbarItem(placement: .primaryAction) {
                         Button {
