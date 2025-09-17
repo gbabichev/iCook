@@ -4,6 +4,8 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject private var model: AppViewModel
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
     @State private var searchText = ""
     @State private var searchTask: Task<Void, Never>? = nil
     @State private var preferredColumn: NavigationSplitViewColumn = .detail
@@ -18,20 +20,35 @@ struct ContentView: View {
 
     var body: some View {
         NavigationSplitView(preferredCompactColumn: $preferredColumn) {
-            CategoryList(
-                selection: $selectedCategoryID,
-                editingCategory: $editingCategory
-            )
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        showingAddCategory = true
-                    } label: {
-                        Image(systemName: "plus")
+            
+            if horizontalSizeClass == .compact && showingSearchResults {
+                   NavigationStack {
+                       RecipeSearchResultsView(
+                           searchText: searchText,
+                           searchResults: searchResults,
+                           isSearching: isSearching
+                       )
+                       .navigationDestination(for: Recipe.self) { recipe in
+                           RecipeDetailView(recipe: recipe)
+                       }
+                   }
+            } else {
+                CategoryList(
+                    selection: $selectedCategoryID,
+                    editingCategory: $editingCategory
+                )
+                .toolbar {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button {
+                            showingAddCategory = true
+                        } label: {
+                            Image(systemName: "plus")
+                        }
+                        .accessibilityLabel("Add Category")
                     }
-                    .accessibilityLabel("Add Category")
                 }
             }
+
         } detail: {
             // Single NavigationStack for the detail view
             NavigationStack {
