@@ -23,6 +23,8 @@ struct AddEditRecipeView: View {
     @State private var existingImagePath: String?
     @State private var isUploading = false
     @State private var isSaving = false
+    @State private var fileImporterTrigger = UUID()
+
     
     // iOS specific photo states
 #if os(iOS)
@@ -66,13 +68,13 @@ struct AddEditRecipeView: View {
                 Section("Image") {
                     VStack(alignment: .leading, spacing: 12) {
                         // Photo Picker Button
-#if os(iOS)
+ #if os(iOS)
                         Button {
                             showingImageActionSheet = true
                         } label: {
                             HStack {
                                 Image(systemName: "photo.badge.plus")
-                                Text(selectedImageData != nil ? "Change Photo" : "Add Photo")
+                                Text((selectedImageData != nil || existingImagePath != nil) ? "Change Photo" : "Add Photo")
                             }
                         }
                         .confirmationDialog("Add Photo", isPresented: $showingImageActionSheet) {
@@ -93,12 +95,31 @@ struct AddEditRecipeView: View {
 #else
                         // macOS File Picker Button
                         Button {
+                            // Force refresh the fileImporter by changing the trigger
+                            fileImporterTrigger = UUID()
                             showingImagePicker = true
                         } label: {
                             HStack {
                                 Image(systemName: "photo.badge.plus")
-                                Text(selectedImageData != nil ? "Change Photo" : "Add Photo")
+                                Text((selectedImageData != nil || existingImagePath != nil) ? "Change Photo" : "Add Photo")
                             }
+                        }
+                        .buttonStyle(.bordered)
+                        .contentShape(Rectangle())
+                        .zIndex(1)
+                        .allowsHitTesting(true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                        // Add Remove Photo option for macOS when there's an image
+                        if selectedImageData != nil || existingImagePath != nil {
+                            Button("Remove Photo", role: .destructive) {
+                                selectedImageData = nil
+                                existingImagePath = nil
+                            }
+                            .buttonStyle(.bordered)
+                            .zIndex(1)
+                            .allowsHitTesting(true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
 #endif
                         
@@ -124,6 +145,7 @@ struct AddEditRecipeView: View {
                                         .frame(height: 200)
                                         .clipped()
                                         .cornerRadius(8)
+                                        .zIndex(0)
                                 } else {
                                     placeholderImageView
                                 }
@@ -139,6 +161,7 @@ struct AddEditRecipeView: View {
                                         .frame(height: 200)
                                         .clipped()
                                         .cornerRadius(8)
+                                        .zIndex(0)
                                 case .failure(_):
                                     Rectangle()
                                         .fill(.gray.opacity(0.2))
@@ -245,15 +268,15 @@ struct AddEditRecipeView: View {
                 }
             }
 #else
-            // macOS file importer
-            .onChange(of: showingImagePicker) { _, isShowing in
-                // Handle file picker result if needed
-            }
+            // macOS file importer - Fixed version
             .fileImporter(
                 isPresented: $showingImagePicker,
                 allowedContentTypes: [.image],
                 allowsMultipleSelection: false
             ) { result in
+                // Reset the picker state immediately
+                showingImagePicker = false
+                
                 switch result {
                 case .success(let urls):
                     if let url = urls.first {
@@ -263,6 +286,8 @@ struct AddEditRecipeView: View {
                     print("Failed to pick image: \(error)")
                 }
             }
+            // This id forces the fileImporter to refresh when the trigger changes
+            .id(fileImporterTrigger)
 #endif
             .alert("Error",
                    isPresented: .init(
@@ -298,9 +323,23 @@ struct AddEditRecipeView: View {
         Task {
             isUploading = true
             defer { isUploading = false }
-            
+
+            #if os(macOS)
+            // Gain temporary access to the user-selected file outside the sandbox
+            let didStartAccess = url.startAccessingSecurityScopedResource()
+            defer {
+                if didStartAccess { url.stopAccessingSecurityScopedResource() }
+            }
+            #endif
+
             do {
-                let data = try Data(contentsOf: url)
+                // Read the file contents into our sandboxed memory immediately
+                // Using .mappedIfSafe avoids unnecessary copies when possible
+                let data = try Data(contentsOf: url, options: .mappedIfSafe)
+
+                // Optionally: you could also copy into the app's caches directory if you
+                // need to keep a persistent on-disk copy beyond this session.
+                // For now we keep it in-memory as selectedImageData.
                 await MainActor.run {
                     selectedImageData = data
                     existingImagePath = nil
