@@ -123,7 +123,7 @@ final class AppViewModel: ObservableObject {
     }
     
     @MainActor
-    func createRecipe(categoryId: Int, name: String, recipeTime: Int?, details: String?, image: String?) async -> Bool {
+    func createRecipe(categoryId: Int, name: String, recipeTime: Int?, details: String?, image: String?, ingredients: [String]? = nil) async -> Bool {
         error = nil
         
         do {
@@ -132,7 +132,8 @@ final class AppViewModel: ObservableObject {
                 name: name,
                 recipeTime: recipeTime,
                 details: details,
-                image: image
+                image: image,
+                ingredients: ingredients
             )
             
             print("Successfully created recipe: \(newRecipe.name)")
@@ -147,7 +148,7 @@ final class AppViewModel: ObservableObject {
     }
 
     @MainActor
-    func updateRecipe(id: Int, categoryId: Int?, name: String?, recipeTime: Int?, details: String?, image: String?) async -> Bool {
+    func updateRecipe(id: Int, categoryId: Int?, name: String?, recipeTime: Int?, details: String?, image: String?, ingredients: [String]? = nil) async -> Bool {
         error = nil
         
         do {
@@ -157,7 +158,8 @@ final class AppViewModel: ObservableObject {
                 name: name,
                 recipeTime: recipeTime,
                 details: details,
-                image: image
+                image: image,
+                ingredients: ingredients
             )
             
             print("Successfully updated recipe: \(updatedRecipe.name)")
@@ -218,8 +220,8 @@ final class AppViewModel: ObservableObject {
     }
     
     @MainActor
-    func updateRecipeWithUIFeedback(id: Int, categoryId: Int?, name: String?, recipeTime: Int?, details: String?, image: String?) async -> Bool {
-        let success = await updateRecipe(id: id, categoryId: categoryId, name: name, recipeTime: recipeTime, details: details, image: image)
+    func updateRecipeWithUIFeedback(id: Int, categoryId: Int?, name: String?, recipeTime: Int?, details: String?, image: String?, ingredients: [String]? = nil) async -> Bool {
+        let success = await updateRecipe(id: id, categoryId: categoryId, name: name, recipeTime: recipeTime, details: details, image: image, ingredients: ingredients)
         
         if success {
             // Post notification for views to refresh

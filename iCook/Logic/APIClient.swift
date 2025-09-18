@@ -15,6 +15,7 @@ public struct Recipe: Identifiable, Codable, Hashable {
     public let recipe_time: Int
     public let details: String?
     public let image: String?
+    public let ingredients: [String]?
 }
 
 public struct Page<T: Codable>: Codable {
@@ -323,7 +324,7 @@ public enum APIClient {
     }
     
 
-    public static func createRecipe(categoryId: Int, name: String, recipeTime: Int?, details: String?, image: String?) async throws -> Recipe {
+    public static func createRecipe(categoryId: Int, name: String, recipeTime: Int?, details: String?, image: String?, ingredients: [String]? = nil) async throws -> Recipe {
         let url = try makeURL(route: "/recipes")
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -337,6 +338,7 @@ public enum APIClient {
         if let recipeTime = recipeTime { recipeData["recipe_time"] = recipeTime }
         if let details = details { recipeData["details"] = details }
         if let image = image { recipeData["image"] = image }
+        if let ingredients = ingredients { recipeData["ingredients"] = ingredients }
 
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: recipeData)
@@ -382,7 +384,7 @@ public enum APIClient {
         }
     }
 
-    public static func updateRecipe(id: Int, categoryId: Int?, name: String?, recipeTime: Int?, details: String?, image: String?) async throws -> Recipe {
+    public static func updateRecipe(id: Int, categoryId: Int?, name: String?, recipeTime: Int?, details: String?, image: String?, ingredients: [String]? = nil) async throws -> Recipe {
         let url = try makeURL(route: "/recipes/\(id)")
         var request = URLRequest(url: url)
         request.httpMethod = "PUT"
@@ -405,6 +407,9 @@ public enum APIClient {
         }
         if let image = image {
             recipeData["image"] = image
+        }
+        if let ingredients = ingredients {
+            recipeData["ingredients"] = ingredients
         }
         
         do {
