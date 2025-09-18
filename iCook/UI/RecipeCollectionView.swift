@@ -84,6 +84,8 @@ struct RecipeCollectionView: View {
     @State private var deletingRecipe: Recipe?
     @State private var showingDeleteAlert = false
     @State private var isDeleting = false
+    @State private var selectedFeaturedRecipe: Recipe?
+
 
     
     // Adaptive columns with consistent spacing - account for spacing in minimum width
@@ -99,24 +101,29 @@ struct RecipeCollectionView: View {
         }
     }
     
-    // Featured recipe (first or random)
+    // Featured recipe (first or stored random)
     private var featuredRecipe: Recipe? {
         switch collectionType {
         case .home:
             return recipes.first
         case .category:
-            return recipes.randomElement()
+            // Only return the stored selection if it exists and is valid
+            if let selected = selectedFeaturedRecipe,
+               recipes.contains(where: { $0.id == selected.id }) {
+                return selected
+            }
+            return nil // Don't select here - do it in loadCategoryRecipes
         }
     }
-    
+
     // Remaining recipes (excluding featured)
     private var remainingRecipes: [Recipe] {
         switch collectionType {
         case .home:
             return Array(recipes.dropFirst())
         case .category:
-            guard recipes.count > 1, let featured = featuredRecipe else {
-                return recipes.count == 1 ? [] : recipes
+            guard let featured = featuredRecipe else {
+                return recipes
             }
             return recipes.filter { $0.id != featured.id }
         }
@@ -353,11 +360,16 @@ struct RecipeCollectionView: View {
             
             print("Loaded \(recipes.count) recipes for category \(category.name)")
             self.categoryRecipes = recipes
+            
+            // Select featured recipe AFTER setting categoryRecipes
+            if !recipes.isEmpty {
+                selectedFeaturedRecipe = recipes.randomElement()
+                print("Selected featured recipe: \(selectedFeaturedRecipe?.name ?? "none")")
+            }
         } catch {
             guard !Task.isCancelled else { return }
             
             let errorMsg = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-            // Don't show cancellation errors to user
             if !errorMsg.contains("cancelled") {
                 self.error = errorMsg
             }
@@ -455,7 +467,19 @@ struct RecipeCollectionView: View {
         }
         .navigationTitle(collectionType.title)
         .task(id: collectionType) {
+            // Reset featured recipe selection when collection type changes
+            selectedFeaturedRecipe = nil
             await loadRecipes()
+        }
+
+        // Also add this modifier to reset when category recipes change:
+        .onChange(of: categoryRecipes) { _,newRecipes in
+            // Only select new featured recipe if we don't have one or it's no longer valid
+            if selectedFeaturedRecipe == nil ||
+               !newRecipes.contains(where: { $0.id == selectedFeaturedRecipe?.id }) {
+                selectedFeaturedRecipe = newRecipes.isEmpty ? nil : newRecipes.randomElement()
+                print("Updated featured recipe: \(selectedFeaturedRecipe?.name ?? "none")")
+            }
         }
         .task(id: model.randomRecipes.count) {
             // This will trigger when recipes are added/deleted from home view
