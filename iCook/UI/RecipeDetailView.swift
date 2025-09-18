@@ -67,6 +67,14 @@ struct RecipeDetailView: View {
                                 Text("Ingredients")
                                     .font(.title2)
                                     .bold()
+                                
+                                Button {
+                                    copyToReminders(ingredients)
+                                } label: {
+                                    Image(systemName: "doc.on.clipboard")
+                                }
+                                .buttonStyle(.plain)
+                                
                             }
                             
                             LazyVGrid(columns: [
@@ -88,6 +96,7 @@ struct RecipeDetailView: View {
                                         .buttonStyle(.plain)
                                         
                                         Text(ingredient)
+                                            .textSelection(.enabled)
                                             .font(.body)
                                             .fixedSize(horizontal: false, vertical: true)
                                             .strikethrough(checkedIngredients.contains(index))
@@ -209,6 +218,51 @@ struct RecipeDetailView: View {
             dismiss()
         }
     }
+    
+    // Drop this helper anywhere in your file (outside the view body)
+    private func copyToReminders(_ lines: [String]) {
+        // 1) Normalize (strip "- [ ] " if present)
+        let items = lines.map {
+            $0.replacingOccurrences(of: #"^\s*-\s*\[\s*\]\s*"#,
+                                    with: "",
+                                    options: .regularExpression)
+        }
+
+        // 2) Plain-text fallback: TAB + ◦ + TAB + text
+        let plain = items.map { "\t◦\t\($0)" }.joined(separator: "\n")
+
+        // 3) Build RTF with a bullet list
+        let attr = NSMutableAttributedString()
+        let list = NSTextList(markerFormat: .disc, options: 0)
+        for s in items {
+            let style = NSMutableParagraphStyle()
+            style.textLists = [list]
+            attr.append(NSAttributedString(string: s + "\n",
+                                           attributes: [.paragraphStyle: style]))
+        }
+        let rtfData = try? attr.data(
+            from: NSRange(location: 0, length: attr.length),
+            documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf]
+        )
+
+        #if os(iOS)
+        // Use UTI strings to avoid needing imports here
+        if let rtfData {
+            UIPasteboard.general.setData(rtfData, forPasteboardType: "public.rtf")
+            UIPasteboard.general.setValue(plain, forPasteboardType: "public.utf8-plain-text")
+        } else {
+            UIPasteboard.general.string = plain
+        }
+        #elseif os(macOS)
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        let item = NSPasteboardItem()
+        if let rtfData { item.setData(rtfData, forType: .rtf) }
+        item.setString(plain, forType: .string)
+        pb.writeObjects([item])
+        #endif
+    }
+    
 }
 
 extension Notification.Name {
