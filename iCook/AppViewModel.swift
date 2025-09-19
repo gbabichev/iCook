@@ -4,6 +4,7 @@ import Combine
 @MainActor
 final class AppViewModel: ObservableObject {
     @Published var categories: [Category] = []
+    @Published var recipes: [Recipe] = []  // Added missing recipes property
     @Published var isLoadingCategories = false
     @Published var isLoadingRecipes = false
     @Published var error: String?
@@ -90,8 +91,6 @@ final class AppViewModel: ObservableObject {
         }
     }
     
-    // Add these methods to your AppViewModel class
-
     @MainActor
     func updateCategory(id: Int, name: String, icon: String) async -> Bool {
         do {
@@ -124,10 +123,11 @@ final class AppViewModel: ObservableObject {
     
     @MainActor
     func createRecipe(categoryId: Int, name: String, recipeTime: Int?, details: String?, image: String?, ingredients: [String]? = nil) async -> Bool {
-        error = nil
+        isLoadingRecipes = true  // Use the specific loading flag instead of isLoading
+        defer { isLoadingRecipes = false }
         
         do {
-            let newRecipe = try await APIClient.createRecipe(
+            let recipe = try await APIClient.createRecipe(
                 categoryId: categoryId,
                 name: name,
                 recipeTime: recipeTime,
@@ -135,21 +135,19 @@ final class AppViewModel: ObservableObject {
                 image: image,
                 ingredients: ingredients
             )
-            
-            print("Successfully created recipe: \(newRecipe.name)")
-            // Refresh the random recipes to include the new recipe
-            await loadRandomRecipes()
+            recipes.insert(recipe, at: 0) // Add to beginning
+            error = nil
             return true
         } catch {
-            self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-            print("Create recipe error: \(error)")
+            self.error = error.localizedDescription
             return false
         }
     }
 
     @MainActor
     func updateRecipe(id: Int, categoryId: Int?, name: String?, recipeTime: Int?, details: String?, image: String?, ingredients: [String]? = nil) async -> Bool {
-        error = nil
+        isLoadingRecipes = true  // Use the specific loading flag instead of isLoading
+        defer { isLoadingRecipes = false }
         
         do {
             let updatedRecipe = try await APIClient.updateRecipe(
@@ -162,13 +160,18 @@ final class AppViewModel: ObservableObject {
                 ingredients: ingredients
             )
             
-            print("Successfully updated recipe: \(updatedRecipe.name)")
-            // Refresh the random recipes to reflect changes
-            await loadRandomRecipes()
+            // Update the recipe in the local arrays
+            if let index = recipes.firstIndex(where: { $0.id == id }) {
+                recipes[index] = updatedRecipe
+            }
+            if let index = randomRecipes.firstIndex(where: { $0.id == id }) {
+                randomRecipes[index] = updatedRecipe
+            }
+            
+            error = nil
             return true
         } catch {
-            self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-            print("Update recipe error: \(error)")
+            self.error = error.localizedDescription
             return false
         }
     }
@@ -181,6 +184,7 @@ final class AppViewModel: ObservableObject {
             try await APIClient.deleteRecipe(id: id)
             
             // Remove the recipe from local arrays
+            recipes.removeAll { $0.id == id }
             randomRecipes.removeAll { $0.id == id }
             
             print("Successfully deleted recipe \(id)")
@@ -230,5 +234,4 @@ final class AppViewModel: ObservableObject {
         
         return success
     }
-    
 }

@@ -26,6 +26,8 @@ struct AddEditRecipeView: View {
     @State private var isSaving = false
     @State private var fileImporterTrigger = UUID()
     @State private var isCompressingImage = false
+    @State private var ingredients: [String] = []
+    @State private var newIngredient: String = ""
     
     
     // iOS specific photo states
@@ -203,6 +205,43 @@ struct AddEditRecipeView: View {
                     }
                 }
                 
+                Section("Ingredients") {
+                    // Add ingredient field
+                    HStack {
+                        TextField("Add ingredient", text: $newIngredient)
+                            .onSubmit {
+                                addIngredient()
+                            }
+                        
+                        Button("Add") {
+                            addIngredient()
+                        }
+                        .disabled(newIngredient.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                    
+                    // List of current ingredients
+                    if !ingredients.isEmpty {
+                        ForEach(Array(ingredients.enumerated()), id: \.offset) { index, ingredient in
+                            HStack {
+                                Text("• \(ingredient)")
+                                Spacer()
+                                Button {
+                                    ingredients.remove(at: index)
+                                } label: {
+                                    Image(systemName: "minus.circle.fill")
+                                        .foregroundColor(.red)
+                                }
+                            }
+                        }
+                        .onDelete(perform: deleteIngredients)
+                        .onMove(perform: moveIngredients)
+                    } else {
+                        Text("No ingredients added yet")
+                            .foregroundStyle(.secondary)
+                            .font(.caption)
+                    }
+                }
+
                 Section("Recipe Details") {
                     TextEditor(text: $recipeDetails)
                         .frame(minHeight: 400)
@@ -246,13 +285,16 @@ struct AddEditRecipeView: View {
                     }
                 }
                 
-                // Setup for editing (unchanged)
+                // Setup for editing
                 if let recipe = editingRecipe {
                     selectedCategoryId = recipe.category_id
                     recipeName = recipe.name
                     recipeTime = String(recipe.recipe_time)
                     recipeDetails = recipe.details ?? ""
                     existingImagePath = recipe.image
+                    // Initialize ingredients array
+                    ingredients = recipe.ingredients ?? []
+                    print("[AddEditRecipeView] Loaded \(ingredients.count) ingredients for editing")
                 }
             }
             .onChange(of: model.categories) { _, newCategories in
@@ -624,6 +666,8 @@ struct AddEditRecipeView: View {
     }
 #endif
 
+    // Replace the saveRecipe method in AddEditRecipeView with this updated version:
+
     @MainActor
     private func saveRecipe() async {
         isSaving = true
@@ -635,6 +679,12 @@ struct AddEditRecipeView: View {
         let timeValue = Int(recipeTime.trimmingCharacters(in: .whitespacesAndNewlines))
         let trimmedDetails = recipeDetails.trimmingCharacters(in: .whitespacesAndNewlines)
         let detailsToSave = trimmedDetails.isEmpty ? nil : trimmedDetails
+        
+        // Process ingredients - remove empty ones and trim whitespace
+        let processedIngredients = ingredients
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        let ingredientsToSave = processedIngredients.isEmpty ? nil : processedIngredients
         
         var imagePathToSave = existingImagePath
 
@@ -652,18 +702,21 @@ struct AddEditRecipeView: View {
         }
 
         let selectedName = model.categories.first(where: { $0.id == selectedCategoryId })?.name ?? "<unknown>"
-        print("[AddEditRecipeView] create/update — categoryId=\(selectedCategoryId) (\(selectedName)), name=\(trimmedName), time=\(String(describing: timeValue)), hasImage=\(selectedImageData != nil || imagePathToSave != nil)")
+        print("[AddEditRecipeView] create/update – categoryId=\(selectedCategoryId) (\(selectedName)), name=\(trimmedName), time=\(String(describing: timeValue)), hasImage=\(selectedImageData != nil || imagePathToSave != nil), ingredients=\(processedIngredients.count)")
         
         let success: Bool
         if let recipe = editingRecipe {
-            // Use the new method with UI feedback for updates
+            // Determine what changed for the update
+            let ingredientsChanged = (recipe.ingredients ?? []) != processedIngredients
+            
             success = await model.updateRecipeWithUIFeedback(
                 id: recipe.id,
                 categoryId: selectedCategoryId != recipe.category_id ? selectedCategoryId : nil,
                 name: trimmedName != recipe.name ? trimmedName : nil,
                 recipeTime: timeValue != recipe.recipe_time ? timeValue : nil,
                 details: detailsToSave != recipe.details ? detailsToSave : nil,
-                image: imagePathToSave != recipe.image ? imagePathToSave : nil
+                image: imagePathToSave != recipe.image ? imagePathToSave : nil,
+                ingredients: ingredientsChanged ? ingredientsToSave : nil
             )
         } else {
             success = await model.createRecipe(
@@ -671,13 +724,35 @@ struct AddEditRecipeView: View {
                 name: trimmedName,
                 recipeTime: timeValue,
                 details: detailsToSave,
-                image: imagePathToSave
+                image: imagePathToSave,
+                ingredients: ingredientsToSave
             )
         }
         
         if success {
             dismiss()
         }
+    }
+    
+    private func addIngredient() {
+        let trimmed = newIngredient.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        
+        // Avoid duplicates
+        if !ingredients.contains(where: { $0.lowercased() == trimmed.lowercased() }) {
+            ingredients.append(trimmed)
+            newIngredient = ""
+        } else {
+            newIngredient = ""
+        }
+    }
+
+    private func deleteIngredients(at offsets: IndexSet) {
+        ingredients.remove(atOffsets: offsets)
+    }
+
+    private func moveIngredients(from source: IndexSet, to destination: Int) {
+        ingredients.move(fromOffsets: source, toOffset: destination)
     }
     
     

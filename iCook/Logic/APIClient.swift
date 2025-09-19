@@ -323,7 +323,6 @@ public enum APIClient {
         }
     }
     
-
     public static func createRecipe(categoryId: Int, name: String, recipeTime: Int?, details: String?, image: String?, ingredients: [String]? = nil) async throws -> Recipe {
         let url = try makeURL(route: "/recipes")
         var request = URLRequest(url: url)
@@ -451,7 +450,7 @@ public enum APIClient {
             throw APIError.transport(error.localizedDescription)
         }
     }
-
+    
     public static func deleteRecipe(id: Int) async throws {
         let url = try makeURL(route: "/recipes/\(id)")
         var request = URLRequest(url: url)
