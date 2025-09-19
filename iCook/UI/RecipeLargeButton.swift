@@ -16,12 +16,10 @@ struct RecipeLargeButton: View {
             AsyncImage(url: recipe.imageURL) { phase in
                 switch phase {
                 case .empty:
-                    ZStack {
-                        Rectangle().opacity(0.08)
-                        ProgressView()
-                    }
-                    .frame(height: 140)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    Image(systemName: "fork.knife.circle")
+                        .font(.system(size: 80))
+                        .frame(width: 190, height: 140)
+
                 case .success(let image):
                     #if os(macOS)
                     image

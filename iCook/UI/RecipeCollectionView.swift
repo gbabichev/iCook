@@ -180,10 +180,40 @@ struct RecipeCollectionView: View {
         AsyncImage(url: recipe.imageURL) { phase in
             switch phase {
             case .empty:
-                headerPlaceholder {
-                    ProgressView()
-                        .scaleEffect(1.5)
+                VStack(spacing: 8) {
+                    
+                    Image(systemName: "fork.knife.circle")
+                        .font(.system(size: 80))
+                        .padding(.top, 100)
+                    
+                    Text(recipe.name)
+                        .font(.largeTitle)
+                        .fontWeight(.bold)
+
+                    Text("\(recipe.recipe_time) minutes")
+                        .font(.headline)
+                        .opacity(0.8)
+                    
+
+                    
+                    // Clickable button within the non-clickable header
+                    NavigationLink(destination: RecipeDetailView(recipe: recipe)) {
+                        HStack {
+                            Image(systemName: "eye")
+                            Text("View Recipe")
+                        }
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 12)
+                        .background(.black.opacity(0.6))
+                        .cornerRadius(25)
+                    }
+                    .buttonStyle(.plain)
                 }
+                .padding(.bottom, 32)
+                .padding(.horizontal, 20)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                .frame(height: 200)
                 
             case .success(let image):
                 image

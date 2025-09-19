@@ -17,12 +17,10 @@ struct RecipeDetailView: View {
                 AsyncImage(url: recipe.imageURL) { phase in
                     switch phase {
                     case .empty:
-                        ZStack {
-                            Rectangle().opacity(0.08)
-                            ProgressView()
-                        }
-                        .frame(height: 350)
-                        .backgroundExtensionEffect()
+                        Image(systemName: "fork.knife.circle")
+                            .font(.system(size: 80))
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                            .frame(height: 200)
                     case .success(let image):
                         GeometryReader { geometry in
                             image
@@ -279,4 +277,6 @@ struct RecipeDetailView: View {
 extension Notification.Name {
     static let recipeDeleted = Notification.Name("recipeDeleted")
     static let recipeUpdated = Notification.Name("recipeUpdated")
+    static let refreshRequested = Notification.Name("refreshRequested")
+
 }
