@@ -156,9 +156,9 @@ struct RecipeDetailView: View {
             }
         }
         .navigationTitle(recipe.name)
-//        #if os(iOS)
-//        .navigationBarTitleDisplayMode(.inline)
-//        #endif
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
         .ignoresSafeArea(edges: .top)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
@@ -249,11 +249,19 @@ struct RecipeDetailView: View {
         )
 
         #if os(iOS)
-        // Use UTI strings to avoid needing imports here
+        // Put RTF and plain text into a *single* pasteboard item so iOS sees both
         if let rtfData {
-            UIPasteboard.general.setData(rtfData, forPasteboardType: "public.rtf")
-            UIPasteboard.general.setValue(plain, forPasteboardType: "public.utf8-plain-text")
+            UIPasteboard.general.setItems([
+                [
+                    "public.rtf": rtfData,
+                    // Add multiple plain-text UTIs for best compatibility
+                    "public.utf8-plain-text": plain,
+                    "public.plain-text": plain,
+                    "public.text": plain
+                ]
+            ])
         } else {
+            // Fallback to plain text only
             UIPasteboard.general.string = plain
         }
         #elseif os(macOS)
