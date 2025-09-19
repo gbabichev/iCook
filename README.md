@@ -7,7 +7,7 @@
 </picture>
 <br/><br/>
 
-Simple **macOS** app that lest you easily set the default Mail app, since Apple doesn't make it easy. 
+macOS / iPadOS / iOS frontend for iCook Recipe Server.
 
 </div>
 
@@ -15,7 +15,18 @@ Simple **macOS** app that lest you easily set the default Mail app, since Apple 
     <a href="Documentation/App1.png"><img src="Documentation/App1.png" width="35%"></a>
 </p>
 
-## 🖥️ Features, Tools, and Settings
+<details>
+<summary>Work in Progress</summary>
+- Fix search UI
+</details>
+
+<details>
+<summary>Completed</summary> 
+- Working
+</details>
+
+
+<!-- ## 🖥️ Features, Tools, and Settings
 
 ### Features
 
@@ -85,4 +96,4 @@ MIT — free for personal and commercial use.
 
 Found a bug? Have an idea? Want to add support for your favorite obscure email client from 1987? I'd love to hear from you!
 
-
+ -->
