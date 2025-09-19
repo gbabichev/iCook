@@ -21,13 +21,13 @@ struct RecipeDetailView: View {
                             Rectangle().opacity(0.08)
                             ProgressView()
                         }
-                        .frame(height: 250)
+                        .frame(height: 350)
                         .backgroundExtensionEffect()
                     case .success(let image):
                         image
                             .resizable()
                             .aspectRatio(contentMode: .fill)
-                            .frame(height: 250)
+                            .frame(height: 350)
                             .clipped()
                             .backgroundExtensionEffect()
                     case .failure:
@@ -35,7 +35,7 @@ struct RecipeDetailView: View {
                             Rectangle().opacity(0.08)
                             Image(systemName: "photo")
                         }
-                        .frame(height: 250)
+                        .frame(height: 350)
                         .backgroundExtensionEffect()
                     @unknown default:
                         EmptyView()

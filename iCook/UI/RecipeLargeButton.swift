@@ -23,11 +23,20 @@ struct RecipeLargeButton: View {
                     .frame(height: 140)
                     .clipShape(RoundedRectangle(cornerRadius: 12))
                 case .success(let image):
+                    #if os(macOS)
                     image
                         .resizable()
                         .aspectRatio(contentMode: .fill)
                         .frame(width: 190, height: 140)
                         .clipShape(RoundedRectangle(cornerRadius: 12))
+                    #else
+                    image
+                        .resizable()
+                        .scaledToFill()
+                        .frame(height: 140)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .clipped()
+                    #endif
                 case .failure:
                     ZStack {
                         Rectangle().opacity(0.08)
