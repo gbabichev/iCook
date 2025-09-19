@@ -24,12 +24,15 @@ struct RecipeDetailView: View {
                         .frame(height: 350)
                         .backgroundExtensionEffect()
                     case .success(let image):
-                        image
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                            .frame(height: 350)
-                            .clipped()
-                            .backgroundExtensionEffect()
+                        GeometryReader { geometry in
+                            image
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .frame(width: geometry.size.width, height: 350)
+                                .clipped()
+                        }
+                        .frame(height: 350)
+                        .backgroundExtensionEffect()
                     case .failure:
                         ZStack {
                             Rectangle().opacity(0.08)
@@ -153,9 +156,9 @@ struct RecipeDetailView: View {
             }
         }
         .navigationTitle(recipe.name)
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
+//        #if os(iOS)
+//        .navigationBarTitleDisplayMode(.inline)
+//        #endif
         .ignoresSafeArea(edges: .top)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
