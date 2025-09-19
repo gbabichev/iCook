@@ -70,9 +70,9 @@ struct RecipeSearchResultsView: View {
                             .padding(.horizontal, 16)
                         
                         LazyVGrid(columns: columns, spacing: 12) {
-                            ForEach(searchResults) { recipe in
+                            ForEach(Array(searchResults.enumerated()), id: \.element.id) { index, recipe in
                                 NavigationLink(destination: RecipeDetailView(recipe: recipe)) {
-                                    RecipeLargeButton(recipe: recipe)
+                                    RecipeLargeButtonWithState(recipe: recipe, index: index)
                                 }
                                 .buttonStyle(.plain)
                             }

@@ -348,12 +348,7 @@ struct RecipeCollectionView: View {
                     LazyVGrid(columns: columns, spacing: 15) {
                         ForEach(Array(remainingRecipes.enumerated()), id: \.element.id) { index, recipe in
                             NavigationLink(destination: RecipeDetailView(recipe: recipe)) {
-                                RecipeLargeButton(recipe: recipe)
-                                    .task {
-                                        // Stagger image loads with 100ms delay per item
-                                        let delay = Double(index) * 0.1
-                                        try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-                                    }
+                                RecipeLargeButtonWithState(recipe: recipe, index: index)
                             }
                             .buttonStyle(.plain)
                             .contextMenu {
