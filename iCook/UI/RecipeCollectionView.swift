@@ -85,7 +85,13 @@ struct RecipeCollectionView: View {
     @State private var showingDeleteAlert = false
     @State private var isDeleting = false
     @State private var selectedFeaturedRecipe: Recipe?
-
+    
+    // Search state
+    @State private var searchText = ""
+    @State private var searchTask: Task<Void, Never>? = nil
+    @State private var searchResults: [Recipe] = []
+    @State private var isSearching = false
+    @State private var showingSearchResults = false
 
     
     // Adaptive columns with consistent spacing - account for spacing in minimum width
@@ -93,6 +99,10 @@ struct RecipeCollectionView: View {
     
     // Computed property to get the appropriate recipe list
     private var recipes: [Recipe] {
+        if showingSearchResults {
+            return searchResults
+        }
+        
         switch collectionType {
         case .home:
             return model.randomRecipes
@@ -103,6 +113,10 @@ struct RecipeCollectionView: View {
     
     // Featured recipe (first or stored random)
     private var featuredRecipe: Recipe? {
+        if showingSearchResults {
+            return recipes.first
+        }
+        
         switch collectionType {
         case .home:
             return recipes.first
@@ -118,6 +132,10 @@ struct RecipeCollectionView: View {
 
     // Remaining recipes (excluding featured)
     private var remainingRecipes: [Recipe] {
+        if showingSearchResults {
+            return Array(recipes.dropFirst())
+        }
+        
         switch collectionType {
         case .home:
             return Array(recipes.dropFirst())
@@ -231,9 +249,15 @@ struct RecipeCollectionView: View {
             VStack(spacing: 16) {
                 ProgressView()
                     .scaleEffect(1.5)
-                Text(collectionType.loadingText)
-                    .font(.headline)
-                    .foregroundStyle(.secondary)
+                if showingSearchResults {
+                    Text("Searching recipes...")
+                        .font(.headline)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text(collectionType.loadingText)
+                        .font(.headline)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
     }
@@ -242,12 +266,18 @@ struct RecipeCollectionView: View {
     private func emptyStateHeader() -> some View {
         headerPlaceholder {
             VStack(spacing: 16) {
-                Image(systemName: collectionType.emptyStateIcon)
+                Image(systemName: showingSearchResults ? "magnifyingglass" : collectionType.emptyStateIcon)
                     .font(.system(size: 48))
                     .foregroundStyle(.secondary)
-                Text(collectionType.emptyStateText)
-                    .font(.headline)
-                    .foregroundStyle(.secondary)
+                if showingSearchResults {
+                    Text("No recipes found for '\(searchText)'")
+                        .font(.headline)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text(collectionType.emptyStateText)
+                        .font(.headline)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
     }
@@ -269,18 +299,19 @@ struct RecipeCollectionView: View {
     private func recipesGridSection() -> some View {
         if !recipes.isEmpty {
             VStack(alignment: .leading, spacing: 16) {
-                Text(collectionType.sectionTitle)
+                let sectionTitle = showingSearchResults ? "Search Results" : collectionType.sectionTitle
+                Text(sectionTitle)
                     .font(.title2)
                     .bold()
                     .padding(.top, 20)
                     .padding(.leading, 15)
                 
-                if remainingRecipes.isEmpty && recipes.count == 1 && isCategory {
+                if remainingRecipes.isEmpty && recipes.count == 1 && isCategory && !showingSearchResults {
                     Text("This is the only recipe in this category")
                         .font(.body)
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 15)
-                } else if remainingRecipes.isEmpty {
+                } else if remainingRecipes.isEmpty && !showingSearchResults {
                     ProgressView("Loading recipes...")
                         .frame(maxWidth: .infinity, minHeight: 80)
                 } else {
@@ -407,11 +438,41 @@ struct RecipeCollectionView: View {
         deletingRecipe = nil
     }
     
+    // MARK: - Search Logic
+    
+    private func performSearch() {
+        let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            Task {
+                await performSearch(with: trimmed)
+            }
+        }
+    }
+    
+    @MainActor
+    private func performSearch(with query: String) async {
+        guard !query.isEmpty else { return }
+        
+        isSearching = true
+        showingSearchResults = true
+        
+        defer { isSearching = false }
+        
+        do {
+            let results = try await APIClient.searchRecipes(query: query)
+            searchResults = results
+        } catch {
+            print("Search error: \(error)")
+            model.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            searchResults = []
+        }
+    }
+    
     // MARK: - UI View
     
     var body: some View {
         Group {
-            if !isLoading && recipes.isEmpty && !(isHome && model.randomRecipes.isEmpty) {
+            if !isLoading && recipes.isEmpty && !(isHome && model.randomRecipes.isEmpty) && !showingSearchResults {
                 // Centered empty state - replaces the entire scroll view
                 VStack(spacing: 16) {
                     Image(systemName: collectionType.emptyStateIcon)
@@ -429,12 +490,39 @@ struct RecipeCollectionView: View {
                         // Featured header image
                         if let featuredRecipe = featuredRecipe {
                             featuredRecipeHeader(featuredRecipe)
-                        } else if isLoading || (isHome && model.randomRecipes.isEmpty) {
+                        } else if isLoading || isSearching || (isHome && model.randomRecipes.isEmpty) {
                             loadingHeader()
+                        } else if showingSearchResults && searchResults.isEmpty {
+                            emptyStateHeader()
                         }
                         
                         // Recipes grid section
                         recipesGridSection()
+                    }
+                }
+            }
+        }
+        .searchable(text: $searchText, placement: .automatic, prompt: "Search recipes")
+        .onSubmit(of: .search) {
+            if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                performSearch()
+            }
+        }
+        .onChange(of: searchText) { _, newValue in
+            let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            
+            if trimmed.isEmpty {
+                // Clear search when text is empty
+                showingSearchResults = false
+                searchResults = []
+                searchTask?.cancel()
+            } else {
+                // Debounced search
+                searchTask?.cancel()
+                searchTask = Task { [trimmed] in
+                    try? await Task.sleep(nanoseconds: 500_000_000) // 500ms debounce
+                    if !Task.isCancelled && trimmed == searchText.trimmingCharacters(in: .whitespacesAndNewlines) {
+                        await performSearch(with: trimmed)
                     }
                 }
             }
@@ -465,10 +553,15 @@ struct RecipeCollectionView: View {
                 }
             }
         }
-        .navigationTitle(collectionType.title)
+        .navigationTitle(showingSearchResults ? "Search Results" : collectionType.title)
         .task(id: collectionType) {
             // Reset featured recipe selection when collection type changes
             selectedFeaturedRecipe = nil
+            // Clear search when switching collection types
+            showingSearchResults = false
+            searchResults = []
+            searchText = ""
+            searchTask?.cancel()
             await loadRecipes()
         }
 
@@ -488,7 +581,12 @@ struct RecipeCollectionView: View {
             }
         }
         .refreshable {
-            await loadRecipes()
+            if showingSearchResults {
+                // Refresh search results
+                performSearch()
+            } else {
+                await loadRecipes()
+            }
         }
         .alert("Error", isPresented: .init(
             get: { error != nil },
@@ -500,6 +598,7 @@ struct RecipeCollectionView: View {
         }
         .onDisappear {
             currentLoadTask?.cancel()
+            searchTask?.cancel()
         }
         .sheet(item: $editingRecipe) { recipe in
             AddEditRecipeView(editingRecipe: recipe)
