@@ -30,7 +30,7 @@ final class AppViewModel: ObservableObject {
         }
     }
 
-    func loadRandomRecipes(count: Int = 6) async {
+    func loadRandomRecipes(count: Int = 20) async {
         guard !isLoadingRecipes else {
             print("Already loading recipes, skipping...")
             return
