@@ -289,22 +289,7 @@ struct RecipeCollectionView: View {
     
     @ViewBuilder
     private func recipesGridSection() -> some View {
-        VStack(alignment: .leading, spacing: 16) {
-            // Determine section title based on search state and results
-            let sectionTitle: String = {
-                if showingSearchResults {
-                    return "Search Results"
-                } else {
-                    return collectionType.sectionTitle
-                }
-            }()
-            
-            Text(sectionTitle)
-                .font(.title2)
-                .bold()
-                .padding(.top, 20)
-                .padding(.leading, 15)
-            
+        VStack(alignment: .leading, spacing: 16) {            
             // Show grid if there are recipes, or centered no results message if searching with no results
             if !remainingRecipes.isEmpty {
                 LazyVGrid(columns: columns, spacing: 15) {
