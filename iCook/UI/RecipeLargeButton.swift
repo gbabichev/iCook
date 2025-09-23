@@ -79,7 +79,7 @@ struct RecipeLargeButtonWithState: View {
         .contentShape(Rectangle()) // Make the entire area tappable
         .task {
             // Stagger the image loading
-            let delay = Double(index) * 0.05 // 50ms between each image
+            let delay = Double(index) * 0.01 // Add small delay between loads. 
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             shouldLoadImage = true
         }

@@ -85,6 +85,7 @@ struct RecipeCollectionView: View {
     @State private var showingDeleteAlert = false
     @State private var isDeleting = false
     @State private var selectedFeaturedRecipe: Recipe?
+    @State private var hasLoadedInitially = false
     
     // Search state
     @State private var searchText = ""
@@ -554,16 +555,31 @@ struct RecipeCollectionView: View {
             }
         }
         .navigationTitle(showingSearchResults ? "Search Resultz!!!" : collectionType.title)
-        .task(id: collectionType) {
-            // Reset featured recipe selection when collection type changes
-            selectedFeaturedRecipe = nil
-            // Clear search when switching collection types
-            showingSearchResults = false
-            searchResults = []
-            searchText = ""
-            searchTask?.cancel()
-            await loadRecipes()
+        // Replace both the .task(id: collectionType) and .onAppear modifiers with this single one:
+        .task {
+            // This runs once when the view first appears
+            if !hasLoadedInitially {
+                hasLoadedInitially = true
+                selectedFeaturedRecipe = nil
+                showingSearchResults = false
+                searchResults = []
+                searchText = ""
+                searchTask?.cancel()
+                await loadRecipes()
+            }
         }
+        .onChange(of: collectionType) { _, newType in
+            // Only reset and reload when the collection type actually changes
+            Task {
+                selectedFeaturedRecipe = nil
+                showingSearchResults = false
+                searchResults = []
+                searchText = ""
+                searchTask?.cancel()
+                await loadRecipes()
+            }
+        }
+
 
         // Also add this modifier to reset when category recipes change:
         .onChange(of: categoryRecipes) { _,newRecipes in
