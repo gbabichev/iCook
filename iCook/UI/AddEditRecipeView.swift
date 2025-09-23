@@ -540,28 +540,32 @@ struct AddEditRecipeView: View {
         }
         
         let originalSize = image.size
-        let maxSide = max(originalSize.width, originalSize.height)
+        let scale = image.scale
+        print("[Compression] Original image size: \(originalSize), scale: \(scale)")
         
-        // Always apply JPEG compression, and resize if needed
+        let maxSide = max(originalSize.width, originalSize.height)
         let needsResize = maxSide > maxDimension
         let targetSize: CGSize
         
         if needsResize {
-            let scale = maxDimension / maxSide
-            targetSize = CGSize(width: originalSize.width * scale, height: originalSize.height * scale)
-            print("[Compression] Resizing from \(originalSize) to \(targetSize)")
+            let scaleRatio = maxDimension / maxSide
+            targetSize = CGSize(width: originalSize.width * scaleRatio, height: originalSize.height * scaleRatio)
+            print("[Compression] Scale ratio: \(scaleRatio), target size: \(targetSize)")
         } else {
             targetSize = originalSize
             print("[Compression] No resize needed, original size: \(originalSize)")
         }
         
-        // Create the final image (resized if needed)
+        // Create the final image with explicit scale
         let finalImage: UIImage
         if needsResize {
-            let renderer = UIGraphicsImageRenderer(size: targetSize)
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = 1.0 // Force scale to 1.0
+            let renderer = UIGraphicsImageRenderer(size: targetSize, format: format)
             finalImage = renderer.image { _ in
                 image.draw(in: CGRect(origin: .zero, size: targetSize))
             }
+            print("[Compression] Rendered image size: \(finalImage.size), scale: \(finalImage.scale)")
         } else {
             finalImage = image
         }
@@ -759,31 +763,128 @@ struct AddEditRecipeView: View {
 }
 
 // iOS Camera Support
+// Enhanced iOS 17+ Camera Implementation with Multi-Camera Support
+
 #if os(iOS)
 @preconcurrency import AVFoundation
+
+struct CameraInfo: Identifiable, Hashable {
+    let id = UUID()
+    let device: AVCaptureDevice
+    let displayName: String
+    let position: AVCaptureDevice.Position
+    
+    init(device: AVCaptureDevice) {
+        self.device = device
+        self.position = device.position
+        
+        // Create user-friendly names
+        let positionName = position == .front ? "Front" : "Back"
+        switch device.deviceType {
+        case .builtInWideAngleCamera:
+            self.displayName = "\(positionName) Wide"
+        case .builtInUltraWideCamera:
+            self.displayName = "\(positionName) Ultra Wide"
+        case .builtInTelephotoCamera:
+            self.displayName = "\(positionName) Telephoto"
+        case .builtInDualCamera:
+            self.displayName = "\(positionName) Dual"
+        case .builtInDualWideCamera:
+            self.displayName = "\(positionName) Dual Wide"
+        case .builtInTripleCamera:
+            self.displayName = "\(positionName) Triple"
+        default:
+            self.displayName = "\(positionName) Camera"
+        }
+    }
+}
+
+struct CameraPreview: UIViewRepresentable {
+    let session: AVCaptureSession
+    let cameraManager: CameraManager
+    
+    func makeUIView(context: Context) -> PreviewView {
+        let view = PreviewView()
+        view.videoPreviewLayer.session = session
+        view.videoPreviewLayer.videoGravity = .resizeAspectFill
+        // Attach preview layer so the manager can create a RotationCoordinator
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+             cameraManager.updatePreviewRotation()
+         }
+         
+        return view
+    }
+    
+    func updateUIView(_ uiView: PreviewView, context: Context) {
+        // Keep preview leveled relative to horizon
+        cameraManager.updatePreviewRotation()
+    }
+}
 
 struct CameraView: View {
     let onImageCaptured: (UIImage) -> Void
     @Environment(\.dismiss) private var dismiss
     @StateObject private var cameraManager = CameraManager()
+    @State private var showingCameraSelector = false
     
     var body: some View {
         NavigationStack {
             ZStack {
                 // Camera preview
-                CameraPreview(session: cameraManager.session)
+                CameraPreview(session: cameraManager.session, cameraManager: cameraManager)
                     .ignoresSafeArea()
                 
                 VStack {
-                    Spacer()
-                    
-                    // Camera controls
+                    // Top controls
                     HStack {
                         Button("Cancel") {
                             dismiss()
                         }
                         .foregroundColor(.white)
                         .padding()
+                        
+                        Spacer()
+                        
+                        // Camera selector button
+                        if cameraManager.availableCameras.count > 1 {
+                            Button {
+                                showingCameraSelector = true
+                            } label: {
+                                VStack(spacing: 4) {
+                                    Image(systemName: "camera.circle")
+                                        .font(.title2)
+                                    Text(cameraManager.currentCamera?.displayName ?? "Camera")
+                                        .font(.caption)
+                                }
+                                .foregroundColor(.white)
+                                .padding(.horizontal)
+                            }
+                        }
+                    }
+                    .padding(.top, 50)
+                    
+                    Spacer()
+                    
+                    // Bottom controls
+                    HStack {
+                        // Flash toggle (if supported)
+                        if cameraManager.currentCamera?.device.hasFlash == true {
+                            Button {
+                                cameraManager.toggleFlash()
+                            } label: {
+                                VStack(spacing: 4) {
+                                    Image(systemName: cameraManager.flashMode == .on ? "bolt.fill" : cameraManager.flashMode == .auto ? "bolt.badge.automatic" : "bolt.slash")
+                                        .font(.title2)
+                                    Text(cameraManager.flashMode == .on ? "On" : cameraManager.flashMode == .auto ? "Auto" : "Off")
+                                        .font(.caption)
+                                }
+                                .foregroundColor(.white)
+                                .padding()
+                            }
+                        } else {
+                            Spacer()
+                                .frame(width: 60)
+                        }
                         
                         Spacer()
                         
@@ -808,14 +909,18 @@ struct CameraView: View {
                         
                         Spacer()
                         
-                        // Flip camera button
+                        // Quick camera flip (front/back toggle)
                         Button {
-                            cameraManager.flipCamera()
+                            cameraManager.flipToOppositePosition()
                         } label: {
-                            Image(systemName: "camera.rotate")
-                                .font(.title2)
-                                .foregroundColor(.white)
-                                .padding()
+                            VStack(spacing: 4) {
+                                Image(systemName: "camera.rotate")
+                                    .font(.title2)
+                                Text("Flip")
+                                    .font(.caption)
+                            }
+                            .foregroundColor(.white)
+                            .padding()
                         }
                     }
                     .padding(.bottom, 50)
@@ -827,24 +932,98 @@ struct CameraView: View {
             .onDisappear {
                 cameraManager.stopSession()
             }
+            .confirmationDialog("Select Camera", isPresented: $showingCameraSelector) {
+                ForEach(cameraManager.availableCameras) { cameraInfo in
+                    Button(cameraInfo.displayName) {
+                        cameraManager.switchToCamera(cameraInfo)
+                    }
+                }
+                Button("Cancel", role: .cancel) { }
+            }
         }
     }
 }
 
+@MainActor
 class CameraManager: NSObject, ObservableObject {
     let session = AVCaptureSession()
     private var photoOutput = AVCapturePhotoOutput()
     private var videoDeviceInput: AVCaptureDeviceInput?
     private var captureCompletion: ((UIImage?) -> Void)?
     
+    private weak var previewLayer: AVCaptureVideoPreviewLayer?
+    private var rotationCoordinator: AVCaptureDevice.RotationCoordinator?
+    
+    @Published var availableCameras: [CameraInfo] = []
+    @Published var currentCamera: CameraInfo?
+    @Published var flashMode: AVCaptureDevice.FlashMode = .auto
+    
     override init() {
         super.init()
+        discoverCameras()
         setupCamera()
+    }
+    
+    private func discoverCameras() {
+        let discoverySession = AVCaptureDevice.DiscoverySession(
+            deviceTypes: [
+                .builtInWideAngleCamera,
+                .builtInUltraWideCamera,
+                .builtInTelephotoCamera,
+                .builtInDualCamera,
+                .builtInDualWideCamera,
+                .builtInTripleCamera
+            ],
+            mediaType: .video,
+            position: .unspecified
+        )
+        
+        availableCameras = discoverySession.devices.map { CameraInfo(device: $0) }
+        
+        // Sort cameras: back cameras first, then by type preference
+        availableCameras.sort { camera1, camera2 in
+            // Back cameras first
+            if camera1.position != camera2.position {
+                return camera1.position == .back
+            }
+            
+            // Within same position, prefer virtual multi‑camera types, then single‑lens wide → ultra‑wide → telephoto
+            let typeOrder: [AVCaptureDevice.DeviceType] = [
+                .builtInTripleCamera,
+                .builtInDualWideCamera,
+                .builtInDualCamera,
+                .builtInWideAngleCamera,
+                .builtInUltraWideCamera,
+                .builtInTelephotoCamera
+            ]
+            let index1 = typeOrder.firstIndex(of: camera1.device.deviceType) ?? typeOrder.count
+            let index2 = typeOrder.firstIndex(of: camera2.device.deviceType) ?? typeOrder.count
+            return index1 < index2
+        }
+        
+        // Preferred default: virtual multi‑camera on the back if available
+        let preferredBackVirtualTypes: [AVCaptureDevice.DeviceType] = [
+            .builtInTripleCamera,
+            .builtInDualWideCamera,
+            .builtInDualCamera
+        ]
+        if let virtualBack = availableCameras.first(where: { $0.position == .back && preferredBackVirtualTypes.contains($0.device.deviceType) }) {
+            currentCamera = virtualBack
+        } else if let backWide = availableCameras.first(where: { $0.position == .back && $0.device.deviceType == .builtInWideAngleCamera }) {
+            currentCamera = backWide
+        } else {
+            currentCamera = availableCameras.first
+        }
+        
+        print("Discovered \(availableCameras.count) cameras:")
+        availableCameras.forEach { camera in
+            print("- \(camera.displayName) (\(camera.device.deviceType.rawValue))")
+        }
     }
     
     func requestPermission() {
         AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 if granted {
                     self?.startSession()
                 }
@@ -855,12 +1034,10 @@ class CameraManager: NSObject, ObservableObject {
     private func setupCamera() {
         session.sessionPreset = .photo
         
-        guard let videoDevice = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) else {
-            return
-        }
+        guard let currentCamera = currentCamera else { return }
         
         do {
-            let videoDeviceInput = try AVCaptureDeviceInput(device: videoDevice)
+            let videoDeviceInput = try AVCaptureDeviceInput(device: currentCamera.device)
             
             if session.canAddInput(videoDeviceInput) {
                 session.addInput(videoDeviceInput)
@@ -869,18 +1046,106 @@ class CameraManager: NSObject, ObservableObject {
             
             if session.canAddOutput(photoOutput) {
                 session.addOutput(photoOutput)
-                // photoOutput.isHighResolutionCaptureEnabled = true
             }
+            // After setting up inputs/outputs, configure rotation coordinator
+            reconfigureRotationCoordinator()
         } catch {
             print("Error setting up camera: \(error)")
+        }
+    }
+
+    func attachPreviewLayer(_ layer: AVCaptureVideoPreviewLayer) {
+        self.previewLayer = layer
+        reconfigureRotationCoordinator()
+        updatePreviewRotation()
+    }
+
+    private func reconfigureRotationCoordinator() {
+        guard let device = currentCamera?.device else { return }
+        // Create/refresh the rotation coordinator; previewLayer is optional
+        rotationCoordinator = AVCaptureDevice.RotationCoordinator(device: device, previewLayer: previewLayer)
+        
+        // Apply initial angles to connections if available
+        if let conn = previewLayer?.connection, let coord = rotationCoordinator,
+           conn.isVideoRotationAngleSupported(coord.videoRotationAngleForHorizonLevelPreview) {
+            conn.videoRotationAngle = coord.videoRotationAngleForHorizonLevelPreview
+        }
+    }
+
+    func updatePreviewRotation() {
+        guard let coord = rotationCoordinator, let conn = previewLayer?.connection,
+              conn.isVideoRotationAngleSupported(coord.videoRotationAngleForHorizonLevelPreview) else { return }
+        conn.videoRotationAngle = coord.videoRotationAngleForHorizonLevelPreview
+    }
+    
+    func switchToCamera(_ cameraInfo: CameraInfo) {
+        guard cameraInfo.id != currentCamera?.id else { return }
+        
+        session.beginConfiguration()
+        
+        // Remove current input
+        if let currentInput = videoDeviceInput {
+            session.removeInput(currentInput)
+        }
+        
+        // Add new input
+        do {
+            let newInput = try AVCaptureDeviceInput(device: cameraInfo.device)
+            if session.canAddInput(newInput) {
+                session.addInput(newInput)
+                videoDeviceInput = newInput
+                currentCamera = cameraInfo
+                
+                // Update flash mode based on new camera capabilities
+                if !cameraInfo.device.hasFlash && flashMode != .off {
+                    flashMode = .off
+                }
+            }
+        } catch {
+            print("Error switching camera: \(error)")
+            // Restore previous camera if switch failed
+            if let previousInput = videoDeviceInput {
+                session.addInput(previousInput)
+            }
+        }
+        
+        session.commitConfiguration()
+        reconfigureRotationCoordinator()
+        updatePreviewRotation()
+    }
+    
+    func flipToOppositePosition() {
+        guard let current = currentCamera else { return }
+        
+        let targetPosition: AVCaptureDevice.Position = current.position == .back ? .front : .back
+        
+        // Find the first camera of the opposite position (preferring wide camera)
+        if let targetCamera = availableCameras.first(where: { $0.position == targetPosition && $0.device.deviceType == .builtInWideAngleCamera }) ??
+           availableCameras.first(where: { $0.position == targetPosition }) {
+            switchToCamera(targetCamera)
+        }
+    }
+    
+    func toggleFlash() {
+        guard currentCamera?.device.hasFlash == true else { return }
+        
+        switch flashMode {
+        case .off:
+            flashMode = .auto
+        case .auto:
+            flashMode = .on
+        case .on:
+            flashMode = .off
+        @unknown default:
+            flashMode = .auto
         }
     }
     
     func startSession() {
         if !session.isRunning {
             let session = self.session
-            DispatchQueue.global(qos: .userInitiated).async { [weak session] in
-                session?.startRunning()
+            Task.detached {
+                session.startRunning()
             }
         }
     }
@@ -888,73 +1153,69 @@ class CameraManager: NSObject, ObservableObject {
     func stopSession() {
         if session.isRunning {
             let session = self.session
-            DispatchQueue.global(qos: .userInitiated).async { [weak session] in
-                session?.stopRunning()
+            Task.detached {
+                session.stopRunning()
             }
         }
     }
     
     func capturePhoto(completion: @escaping (UIImage?) -> Void) {
         let settings = AVCapturePhotoSettings()
-        if #available(iOS 16.0, *) {
-            settings.maxPhotoDimensions = photoOutput.maxPhotoDimensions
+        settings.maxPhotoDimensions = photoOutput.maxPhotoDimensions
+        settings.flashMode = flashMode
+        
+        // Only set photoQualityPrioritization if the output supports it
+        if photoOutput.maxPhotoQualityPrioritization.rawValue >= AVCapturePhotoOutput.QualityPrioritization.quality.rawValue {
+            settings.photoQualityPrioritization = .quality
         } else {
-            settings.isHighResolutionPhotoEnabled = true
+            // Fall back to the maximum supported quality level
+            settings.photoQualityPrioritization = photoOutput.maxPhotoQualityPrioritization
+        }
+        
+        // Set rotation using RotationCoordinator for horizon‑level capture (iOS 17+)
+        if let photoOutputConnection = photoOutput.connection(with: .video), let coord = rotationCoordinator {
+            let angle = coord.videoRotationAngleForHorizonLevelCapture
+            if photoOutputConnection.isVideoRotationAngleSupported(angle) {
+                photoOutputConnection.videoRotationAngle = angle
+            }
         }
         
         captureCompletion = completion
         photoOutput.capturePhoto(with: settings, delegate: self)
     }
-    
-    func flipCamera() {
-        guard let currentInput = videoDeviceInput else { return }
-        
-        session.beginConfiguration()
-        session.removeInput(currentInput)
-        
-        let newPosition: AVCaptureDevice.Position = currentInput.device.position == .back ? .front : .back
-        guard let newDevice = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: newPosition),
-              let newInput = try? AVCaptureDeviceInput(device: newDevice) else {
-            session.addInput(currentInput)
-            session.commitConfiguration()
-            return
-        }
-        
-        if session.canAddInput(newInput) {
-            session.addInput(newInput)
-            videoDeviceInput = newInput
-        } else {
-            session.addInput(currentInput)
-        }
-        
-        session.commitConfiguration()
-    }
 }
 
 extension CameraManager: AVCapturePhotoCaptureDelegate {
-    func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
-        guard let imageData = photo.fileDataRepresentation(),
-              let image = UIImage(data: imageData) else {
-            captureCompletion?(nil)
+    nonisolated func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
+        guard let imageData = photo.fileDataRepresentation() else {
+            Task { @MainActor in
+                self.captureCompletion?(nil)
+                self.captureCompletion = nil
+            }
             return
         }
         
-        captureCompletion?(image)
-        captureCompletion = nil
-    }
-}
-
-struct CameraPreview: UIViewRepresentable {
-    let session: AVCaptureSession
-    
-    func makeUIView(context: Context) -> PreviewView {
-        let view = PreviewView()
-        view.videoPreviewLayer.session = session
-        view.videoPreviewLayer.videoGravity = .resizeAspectFill
-        return view
+        Task { @MainActor in
+            if let image = UIImage(data: imageData) {
+                let fixedImage = self.fixImageOrientation(image)
+                self.captureCompletion?(fixedImage)
+            } else {
+                self.captureCompletion?(nil)
+            }
+            self.captureCompletion = nil
+        }
     }
     
-    func updateUIView(_ uiView: PreviewView, context: Context) {}
+    private func fixImageOrientation(_ image: UIImage) -> UIImage {
+        if image.imageOrientation == .up {
+            return image
+        }
+        
+        let renderer = UIGraphicsImageRenderer(size: image.size)
+        return renderer.image { _ in
+            image.draw(in: CGRect(origin: .zero, size: image.size))
+        }
+    }
 }
 
 final class PreviewView: UIView {
