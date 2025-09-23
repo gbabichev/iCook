@@ -32,13 +32,12 @@ struct RecipeLargeButtonWithState: View {
                     case .success(let image):
                         #if os(iOS)
                         if UIDevice.current.userInterfaceIdiom == .phone {
-                            // iPhone only
+                            // iPhone - use aspectRatio and maxWidth to constrain properly
                             image
                                 .resizable()
-                                .scaledToFill()
-                                .frame(height: 140)
+                                .aspectRatio(contentMode: .fill)
+                                .frame(maxWidth: .infinity, maxHeight: 140)
                                 .clipShape(RoundedRectangle(cornerRadius: 12))
-                                .clipped()
                         } else {
                             // iPad (runs on iOS but we want the Mac/iPad styling)
                             image
@@ -55,16 +54,28 @@ struct RecipeLargeButtonWithState: View {
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                         #endif
                     case .failure(_):
-                        Image(systemName: "photo.badge.exclamationmark")
-                            .font(.title2)
-                            .foregroundStyle(.secondary)
+                        ZStack {
+                            Rectangle()
+                                .fill(.ultraThinMaterial)
+                            Image(systemName: "photo.badge.exclamationmark")
+                                .font(.title2)
+                                .foregroundStyle(.secondary)
+                        }
+                        .frame(height: 140)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
                     @unknown default:
                         EmptyView()
                     }
                 }
             } else {
-                ProgressView()
-                    .scaleEffect(0.8)
+                ZStack {
+                    Rectangle()
+                        .fill(.ultraThinMaterial)
+                    ProgressView()
+                        .scaleEffect(0.8)
+                }
+                .frame(height: 140)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
             }
             
             VStack(alignment: .leading, spacing: 4) {
@@ -79,11 +90,10 @@ struct RecipeLargeButtonWithState: View {
         }
         .task {
             // Stagger the image loading
-            let delay = Double(index) * 0.05 // 150ms between each image
+            let delay = Double(index) * 0.05 // 50ms between each image
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             shouldLoadImage = true
         }
         .background(Color.clear)
     }
 }
-
