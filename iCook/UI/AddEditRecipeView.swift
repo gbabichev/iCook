@@ -818,28 +818,6 @@ struct CameraInfo: Identifiable, Hashable {
     }
 }
 
-struct CameraPreview: UIViewRepresentable {
-    let session: AVCaptureSession
-    let cameraManager: CameraManager
-    
-    func makeUIView(context: Context) -> PreviewView {
-        let view = PreviewView()
-        view.videoPreviewLayer.session = session
-        view.videoPreviewLayer.videoGravity = .resizeAspectFill
-        // Attach preview layer so the manager can create a RotationCoordinator
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-             cameraManager.updatePreviewRotation()
-         }
-         
-        return view
-    }
-    
-    func updateUIView(_ uiView: PreviewView, context: Context) {
-        // Keep preview leveled relative to horizon
-        cameraManager.updatePreviewRotation()
-    }
-}
-
 struct CameraView: View {
     let onImageCaptured: (UIImage) -> Void
     @Environment(\.dismiss) private var dismiss
@@ -963,16 +941,172 @@ struct CameraView: View {
     }
 }
 
+// MARK: - Camera Preview (Modernized)
+struct CameraPreview: UIViewRepresentable {
+    let session: AVCaptureSession
+    let cameraManager: CameraManager
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(cameraManager: cameraManager)
+    }
+    
+    @MainActor
+    final class Coordinator: NSObject {
+        var previewLayer: AVCaptureVideoPreviewLayer?
+        var rotationCoordinator: AVCaptureDevice.RotationCoordinator?
+        private var orientationObserver: NSObjectProtocol?
+        private var deviceChangeObserver: NSObjectProtocol?
+        private weak var cameraManager: CameraManager?
+        
+        init(cameraManager: CameraManager) {
+            self.cameraManager = cameraManager
+            super.init()
+        }
+        
+        @MainActor
+        func teardown() {
+            removeAllObservers()
+            rotationCoordinator = nil
+            previewLayer = nil
+        }
+        
+        @MainActor
+        func setupRotationCoordinator(for previewLayer: AVCaptureVideoPreviewLayer) {
+            guard let cameraManager = cameraManager,
+                  let device = cameraManager.currentCamera?.device else { return }
+            
+            // Create rotation coordinator with the preview layer
+            rotationCoordinator = AVCaptureDevice.RotationCoordinator(
+                device: device,
+                previewLayer: previewLayer
+            )
+            
+            // Store it in camera manager for photo capture
+            cameraManager.rotationCoordinator = rotationCoordinator
+            
+            // Set up observers
+            setupOrientationObserver()
+            setupDeviceChangeObserver()
+        }
+        
+        @MainActor
+        private func setupOrientationObserver() {
+            removeOrientationObserver() // Remove any existing observer
+            
+            orientationObserver = NotificationCenter.default.addObserver(
+                forName: UIDevice.orientationDidChangeNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in
+                    self?.updateVideoRotation()
+                }
+            }
+        }
+        
+        @MainActor
+        func setupDeviceChangeObserver() {
+            removeDeviceChangeObserver()
+            
+            deviceChangeObserver = NotificationCenter.default.addObserver(
+                forName: .cameraDeviceChanged,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in
+                    self?.deviceChanged()
+                }
+            }
+        }
+        
+        @MainActor
+        private func removeOrientationObserver() {
+            if let observer = orientationObserver {
+                NotificationCenter.default.removeObserver(observer)
+                orientationObserver = nil
+            }
+        }
+        
+        @MainActor
+        private func removeDeviceChangeObserver() {
+            if let observer = deviceChangeObserver {
+                NotificationCenter.default.removeObserver(observer)
+                deviceChangeObserver = nil
+            }
+        }
+        
+        @MainActor
+        private func removeAllObservers() {
+            removeOrientationObserver()
+            removeDeviceChangeObserver()
+        }
+        
+        @MainActor
+        func updateVideoRotation() {
+            guard let previewLayer = previewLayer,
+                  let connection = previewLayer.connection,
+                  let coordinator = rotationCoordinator else { return }
+            
+            // Use the correct rotation angle for preview
+            connection.videoRotationAngle = coordinator.videoRotationAngleForHorizonLevelPreview
+            
+            // Handle mirroring for front camera
+            if connection.isVideoMirroringSupported {
+                connection.automaticallyAdjustsVideoMirroring = false
+                connection.isVideoMirrored = (cameraManager?.currentCamera?.position == .front)
+            }
+        }
+        
+        @MainActor
+        func deviceChanged() {
+            // Recreate rotation coordinator when device changes
+            if let previewLayer = previewLayer {
+                setupRotationCoordinator(for: previewLayer)
+                updateVideoRotation()
+            }
+        }
+    }
+
+    func makeUIView(context: Context) -> PreviewView {
+        let view = PreviewView()
+        view.videoPreviewLayer.session = session
+        view.videoPreviewLayer.videoGravity = .resizeAspectFill
+        
+        // Store reference and setup rotation coordinator
+        context.coordinator.previewLayer = view.videoPreviewLayer
+        
+        Task { @MainActor in
+            context.coordinator.setupRotationCoordinator(for: view.videoPreviewLayer)
+            context.coordinator.updateVideoRotation()
+        }
+        
+        return view
+    }
+
+    func updateUIView(_ uiView: PreviewView, context: Context) {
+        Task { @MainActor in
+            context.coordinator.updateVideoRotation()
+        }
+    }
+    
+    static func dismantleUIView(_ uiView: PreviewView, coordinator: Coordinator) {
+        Task { @MainActor in
+            coordinator.teardown()
+        }
+    }
+    
+}
+
+// MARK: - Camera Manager (Modernized)
+// MARK: - Camera Manager (Fixed)
 @MainActor
 class CameraManager: NSObject, ObservableObject {
     let session = AVCaptureSession()
     private var photoOutput = AVCapturePhotoOutput()
     private var videoDeviceInput: AVCaptureDeviceInput?
     private var captureCompletion: ((UIImage?) -> Void)?
-    
-    private weak var previewLayer: AVCaptureVideoPreviewLayer?
-    private var rotationCoordinator: AVCaptureDevice.RotationCoordinator?
-    
+    var rotationCoordinator: AVCaptureDevice.RotationCoordinator?
+
     @Published var availableCameras: [CameraInfo] = []
     @Published var currentCamera: CameraInfo?
     @Published var flashMode: AVCaptureDevice.FlashMode = .auto
@@ -1001,12 +1135,10 @@ class CameraManager: NSObject, ObservableObject {
         
         // Sort cameras: back cameras first, then by type preference
         availableCameras.sort { camera1, camera2 in
-            // Back cameras first
             if camera1.position != camera2.position {
                 return camera1.position == .back
             }
             
-            // Within same position, prefer virtual multi‑camera types, then single‑lens wide → ultra‑wide → telephoto
             let typeOrder: [AVCaptureDevice.DeviceType] = [
                 .builtInTripleCamera,
                 .builtInDualWideCamera,
@@ -1020,7 +1152,7 @@ class CameraManager: NSObject, ObservableObject {
             return index1 < index2
         }
         
-        // Preferred default: virtual multi‑camera on the back if available
+        // Set default camera
         let preferredBackVirtualTypes: [AVCaptureDevice.DeviceType] = [
             .builtInTripleCamera,
             .builtInDualWideCamera,
@@ -1032,11 +1164,6 @@ class CameraManager: NSObject, ObservableObject {
             currentCamera = backWide
         } else {
             currentCamera = availableCameras.first
-        }
-        
-        print("Discovered \(availableCameras.count) cameras:")
-        availableCameras.forEach { camera in
-            print("- \(camera.displayName) (\(camera.device.deviceType.rawValue))")
         }
     }
     
@@ -1066,47 +1193,21 @@ class CameraManager: NSObject, ObservableObject {
             if session.canAddOutput(photoOutput) {
                 session.addOutput(photoOutput)
             }
-            // After setting up inputs/outputs, configure rotation coordinator
-            reconfigureRotationCoordinator()
         } catch {
             print("Error setting up camera: \(error)")
         }
     }
-
-    func attachPreviewLayer(_ layer: AVCaptureVideoPreviewLayer) {
-        self.previewLayer = layer
-        reconfigureRotationCoordinator()
-        updatePreviewRotation()
-    }
-
-    private func reconfigureRotationCoordinator() {
-        guard let device = currentCamera?.device else { return }
-        // Create/refresh the rotation coordinator; previewLayer is optional
-        rotationCoordinator = AVCaptureDevice.RotationCoordinator(device: device, previewLayer: previewLayer)
-        
-        // Apply initial angles to connections if available
-        if let conn = previewLayer?.connection, let coord = rotationCoordinator,
-           conn.isVideoRotationAngleSupported(coord.videoRotationAngleForHorizonLevelPreview) {
-            conn.videoRotationAngle = coord.videoRotationAngleForHorizonLevelPreview
-        }
-    }
-
-    func updatePreviewRotation() {
-        guard let coord = rotationCoordinator, let conn = previewLayer?.connection,
-              conn.isVideoRotationAngleSupported(coord.videoRotationAngleForHorizonLevelPreview) else { return }
-        conn.videoRotationAngle = coord.videoRotationAngleForHorizonLevelPreview
-    }
     
     func switchToCamera(_ cameraInfo: CameraInfo) {
         guard cameraInfo.id != currentCamera?.id else { return }
-        
+
         session.beginConfiguration()
-        
+
         // Remove current input
         if let currentInput = videoDeviceInput {
             session.removeInput(currentInput)
         }
-        
+
         // Add new input
         do {
             let newInput = try AVCaptureDeviceInput(device: cameraInfo.device)
@@ -1114,7 +1215,11 @@ class CameraManager: NSObject, ObservableObject {
                 session.addInput(newInput)
                 videoDeviceInput = newInput
                 currentCamera = cameraInfo
-                
+
+                // Don't create rotation coordinator here - let the preview handle it
+                // The coordinator needs the preview layer reference
+                rotationCoordinator = nil
+
                 // Update flash mode based on new camera capabilities
                 if !cameraInfo.device.hasFlash && flashMode != .off {
                     flashMode = .off
@@ -1127,10 +1232,11 @@ class CameraManager: NSObject, ObservableObject {
                 session.addInput(previousInput)
             }
         }
-        
+
         session.commitConfiguration()
-        reconfigureRotationCoordinator()
-        updatePreviewRotation()
+        
+        // Notify that the device changed
+        NotificationCenter.default.post(name: .cameraDeviceChanged, object: cameraInfo)
     }
     
     func flipToOppositePosition() {
@@ -1182,20 +1288,25 @@ class CameraManager: NSObject, ObservableObject {
         let settings = AVCapturePhotoSettings()
         settings.maxPhotoDimensions = photoOutput.maxPhotoDimensions
         settings.flashMode = flashMode
-        
+
         // Only set photoQualityPrioritization if the output supports it
         if photoOutput.maxPhotoQualityPrioritization.rawValue >= AVCapturePhotoOutput.QualityPrioritization.quality.rawValue {
             settings.photoQualityPrioritization = .quality
         } else {
-            // Fall back to the maximum supported quality level
             settings.photoQualityPrioritization = photoOutput.maxPhotoQualityPrioritization
         }
-        
-        // Set rotation using RotationCoordinator for horizon‑level capture (iOS 17+)
-        if let photoOutputConnection = photoOutput.connection(with: .video), let coord = rotationCoordinator {
-            let angle = coord.videoRotationAngleForHorizonLevelCapture
-            if photoOutputConnection.isVideoRotationAngleSupported(angle) {
-                photoOutputConnection.videoRotationAngle = angle
+
+        // Use modern rotation approach
+        if let photoConnection = photoOutput.connection(with: .video),
+           let coordinator = rotationCoordinator {
+            
+            if photoConnection.isVideoRotationAngleSupported(coordinator.videoRotationAngleForHorizonLevelCapture) {
+                photoConnection.videoRotationAngle = coordinator.videoRotationAngleForHorizonLevelCapture
+            }
+            
+            if photoConnection.isVideoMirroringSupported {
+                photoConnection.automaticallyAdjustsVideoMirroring = false
+                photoConnection.isVideoMirrored = (currentCamera?.position == .front)
             }
         }
         
@@ -1204,6 +1315,7 @@ class CameraManager: NSObject, ObservableObject {
     }
 }
 
+// MARK: - AVCapturePhotoCaptureDelegate
 extension CameraManager: AVCapturePhotoCaptureDelegate {
     nonisolated func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
         guard let imageData = photo.fileDataRepresentation() else {
@@ -1216,29 +1328,23 @@ extension CameraManager: AVCapturePhotoCaptureDelegate {
         
         Task { @MainActor in
             if let image = UIImage(data: imageData) {
-                let fixedImage = self.fixImageOrientation(image)
-                self.captureCompletion?(fixedImage)
+                self.captureCompletion?(image)
             } else {
                 self.captureCompletion?(nil)
             }
             self.captureCompletion = nil
         }
     }
-    
-    private func fixImageOrientation(_ image: UIImage) -> UIImage {
-        if image.imageOrientation == .up {
-            return image
-        }
-        
-        let renderer = UIGraphicsImageRenderer(size: image.size)
-        return renderer.image { _ in
-            image.draw(in: CGRect(origin: .zero, size: image.size))
-        }
-    }
+}
+
+// Add this extension for the notification
+extension Notification.Name {
+    static let cameraDeviceChanged = Notification.Name("cameraDeviceChanged")
 }
 
 final class PreviewView: UIView {
     override class var layerClass: AnyClass { AVCaptureVideoPreviewLayer.self }
     var videoPreviewLayer: AVCaptureVideoPreviewLayer { layer as! AVCaptureVideoPreviewLayer }
 }
+
 #endif
