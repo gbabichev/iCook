@@ -373,6 +373,7 @@ struct RecipeCollectionView: View {
         
         currentLoadTask = Task {
             await model.loadRandomRecipes()
+            try? await Task.sleep(nanoseconds: 800_000_000) // 800ms minimum refresh time
         }
         
         await currentLoadTask?.value
