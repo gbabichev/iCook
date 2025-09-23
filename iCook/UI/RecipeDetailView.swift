@@ -9,7 +9,7 @@ struct RecipeDetailView: View {
     @State private var showingDeleteAlert = false
     @State private var isDeleting = false
     @State private var checkedIngredients: Set<Int> = []
-
+    @State private var showCopiedHUD = false
     
     var body: some View {
         ScrollView {
@@ -71,6 +71,15 @@ struct RecipeDetailView: View {
                                 
                                 Button {
                                     copyToReminders(ingredients)
+                                    // Add the HUD animation
+                                    withAnimation(.easeInOut(duration: 0.3)) {
+                                        showCopiedHUD = true
+                                    }
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                                        withAnimation(.easeInOut(duration: 0.3)) {
+                                            showCopiedHUD = false
+                                        }
+                                    }
                                 } label: {
                                     Image(systemName: "doc.on.clipboard")
                                 }
@@ -190,6 +199,13 @@ struct RecipeDetailView: View {
             Button("Cancel", role: .cancel) { }
         } message: {
             Text("Are you sure you want to delete '\(recipe.name)'? This action cannot be undone.")
+        }
+        .overlay(alignment: .top) {
+            if showCopiedHUD {
+                CopiedHUD()
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .padding(.top, 60) // Adjust positioning as needed
+            }
         }
         .overlay {
             if isDeleting {

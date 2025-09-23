@@ -115,8 +115,8 @@ public enum APIClient {
             throw APIError.transport("Failed to encode category data: \(error.localizedDescription)")
         }
         
-        //print("Creating category: \(name) with icon: \(icon)")
-        //print("Request URL: \(url)")
+        printD("Creating category: \(name) with icon: \(icon)")
+        printD("Request URL: \(url)")
         
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
@@ -124,25 +124,25 @@ public enum APIClient {
                 throw APIError.transport("No HTTP response")
             }
             
-            //print("Create category HTTP Status: \(http.statusCode)")
+            printD("Create category HTTP Status: \(http.statusCode)")
             
             guard (200..<300).contains(http.statusCode) else {
                 let body = String(data: data, encoding: .utf8) ?? "<no body>"
-                //print("Create category error response body: \(body)")
+                printD("Create category error response body: \(body)")
                 throw APIError.badStatus(http.statusCode, body)
             }
             
             // Log the raw JSON response
             if let jsonString = String(data: data, encoding: .utf8) {
-                //print("Create category raw JSON response: \(jsonString)")
+                printD("Create category raw JSON response: \(jsonString)")
             }
             
             do {
                 let category = try JSONDecoder().decode(Category.self, from: data)
-                //print("Successfully created category: \(category.name)")
+                printD("Successfully created category: \(category.name)")
                 return category
             } catch {
-                //print("JSON decoding failed: \(error)")
+                printD("JSON decoding failed: \(error)")
                 throw APIError.decoding(error.localizedDescription)
             }
         } catch {
@@ -168,8 +168,8 @@ public enum APIClient {
             throw APIError.transport("Failed to encode category data: \(error.localizedDescription)")
         }
         
-        //print("Updating category \(id): \(name) with icon: \(icon)")
-        //print("Request URL: \(url)")
+        printD("Updating category \(id): \(name) with icon: \(icon)")
+        printD("Request URL: \(url)")
         
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
@@ -177,25 +177,25 @@ public enum APIClient {
                 throw APIError.transport("No HTTP response")
             }
             
-            //print("Update category HTTP Status: \(http.statusCode)")
+            printD("Update category HTTP Status: \(http.statusCode)")
             
             guard (200..<300).contains(http.statusCode) else {
                 let body = String(data: data, encoding: .utf8) ?? "<no body>"
-                //print("Update category error response body: \(body)")
+                printD("Update category error response body: \(body)")
                 throw APIError.badStatus(http.statusCode, body)
             }
             
             // Log the raw JSON response
             if let jsonString = String(data: data, encoding: .utf8) {
-                //print("Update category raw JSON response: \(jsonString)")
+                printD("Update category raw JSON response: \(jsonString)")
             }
             
             do {
                 let category = try JSONDecoder().decode(Category.self, from: data)
-                //print("Successfully updated category: \(category.name)")
+                printD("Successfully updated category: \(category.name)")
                 return category
             } catch {
-                //print("JSON decoding failed: \(error)")
+                printD("JSON decoding failed: \(error)")
                 throw APIError.decoding(error.localizedDescription)
             }
         } catch {
@@ -209,8 +209,8 @@ public enum APIClient {
         request.httpMethod = "DELETE"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         
-        //print("Deleting category \(id)")
-        //print("Request URL: \(url)")
+        printD("Deleting category \(id)")
+        printD("Request URL: \(url)")
         
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
@@ -218,15 +218,15 @@ public enum APIClient {
                 throw APIError.transport("No HTTP response")
             }
             
-            //print("Delete category HTTP Status: \(http.statusCode)")
+            printD("Delete category HTTP Status: \(http.statusCode)")
             
             guard (200..<300).contains(http.statusCode) else {
                 let body = String(data: data, encoding: .utf8) ?? "<no body>"
-                //print("Delete category error response body: \(body)")
+                printD("Delete category error response body: \(body)")
                 throw APIError.badStatus(http.statusCode, body)
             }
             
-            //print("Successfully deleted category \(id)")
+            printD("Successfully deleted category \(id)")
         } catch {
             throw APIError.transport(error.localizedDescription)
         }
@@ -244,7 +244,7 @@ public enum APIClient {
         }
 
         let url = try makeURL(route: "/recipes", extraQuery: query)
-        //print("Fetching URL: \(url)")
+        printD("Fetching URL: \(url)")
         
         var request = URLRequest(url: url)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -255,33 +255,33 @@ public enum APIClient {
                 throw APIError.transport("No HTTP response")
             }
             
-            //print("HTTP Status: \(http.statusCode)")
+            printD("HTTP Status: \(http.statusCode)")
             
             guard (200..<300).contains(http.statusCode) else {
                 let body = String(data: data, encoding: .utf8) ?? "<no body>"
-                //print("Error response body: \(body)")
+                printD("Error response body: \(body)")
                 throw APIError.badStatus(http.statusCode, body)
             }
             
             // Log the raw JSON response
             if let jsonString = String(data: data, encoding: .utf8) {
-                //print("Raw JSON response: \(jsonString)")
+                printD("Raw JSON response: \(jsonString)")
             }
             
             do {
                 let page = try JSONDecoder().decode(Page<Recipe>.self, from: data)
-                //print("Successfully decoded \(page.data.count) recipes")
+                printD("Successfully decoded \(page.data.count) recipes")
                 return page.data
             } catch {
-                //print("JSON decoding failed: \(error)")
+                printD("JSON decoding failed: \(error)")
                 
                 // Try to decode as plain array (in case it's not wrapped in Page)
                 do {
                     let recipes = try JSONDecoder().decode([Recipe].self, from: data)
-                    //print("Successfully decoded as plain array: \(recipes.count) recipes")
+                    printD("Successfully decoded as plain array: \(recipes.count) recipes")
                     return recipes
                 } catch {
-                    //print("Plain array decoding also failed: \(error)")
+                    printD("Plain array decoding also failed: \(error)")
                     throw APIError.decoding(error.localizedDescription)
                 }
             }
@@ -346,11 +346,11 @@ public enum APIClient {
         }
 
         if let bodyString = String(data: request.httpBody ?? Data(), encoding: .utf8) {
-            //print("Create recipe (json) body: \(bodyString)")
+            printD("Create recipe (json) body: \(bodyString)")
         }
 
-        //print("Creating recipe: \(name) in category: \(categoryId)")
-        //print("Request URL: \(url)")
+        printD("Creating recipe: \(name) in category: \(categoryId)")
+        printD("Request URL: \(url)")
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
@@ -358,24 +358,24 @@ public enum APIClient {
                 throw APIError.transport("No HTTP response")
             }
 
-            //print("Create recipe HTTP Status: \(http.statusCode)")
+            printD("Create recipe HTTP Status: \(http.statusCode)")
 
             guard (200..<300).contains(http.statusCode) else {
                 let body = String(data: data, encoding: .utf8) ?? "<no body>"
-                //print("Create recipe error response body: \(body)")
+                printD("Create recipe error response body: \(body)")
                 throw APIError.badStatus(http.statusCode, body)
             }
 
             if let jsonString = String(data: data, encoding: .utf8) {
-                //print("Create recipe raw JSON response: \(jsonString)")
+                printD("Create recipe raw JSON response: \(jsonString)")
             }
 
             do {
                 let recipe = try JSONDecoder().decode(Recipe.self, from: data)
-                //print("Successfully created recipe: \(recipe.name)")
+                printD("Successfully created recipe: \(recipe.name)")
                 return recipe
             } catch {
-                //print("JSON decoding failed: \(error)")
+                printD("JSON decoding failed: \(error)")
                 throw APIError.decoding(error.localizedDescription)
             }
         } catch {
@@ -417,8 +417,8 @@ public enum APIClient {
             throw APIError.transport("Failed to encode recipe data: \(error.localizedDescription)")
         }
         
-        //print("Updating recipe \(id)")
-        //print("Request URL: \(url)")
+        printD("Updating recipe \(id)")
+        printD("Request URL: \(url)")
         
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
@@ -426,24 +426,24 @@ public enum APIClient {
                 throw APIError.transport("No HTTP response")
             }
             
-            //print("Update recipe HTTP Status: \(http.statusCode)")
+            printD("Update recipe HTTP Status: \(http.statusCode)")
             
             guard (200..<300).contains(http.statusCode) else {
                 let body = String(data: data, encoding: .utf8) ?? "<no body>"
-                //print("Update recipe error response body: \(body)")
+                printD("Update recipe error response body: \(body)")
                 throw APIError.badStatus(http.statusCode, body)
             }
             
             if let jsonString = String(data: data, encoding: .utf8) {
-                //print("Update recipe raw JSON response: \(jsonString)")
+                printD("Update recipe raw JSON response: \(jsonString)")
             }
             
             do {
                 let recipe = try JSONDecoder().decode(Recipe.self, from: data)
-                //print("Successfully updated recipe: \(recipe.name)")
+                printD("Successfully updated recipe: \(recipe.name)")
                 return recipe
             } catch {
-                //print("JSON decoding failed: \(error)")
+                printD("JSON decoding failed: \(error)")
                 throw APIError.decoding(error.localizedDescription)
             }
         } catch {
@@ -457,8 +457,8 @@ public enum APIClient {
         request.httpMethod = "DELETE"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         
-        //print("Deleting recipe \(id)")
-        //print("Request URL: \(url)")
+        printD("Deleting recipe \(id)")
+        printD("Request URL: \(url)")
         
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
@@ -466,15 +466,15 @@ public enum APIClient {
                 throw APIError.transport("No HTTP response")
             }
             
-            //print("Delete recipe HTTP Status: \(http.statusCode)")
+            printD("Delete recipe HTTP Status: \(http.statusCode)")
             
             guard (200..<300).contains(http.statusCode) else {
                 let body = String(data: data, encoding: .utf8) ?? "<no body>"
-                //print("Delete recipe error response body: \(body)")
+                printD("Delete recipe error response body: \(body)")
                 throw APIError.badStatus(http.statusCode, body)
             }
             
-            //print("Successfully deleted recipe \(id)")
+            printD("Successfully deleted recipe \(id)")
         } catch {
             throw APIError.transport(error.localizedDescription)
         }
@@ -499,8 +499,8 @@ public enum APIClient {
         
         request.httpBody = body
         
-        //print("Uploading image: \(fileName)")
-        //print("Request URL: \(url)")
+        printD("Uploading image: \(fileName)")
+        printD("Request URL: \(url)")
         
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
@@ -508,16 +508,16 @@ public enum APIClient {
                 throw APIError.transport("No HTTP response")
             }
             
-            //print("Upload image HTTP Status: \(http.statusCode)")
+            printD("Upload image HTTP Status: \(http.statusCode)")
             
             guard (200..<300).contains(http.statusCode) else {
                 let body = String(data: data, encoding: .utf8) ?? "<no body>"
-                //print("Upload image error response body: \(body)")
+                printD("Upload image error response body: \(body)")
                 throw APIError.badStatus(http.statusCode, body)
             }
             
             if let jsonString = String(data: data, encoding: .utf8) {
-                //print("Upload image raw JSON response: \(jsonString)")
+                printD("Upload image raw JSON response: \(jsonString)")
             }
             
             struct UploadResponse: Codable {
@@ -531,10 +531,10 @@ public enum APIClient {
             
             do {
                 let uploadResponse = try JSONDecoder().decode(UploadResponse.self, from: data)
-                //print("Successfully uploaded image: \(uploadResponse.path)")
+                printD("Successfully uploaded image: \(uploadResponse.path)")
                 return uploadResponse.path
             } catch {
-                //print("JSON decoding failed: \(error)")
+                printD("JSON decoding failed: \(error)")
                 throw APIError.decoding(error.localizedDescription)
             }
         } catch {
