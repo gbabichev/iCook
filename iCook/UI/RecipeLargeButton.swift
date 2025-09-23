@@ -5,7 +5,6 @@
 //  Created by George Babichev on 9/16/25.
 //
 
-
 import SwiftUI
 
 struct RecipeLargeButtonWithState: View {
@@ -28,31 +27,17 @@ struct RecipeLargeButtonWithState: View {
                                  .foregroundStyle(.secondary)
                          }
                          .frame(height: 140)
+                         .frame(maxWidth: .infinity) // Ensure full width
                          .clipShape(RoundedRectangle(cornerRadius: 12))
                     case .success(let image):
-                        #if os(iOS)
-                        if UIDevice.current.userInterfaceIdiom == .phone {
-                            // iPhone - use aspectRatio and maxWidth to constrain properly
-                            image
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                                .frame(maxWidth: .infinity, maxHeight: 140)
-                                .clipShape(RoundedRectangle(cornerRadius: 12))
-                        } else {
-                            // iPad (runs on iOS but we want the Mac/iPad styling)
-                            image
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                                .frame(width: 190, height: 140)
-                                .clipShape(RoundedRectangle(cornerRadius: 12))
-                        }
-                        #elseif os(macOS)
+                        // Simplified approach - same for all platforms
                         image
                             .resizable()
                             .aspectRatio(contentMode: .fill)
-                            .frame(width: 190, height: 140)
+                            .frame(height: 140)
+                            .frame(maxWidth: .infinity) // Ensure consistent full width
+                            .clipped() // Use clipped() instead of clipShape for the image
                             .clipShape(RoundedRectangle(cornerRadius: 12))
-                        #endif
                     case .failure(_):
                         ZStack {
                             Rectangle()
@@ -62,6 +47,7 @@ struct RecipeLargeButtonWithState: View {
                                 .foregroundStyle(.secondary)
                         }
                         .frame(height: 140)
+                        .frame(maxWidth: .infinity) // Ensure full width
                         .clipShape(RoundedRectangle(cornerRadius: 12))
                     @unknown default:
                         EmptyView()
@@ -75,6 +61,7 @@ struct RecipeLargeButtonWithState: View {
                         .scaleEffect(0.8)
                 }
                 .frame(height: 140)
+                .frame(maxWidth: .infinity) // Ensure full width
                 .clipShape(RoundedRectangle(cornerRadius: 12))
             }
             
@@ -88,12 +75,13 @@ struct RecipeLargeButtonWithState: View {
                     .foregroundStyle(.secondary)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading) // Ensure the entire VStack takes full width
+        .contentShape(Rectangle()) // Make the entire area tappable
         .task {
             // Stagger the image loading
             let delay = Double(index) * 0.05 // 50ms between each image
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             shouldLoadImage = true
         }
-        .background(Color.clear)
     }
 }

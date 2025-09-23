@@ -42,9 +42,7 @@ struct ContentView: View {
                     RecipeCollectionView()
                 }
             }
-#if os(macOS)
-            .toolbar(removing: .title)
-#else
+#if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
 #endif
             .toolbar{

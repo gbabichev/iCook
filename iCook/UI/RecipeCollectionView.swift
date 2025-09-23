@@ -114,7 +114,7 @@ struct RecipeCollectionView: View {
     // Featured recipe (first or stored random)
     private var featuredRecipe: Recipe? {
         if showingSearchResults {
-            return recipes.first
+            return nil // no featured recipes during search.
         }
         
         switch collectionType {
@@ -133,7 +133,7 @@ struct RecipeCollectionView: View {
     // Remaining recipes (excluding featured)
     private var remainingRecipes: [Recipe] {
         if showingSearchResults {
-            return Array(recipes.dropFirst())
+            return recipes
         }
         
         switch collectionType {
@@ -274,50 +274,11 @@ struct RecipeCollectionView: View {
     }
     
     @ViewBuilder
-    private func loadingHeader() -> some View {
-        headerPlaceholder {
-            VStack(spacing: 16) {
-                ProgressView()
-                    .scaleEffect(1.5)
-                if showingSearchResults {
-                    Text("Searching recipes...")
-                        .font(.headline)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text(collectionType.loadingText)
-                        .font(.headline)
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
-    }
-    
-    @ViewBuilder
-    private func emptyStateHeader() -> some View {
-        headerPlaceholder {
-            VStack(spacing: 16) {
-                Image(systemName: showingSearchResults ? "magnifyingglass" : collectionType.emptyStateIcon)
-                    .font(.system(size: 48))
-                    .foregroundStyle(.secondary)
-                if showingSearchResults {
-                    Text("No recipes found for '\(searchText)'")
-                        .font(.headline)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text(collectionType.emptyStateText)
-                        .font(.headline)
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
-    }
-    
-    @ViewBuilder
     private func headerPlaceholder<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         ZStack {
             Rectangle()
                 .fill(.ultraThinMaterial)
-            content()
+            //content()
         }
         .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: 350)
         .backgroundExtensionEffect()
@@ -327,52 +288,63 @@ struct RecipeCollectionView: View {
     
     @ViewBuilder
     private func recipesGridSection() -> some View {
-        if !recipes.isEmpty {
-            VStack(alignment: .leading, spacing: 16) {
-                let sectionTitle = showingSearchResults ? "Search Results" : collectionType.sectionTitle
-                Text(sectionTitle)
-                    .font(.title2)
-                    .bold()
-                    .padding(.top, 20)
-                    .padding(.leading, 15)
-                
-                if remainingRecipes.isEmpty && recipes.count == 1 && isCategory && !showingSearchResults {
-                    Text("This is the only recipe in this category")
-                        .font(.body)
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 15)
-                } else if remainingRecipes.isEmpty && !showingSearchResults {
-                    ProgressView("Loading recipes...")
-                        .frame(maxWidth: .infinity, minHeight: 80)
+        VStack(alignment: .leading, spacing: 16) {
+            // Determine section title based on search state and results
+            let sectionTitle: String = {
+                if showingSearchResults {
+                    return "Search Results"
                 } else {
-                    LazyVGrid(columns: columns, spacing: 15) {
-                        ForEach(Array(remainingRecipes.enumerated()), id: \.element.id) { index, recipe in
-                            NavigationLink(destination: RecipeDetailView(recipe: recipe)) {
-                                RecipeLargeButtonWithState(recipe: recipe, index: index)
+                    return collectionType.sectionTitle
+                }
+            }()
+            
+            Text(sectionTitle)
+                .font(.title2)
+                .bold()
+                .padding(.top, 20)
+                .padding(.leading, 15)
+            
+            // Show grid if there are recipes, or centered no results message if searching with no results
+            if !remainingRecipes.isEmpty {
+                LazyVGrid(columns: columns, spacing: 15) {
+                    ForEach(Array(remainingRecipes.enumerated()), id: \.element.id) { index, recipe in
+                        NavigationLink(destination: RecipeDetailView(recipe: recipe)) {
+                            RecipeLargeButtonWithState(recipe: recipe, index: index)
+                        }
+                        .buttonStyle(.plain)
+                        .contextMenu {
+                            Button {
+                                editingRecipe = recipe
+                            } label: {
+                                Label("Edit Recipe", systemImage: "pencil")
                             }
-                            .buttonStyle(.plain)
-                            .contextMenu {
-                                Button {
-                                    editingRecipe = recipe
-                                } label: {
-                                    Label("Edit Recipe", systemImage: "pencil")
-                                }
-                                
-                                Button(role: .destructive) {
-                                    deletingRecipe = recipe
-                                    showingDeleteAlert = true
-                                } label: {
-                                    Label("Delete Recipe", systemImage: "trash")
-                                }
+                            
+                            Button(role: .destructive) {
+                                deletingRecipe = recipe
+                                showingDeleteAlert = true
+                            } label: {
+                                Label("Delete Recipe", systemImage: "trash")
                             }
                         }
                     }
-                    .padding(.horizontal, 15)
                 }
+                .padding(.horizontal, 15)
+            } else if showingSearchResults {
+                // Centered no results message
+                VStack(spacing: 12) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 48))
+                        .foregroundColor(.secondary)
+                    
+                    Text("No results found")
+                        .font(.title3)
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.top, 40)
             }
         }
     }
-    
     
     
     // MARK: - Loading Logic
@@ -515,17 +487,15 @@ struct RecipeCollectionView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 // Normal scroll content
-                ScrollView(showsIndicators: false) {
-                    LazyVStack(alignment: .leading, spacing: 20) {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 16) {
                         // Featured header image
                         if let featuredRecipe = featuredRecipe {
                             featuredRecipeHeader(featuredRecipe)
-                        } else if isLoading || isSearching || (isHome && model.randomRecipes.isEmpty) {
-                            loadingHeader()
-                        } else if showingSearchResults && searchResults.isEmpty {
-                            emptyStateHeader()
+                        } else if showingSearchResults {
+                            Spacer()
+                                .frame(height: 20)
                         }
-                        
                         // Recipes grid section
                         recipesGridSection()
                     }
@@ -583,7 +553,7 @@ struct RecipeCollectionView: View {
                 }
             }
         }
-        .navigationTitle(showingSearchResults ? "Search Results" : collectionType.title)
+        .navigationTitle(showingSearchResults ? "Search Resultz!!!" : collectionType.title)
         .task(id: collectionType) {
             // Reset featured recipe selection when collection type changes
             selectedFeaturedRecipe = nil
