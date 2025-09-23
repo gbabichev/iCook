@@ -37,6 +37,13 @@ struct AddEditRecipeView: View {
     @State private var showingCamera = false
 #endif
     
+    private var isFormValid: Bool {
+        let nameValid = !recipeName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let timeValid = !recipeTime.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+                        Int(recipeTime.trimmingCharacters(in: .whitespacesAndNewlines)) != nil
+        return nameValid && timeValid
+    }
+    
     var isEditing: Bool { editingRecipe != nil }
     
     init(editingRecipe: Recipe? = nil, preselectedCategoryId: Int? = nil) {
@@ -60,18 +67,19 @@ struct AddEditRecipeView: View {
                         print("[AddEditRecipeView] User changed categoryId from \(oldValue) to \(newValue)")
                     }
                     
-                    // Recipe Name
-                    TextField("Recipe Name", text: $recipeName)
-                    //.textInputAutocapitalization(.words)
+                    // Recipe Name - REQUIRED
+                    TextField("Recipe Name *", text: $recipeName)
                     
-                    // Recipe Time
+                    // Recipe Time - REQUIRED
                     HStack {
-                        TextField("Cooking Time", text: $recipeTime)
-                        //.keyboardType(.numberPad)
+                        TextField("Cooking Time *", text: $recipeTime)
+                            //.keyboardType(.numberPad)
                         Text("minutes")
                             .foregroundStyle(.secondary)
                     }
                 }
+
+
                 
                 Section("Image") {
                     VStack(alignment: .leading, spacing: 12) {
@@ -264,7 +272,7 @@ struct AddEditRecipeView: View {
                             await saveRecipe()
                         }
                     }
-                    .disabled(recipeName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSaving)
+                    .disabled(!isFormValid || isSaving)
                 }
             }
             .task {
@@ -672,15 +680,26 @@ struct AddEditRecipeView: View {
 
     // Replace the saveRecipe method in AddEditRecipeView with this updated version:
 
+
     @MainActor
     private func saveRecipe() async {
         isSaving = true
         defer { isSaving = false }
         
         let trimmedName = recipeName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedName.isEmpty else { return }
+        let trimmedTime = recipeTime.trimmingCharacters(in: .whitespacesAndNewlines)
         
-        let timeValue = Int(recipeTime.trimmingCharacters(in: .whitespacesAndNewlines))
+        // Validate required fields
+        guard !trimmedName.isEmpty else {
+            print("Recipe name is required")
+            return
+        }
+        
+        guard !trimmedTime.isEmpty, let timeValue = Int(trimmedTime) else {
+            print("Valid cooking time is required")
+            return
+        }
+        
         let trimmedDetails = recipeDetails.trimmingCharacters(in: .whitespacesAndNewlines)
         let detailsToSave = trimmedDetails.isEmpty ? nil : trimmedDetails
         
@@ -706,7 +725,7 @@ struct AddEditRecipeView: View {
         }
 
         let selectedName = model.categories.first(where: { $0.id == selectedCategoryId })?.name ?? "<unknown>"
-        print("[AddEditRecipeView] create/update – categoryId=\(selectedCategoryId) (\(selectedName)), name=\(trimmedName), time=\(String(describing: timeValue)), hasImage=\(selectedImageData != nil || imagePathToSave != nil), ingredients=\(processedIngredients.count)")
+        print("[AddEditRecipeView] create/update — categoryId=\(selectedCategoryId) (\(selectedName)), name=\(trimmedName), time=\(timeValue), hasImage=\(selectedImageData != nil || imagePathToSave != nil), ingredients=\(processedIngredients.count)")
         
         let success: Bool
         if let recipe = editingRecipe {
