@@ -8,14 +8,49 @@ public struct Category: Identifiable, Codable, Hashable {
     public let icon: String
 }
 
+public struct RecipeStep: Codable, Hashable {
+    public let stepNumber: Int
+    public let instruction: String
+    public let ingredients: [String]
+    
+    enum CodingKeys: String, CodingKey {
+        case stepNumber = "step_number"
+        case instruction
+        case ingredients
+    }
+}
+
+public struct RecipeSteps: Codable, Hashable {
+    public let steps: [RecipeStep]
+}
+
 public struct Recipe: Identifiable, Codable, Hashable {
     public let id: Int
-    public let category_id: Int
+    public let categoryId: Int  // Changed property name to match convention
     public let name: String
-    public let recipe_time: Int
+    public let recipeTime: Int  // Changed property name to match convention
     public let details: String?
     public let image: String?
-    public let ingredients: [String]?
+    public let recipeSteps: RecipeSteps?  // Changed to match backend structure
+    
+    // For backward compatibility with existing code that expects ingredients
+    public var ingredients: [String]? {
+        return recipeSteps?.steps.flatMap { $0.ingredients }.removingDuplicates()
+    }
+    
+    // Legacy property names for backward compatibility
+    public var category_id: Int { categoryId }
+    public var recipe_time: Int { recipeTime }
+    
+    enum CodingKeys: String, CodingKey {
+        case id = "recipe_id"
+        case categoryId = "recipe_category_id"  // Fixed! This was the main issue
+        case name = "recipe_name"
+        case recipeTime = "recipe_cook_time"    // Fixed to match backend
+        case details = "recipe_description"     // This looks correct
+        case image = "recipe_image"
+        case recipeSteps = "recipe_steps"
+    }
 }
 
 public struct Page<T: Codable>: Codable {
@@ -24,6 +59,15 @@ public struct Page<T: Codable>: Codable {
     public let limit: Int
     public let total: Int
     public let query: String?
+}
+
+// MARK: - Extensions
+
+extension Array where Element: Hashable {
+    func removingDuplicates() -> [Element] {
+        var seen = Set<Element>()
+        return self.filter { seen.insert($0).inserted }
+    }
 }
 
 // MARK: - Errors
@@ -323,7 +367,14 @@ public enum APIClient {
         }
     }
     
-    public static func createRecipe(categoryId: Int, name: String, recipeTime: Int?, details: String?, image: String?, ingredients: [String]? = nil) async throws -> Recipe {
+    // MARK: - New Recipe Methods with Steps Support
+    
+    public static func createRecipe(categoryId: Int,
+                                   name: String,
+                                   recipeTime: Int?,
+                                   details: String?,
+                                   image: String?,
+                                   recipeSteps: [RecipeStep]? = nil) async throws -> Recipe {
         let url = try makeURL(route: "/recipes")
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -331,13 +382,24 @@ public enum APIClient {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
         var recipeData: [String: Any] = [
-            "category_id": categoryId,
-            "name": name
+            "recipe_category_id": categoryId,
+            "recipe_name": name
         ]
-        if let recipeTime = recipeTime { recipeData["recipe_time"] = recipeTime }
-        if let details = details { recipeData["details"] = details }
-        if let image = image { recipeData["image"] = image }
-        if let ingredients = ingredients { recipeData["ingredients"] = ingredients }
+        if let recipeTime = recipeTime { recipeData["recipe_cook_time"] = recipeTime }
+        if let details = details { recipeData["recipe_description"] = details }
+        if let image = image { recipeData["recipe_image"] = image }
+        if let recipeSteps = recipeSteps {
+            let encoder = JSONEncoder()
+            do {
+                let stepsWrapper = RecipeSteps(steps: recipeSteps)
+                let stepsData = try encoder.encode(stepsWrapper)
+                if let stepsString = String(data: stepsData, encoding: .utf8) {
+                    recipeData["recipe_steps"] = stepsString
+                }
+            } catch {
+                throw APIError.transport("Failed to encode recipe steps: \(error.localizedDescription)")
+            }
+        }
 
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: recipeData)
@@ -346,7 +408,7 @@ public enum APIClient {
         }
 
         if let bodyString = String(data: request.httpBody ?? Data(), encoding: .utf8) {
-            printD("Create recipe (json) body: \(bodyString)")
+            printD("Create recipe body: \(bodyString)")
         }
 
         printD("Creating recipe: \(name) in category: \(categoryId)")
@@ -362,12 +424,12 @@ public enum APIClient {
 
             guard (200..<300).contains(http.statusCode) else {
                 let body = String(data: data, encoding: .utf8) ?? "<no body>"
-                printD("Create recipe error response body: \(body)")
+                printD("Create recipe error response: \(body)")
                 throw APIError.badStatus(http.statusCode, body)
             }
 
             if let jsonString = String(data: data, encoding: .utf8) {
-                printD("Create recipe raw JSON response: \(jsonString)")
+                printD("Create recipe response: \(jsonString)")
             }
 
             do {
@@ -383,7 +445,13 @@ public enum APIClient {
         }
     }
 
-    public static func updateRecipe(id: Int, categoryId: Int?, name: String?, recipeTime: Int?, details: String?, image: String?, ingredients: [String]? = nil) async throws -> Recipe {
+    public static func updateRecipe(id: Int,
+                                   categoryId: Int?,
+                                   name: String?,
+                                   recipeTime: Int?,
+                                   details: String?,
+                                   image: String?,
+                                   recipeSteps: [RecipeStep]? = nil) async throws -> Recipe {
         let url = try makeURL(route: "/recipes/\(id)")
         var request = URLRequest(url: url)
         request.httpMethod = "PUT"
@@ -393,22 +461,31 @@ public enum APIClient {
         var recipeData: [String: Any] = [:]
         
         if let categoryId = categoryId {
-            recipeData["category_id"] = categoryId
+            recipeData["recipe_category_id"] = categoryId
         }
         if let name = name {
-            recipeData["name"] = name
+            recipeData["recipe_name"] = name
         }
         if let recipeTime = recipeTime {
-            recipeData["recipe_time"] = recipeTime
+            recipeData["recipe_cook_time"] = recipeTime
         }
         if let details = details {
-            recipeData["details"] = details
+            recipeData["recipe_description"] = details
         }
         if let image = image {
-            recipeData["image"] = image
+            recipeData["recipe_image"] = image
         }
-        if let ingredients = ingredients {
-            recipeData["ingredients"] = ingredients
+        if let recipeSteps = recipeSteps {
+            let encoder = JSONEncoder()
+            do {
+                let stepsWrapper = RecipeSteps(steps: recipeSteps)
+                let stepsData = try encoder.encode(stepsWrapper)
+                if let stepsString = String(data: stepsData, encoding: .utf8) {
+                    recipeData["recipe_steps"] = stepsString
+                }
+            } catch {
+                throw APIError.transport("Failed to encode recipe steps: \(error.localizedDescription)")
+            }
         }
         
         do {
@@ -430,12 +507,12 @@ public enum APIClient {
             
             guard (200..<300).contains(http.statusCode) else {
                 let body = String(data: data, encoding: .utf8) ?? "<no body>"
-                printD("Update recipe error response body: \(body)")
+                printD("Update recipe error response: \(body)")
                 throw APIError.badStatus(http.statusCode, body)
             }
             
             if let jsonString = String(data: data, encoding: .utf8) {
-                printD("Update recipe raw JSON response: \(jsonString)")
+                printD("Update recipe response: \(jsonString)")
             }
             
             do {
@@ -541,6 +618,12 @@ public enum APIClient {
             throw APIError.transport(error.localizedDescription)
         }
     }
-    
-    
+}
+
+// MARK: - Debug Print Helper
+
+func printD(_ message: String) {
+    #if DEBUG
+    print(message)
+    #endif
 }

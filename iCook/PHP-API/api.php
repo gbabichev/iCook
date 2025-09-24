@@ -30,9 +30,9 @@ This API powers the iCook SwiftUI recipes app. It is designed for a LAN deployme
 ### List Categories
 **GET** `/categories`
 Query params:
-- `q` *(optional)* — search by name (substring match)
-- `page` *(default: 1)* — 1-based page index
-- `limit` *(default: 100, max: 100)* — page size
+- `q` *(optional)* – search by name (substring match)
+- `page` *(default: 1)* – 1-based page index
+- `limit` *(default: 100, max: 100)* – page size
 
 **Example**
 ```bash
@@ -40,7 +40,7 @@ curl "https://<host>:<port>/api.php?route=/categories&q=des&page=1&limit=25"
 ```
 **200 OK**
 ```json
-{ "data": [{"id":1,"name":"Desserts"}], "page":1, "limit":25, "total": 12, "query":"des" }
+{ "data": [{"id":1,"name":"Desserts","icon":"🧁"}], "page":1, "limit":25, "total": 12, "query":"des" }
 ```
 
 ### Get Category by ID
@@ -50,7 +50,7 @@ curl "https://<host>:<port>/api.php?route=/categories/1"
 ```
 **200 OK**
 ```json
-{ "id": 1, "name": "Desserts" }
+{ "id": 1, "name": "Desserts", "icon": "🧁" }
 ```
 **404 Not Found**
 ```json
@@ -62,13 +62,13 @@ curl "https://<host>:<port>/api.php?route=/categories/1"
 **Headers**: `Content-Type: application/json`
 **Body**
 ```json
-{ "name": "Soups" }
+{ "name": "Soups", "icon": "🍲" }
 ```
 **201 Created**
 ```json
-{ "id": 2, "name": "Soups" }
+{ "id": 2, "name": "Soups", "icon": "🍲" }
 ```
-**409 Conflict** — duplicate name (if you add a UNIQUE index on `name`)
+**409 Conflict** – duplicate name (if you add a UNIQUE index on `name`)
 ```json
 { "error": "Category name already exists" }
 ```
@@ -78,11 +78,11 @@ curl "https://<host>:<port>/api.php?route=/categories/1"
 ```bash
 curl -X PUT "https://<host>:<port>/api.php?route=/categories/2" \
   -H "Content-Type: application/json" \
-  -d '{"name":"Broths & Soups"}'
+  -d '{"name":"Broths & Soups","icon":"🥣"}'
 ```
 **200 OK**
 ```json
-{ "id": 2, "name": "Broths & Soups" }
+{ "id": 2, "name": "Broths & Soups", "icon": "🥣" }
 ```
 
 ### Delete Category
@@ -101,9 +101,9 @@ curl -X DELETE "https://<host>:<port>/api.php?route=/categories/2"
 ### List Recipes
 **GET** `/recipes`
 Query params:
-- `id` *(optional)* — fetch a single recipe by id
-- `category_id` *(optional)* — filter by category
-- `q` *(optional)* — search by name, details, or ingredients
+- `id` *(optional)* – fetch a single recipe by id
+- `category_id` *(optional)* – filter by category
+- `q` *(optional)* – search by name or step instructions
 - `page` *(default: 1)*, `limit` *(default: 50, max: 100)*
 
 **Examples**
@@ -115,23 +115,35 @@ curl "https://<host>:<port>/api.php?route=/recipes&id=1"
 # by category
 curl "https://<host>:<port>/api.php?route=/recipes&category_id=1"
 # search
-curl "https://<host>:<port>/api.php?route=/recipes&q=tomato"
+curl "https://<host>:<port>/api.php?route=/recipes&q=chicken"
 ```
 **200 OK** (list)
 ```json
 { "data": [{
-  "id": 1,
-  "category_id": 1,
-  "name": "Tomato Soup",
-  "recipe_time": 30,
-  "details": "# Tomato Soup\n- Tomatoes\n- Onion\n- Garlic",
-  "image": "/uploads/abc.jpg",
-  "ingredients": ["tomatoes", "onion", "garlic", "olive oil", "salt", "pepper"]
+  "recipe_id": 1,
+  "recipe_category_id": 1,
+  "recipe_name": "Lemon Chicken",
+  "recipe_cook_time": 30,
+  "recipe_steps": {
+    "steps": [
+      {
+        "step_number": 1,
+        "instruction": "Make Sauce, stir every 2 minutes",
+        "ingredients": ["2 tbsp Flour", "1 cup Chicken Broth", "1 whole Lemon"]
+      },
+      {
+        "step_number": 2,
+        "instruction": "Cook Chicken",
+        "ingredients": ["1 lb Chicken thigh", "4 tbsp Butter"]
+      }
+    ]
+  },
+  "recipe_image": "/uploads/abc.jpg"
 }], "page":1, "limit":50, "total": 1 }
 ```
 **200 OK** (single)
 ```json
-{ "id": 1, "category_id": 1, "name":"Tomato Soup", "recipe_time":30, "details":"...", "image":"/uploads/abc.jpg", "ingredients": ["tomatoes", "onion", "garlic", "olive oil", "salt", "pepper"] }
+{ "recipe_id": 1, "recipe_category_id": 1, "recipe_name":"Lemon Chicken", "recipe_cook_time":30, "recipe_steps": {...}, "recipe_image":"/uploads/abc.jpg" }
 ```
 
 ### Create Recipe
@@ -140,19 +152,31 @@ curl "https://<host>:<port>/api.php?route=/recipes&q=tomato"
 **Body**
 ```json
 {
-  "category_id": 1,
-  "name": "Pesto Pasta",
-  "recipe_time": 20,
-  "details": "## Ingredients\n- Pasta\n- Pesto",
-  "image": "/uploads/abc123.jpg",
-  "ingredients": ["pasta", "pesto", "parmesan cheese", "pine nuts"]
+  "recipe_category_id": 1,
+  "recipe_name": "Pesto Pasta",
+  "recipe_cook_time": 20,
+  "recipe_steps": {
+    "steps": [
+      {
+        "step_number": 1,
+        "instruction": "Boil pasta according to package directions",
+        "ingredients": ["1 lb Pasta", "Salt"]
+      },
+      {
+        "step_number": 2,
+        "instruction": "Mix pasta with pesto and cheese",
+        "ingredients": ["3 tbsp Pesto", "1/4 cup Parmesan cheese"]
+      }
+    ]
+  },
+  "recipe_image": "/uploads/abc123.jpg"
 }
 ```
 **201 Created**
 ```json
-{ "id": 5, "category_id": 1, "name":"Pesto Pasta", "recipe_time":20, "details":"...", "image":"/uploads/abc123.jpg", "ingredients": ["pasta", "pesto", "parmesan cheese", "pine nuts"] }
+{ "recipe_id": 5, "recipe_category_id": 1, "recipe_name":"Pesto Pasta", "recipe_cook_time":20, "recipe_steps": {...}, "recipe_image":"/uploads/abc123.jpg" }
 ```
-**404 Not Found** — category doesn't exist
+**404 Not Found** – category doesn't exist
 ```json
 { "error": "Category not found" }
 ```
@@ -163,7 +187,7 @@ curl "https://<host>:<port>/api.php?route=/recipes&q=tomato"
 ```bash
 curl -X PUT "https://<host>:<port>/api.php?route=/recipes/5" \
   -H "Content-Type: application/json" \
-  -d '{"name":"Pesto Pasta (Creamy)", "recipe_time":25, "ingredients":["pasta", "pesto", "cream", "parmesan"]}'
+  -d '{"recipe_name":"Creamy Pesto Pasta", "recipe_cook_time":25}'
 ```
 **200 OK** → returns the full updated recipe.
 
@@ -203,18 +227,18 @@ curl -X POST "https://<host>:<port>/api.php?route=/media" \
   "height": 768
 }
 ```
-Store the returned `path` in the recipe's `image` field.
+Store the returned `path` in the recipe's `recipe_image` field.
 
 ---
 ## Errors & Status Codes
-- `200 OK` — successful read/update/delete
-- `201 Created` — successful creation (returns the created resource)
-- `400 Bad Request` — validation error or malformed JSON
-- `404 Not Found` — resource doesn't exist
-- `409 Conflict` — duplicate name (categories)
-- `413 Payload Too Large` — image exceeds size limit
-- `415 Unsupported Media Type` — wrong `Content-Type`
-- `500 Internal Server Error` — unexpected failure
+- `200 OK` – successful read/update/delete
+- `201 Created` – successful creation (returns the created resource)
+- `400 Bad Request` – validation error or malformed JSON
+- `404 Not Found` – resource doesn't exist
+- `409 Conflict` – duplicate name (categories)
+- `413 Payload Too Large` – image exceeds size limit
+- `415 Unsupported Media Type` – wrong `Content-Type`
+- `500 Internal Server Error` – unexpected failure
 
 **Error format**
 ```json
@@ -295,39 +319,61 @@ function random_filename(string $ext): string {
     }
 }
 
-function parse_ingredients($ingredients): ?string {
-    if ($ingredients === null) return null;
-    if (is_string($ingredients)) {
+function parse_recipe_steps($steps): ?string {
+    if ($steps === null) return null;
+    if (is_string($steps)) {
         // If it's already a JSON string, validate it
-        $decoded = json_decode($ingredients, true);
+        $decoded = json_decode($steps, true);
         if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
-            // Validate array contains only strings
-            foreach ($decoded as $ingredient) {
-                if (!is_string($ingredient)) {
-                    json_err('Ingredients must be an array of strings');
-                }
-            }
-            return $ingredients;
+            // Validate the structure
+            validate_recipe_steps_structure($decoded);
+            return $steps;
         }
-        json_err('Invalid ingredients JSON format');
+        json_err('Invalid recipe_steps JSON format');
     }
-    if (is_array($ingredients)) {
-        // Validate array contains only strings
-        foreach ($ingredients as $ingredient) {
+    if (is_array($steps)) {
+        // Validate the structure
+        validate_recipe_steps_structure($steps);
+        return json_encode($steps, JSON_UNESCAPED_UNICODE);
+    }
+    json_err('recipe_steps must be an object with steps array or valid JSON string');
+}
+
+function validate_recipe_steps_structure($steps): void {
+    if (!isset($steps['steps']) || !is_array($steps['steps'])) {
+        json_err('recipe_steps must contain a "steps" array');
+    }
+    
+    foreach ($steps['steps'] as $step) {
+        if (!is_array($step)) {
+            json_err('Each step must be an object');
+        }
+        
+        if (!isset($step['step_number']) || !is_int($step['step_number'])) {
+            json_err('Each step must have a "step_number" integer');
+        }
+        
+        if (!isset($step['instruction']) || !is_string($step['instruction'])) {
+            json_err('Each step must have an "instruction" string');
+        }
+        
+        if (!isset($step['ingredients']) || !is_array($step['ingredients'])) {
+            json_err('Each step must have an "ingredients" array');
+        }
+        
+        foreach ($step['ingredients'] as $ingredient) {
             if (!is_string($ingredient)) {
-                json_err('Ingredients must be an array of strings');
+                json_err('Each ingredient must be a string');
             }
         }
-        return json_encode($ingredients, JSON_UNESCAPED_UNICODE);
     }
-    json_err('Ingredients must be an array of strings or valid JSON array string');
 }
 
 function format_recipe_row($row): array {
-    if (isset($row['ingredients']) && $row['ingredients']) {
-        $row['ingredients'] = json_decode($row['ingredients'], true) ?: [];
+    if (isset($row['recipe_steps']) && $row['recipe_steps']) {
+        $row['recipe_steps'] = json_decode($row['recipe_steps'], true) ?: null;
     } else {
-        $row['ingredients'] = [];
+        $row['recipe_steps'] = null;
     }
     return $row;
 }
@@ -427,7 +473,7 @@ if ($method === 'POST' && preg_match('#^/media$#', $path)) {
             json_err('Failed to save uploaded file', 500);
         }
 
-        // Build URL/path to return (client will store in `image` column)
+        // Build URL/path to return (client will store in `recipe_image` column)
         $url = rtrim($UPLOAD_URL_PREFIX, '/') . '/' . $filename;
         http_response_code(201);
         json_ok([
@@ -574,7 +620,7 @@ if ($method === 'GET' && preg_match('#^/recipes$#', $path)) {
         $q = isset($_GET['q']) ? trim((string)$_GET['q']) : '';
 
         if ($id) {
-            $stmt = $pdo->prepare('SELECT id, category_id, name, recipe_time, details, image, ingredients FROM recipes WHERE id = ?');
+            $stmt = $pdo->prepare('SELECT recipe_id, recipe_category_id, recipe_name, recipe_cook_time, recipe_steps, recipe_image FROM recipes WHERE recipe_id = ?');
             $stmt->execute([$id]);
             $row = $stmt->fetch();
             if (!$row) json_err('Recipe not found', 404);
@@ -587,30 +633,28 @@ if ($method === 'GET' && preg_match('#^/recipes$#', $path)) {
             $limit = min(100, max(1, (int)($_GET['limit'] ?? 50)));
             $offset = ($page - 1) * $limit;
 
-            // Search in recipe name, details, and ingredients
+            // Search in recipe name and step instructions
             $searchQuery = '%' . $q . '%';
             $stmt = $pdo->prepare('
-                SELECT SQL_CALC_FOUND_ROWS id, category_id, name, recipe_time, details, image, ingredients
-                FROM recipes 
-                WHERE name LIKE :search 
-                   OR details LIKE :search2
-                   OR (ingredients IS NOT NULL AND JSON_SEARCH(ingredients, "one", :search3) IS NOT NULL)
-                ORDER BY 
-                    CASE WHEN name LIKE :search4 THEN 1 ELSE 2 END,
-                    name
+                SELECT SQL_CALC_FOUND_ROWS recipe_id, recipe_category_id, recipe_name, recipe_cook_time, recipe_steps, recipe_image
+                FROM recipes
+                WHERE recipe_name LIKE :search
+                   OR (recipe_steps IS NOT NULL AND JSON_SEARCH(recipe_steps, "one", :search2, NULL, "$.steps[*].instruction") IS NOT NULL)
+                ORDER BY
+                    CASE WHEN recipe_name LIKE :search3 THEN 1 ELSE 2 END,
+                    recipe_name
                 LIMIT :limit OFFSET :offset
             ');
             $stmt->bindValue(':search', $searchQuery, PDO::PARAM_STR);
             $stmt->bindValue(':search2', $searchQuery, PDO::PARAM_STR);
             $stmt->bindValue(':search3', $searchQuery, PDO::PARAM_STR);
-            $stmt->bindValue(':search4', $searchQuery, PDO::PARAM_STR);
             $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
             $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
             $stmt->execute();
             $rows = $stmt->fetchAll();
             $total = (int)$pdo->query('SELECT FOUND_ROWS()')->fetchColumn();
 
-            // Format ingredients for all rows
+            // Format recipe_steps for all rows
             $rows = array_map('format_recipe_row', $rows);
 
             json_ok(['data' => $rows, 'page' => $page, 'limit' => $limit, 'total' => $total, 'query' => $q]);
@@ -622,10 +666,10 @@ if ($method === 'GET' && preg_match('#^/recipes$#', $path)) {
             $offset = ($page - 1) * $limit;
 
             $stmt = $pdo->prepare('
-                SELECT SQL_CALC_FOUND_ROWS id, category_id, name, recipe_time, details, image, ingredients
-                FROM recipes 
-                WHERE category_id = :category_id 
-                ORDER BY name 
+                SELECT SQL_CALC_FOUND_ROWS recipe_id, recipe_category_id, recipe_name, recipe_cook_time, recipe_steps, recipe_image
+                FROM recipes
+                WHERE recipe_category_id = :category_id
+                ORDER BY recipe_name
                 LIMIT :limit OFFSET :offset
             ');
             $stmt->bindValue(':category_id', $categoryId, PDO::PARAM_INT);
@@ -635,7 +679,7 @@ if ($method === 'GET' && preg_match('#^/recipes$#', $path)) {
             $rows = $stmt->fetchAll();
             $total = (int)$pdo->query('SELECT FOUND_ROWS()')->fetchColumn();
 
-            // Format ingredients for all rows
+            // Format recipe_steps for all rows
             $rows = array_map('format_recipe_row', $rows);
 
             json_ok(['data' => $rows, 'page' => $page, 'limit' => $limit, 'total' => $total]);
@@ -646,14 +690,14 @@ if ($method === 'GET' && preg_match('#^/recipes$#', $path)) {
         $limit = min(100, max(1, (int)($_GET['limit'] ?? 50)));
         $offset = ($page - 1) * $limit;
 
-        $stmt = $pdo->prepare('SELECT SQL_CALC_FOUND_ROWS id, category_id, name, recipe_time, details, image, ingredients FROM recipes ORDER BY id DESC LIMIT :limit OFFSET :offset');
+        $stmt = $pdo->prepare('SELECT SQL_CALC_FOUND_ROWS recipe_id, recipe_category_id, recipe_name, recipe_cook_time, recipe_steps, recipe_image FROM recipes ORDER BY recipe_id DESC LIMIT :limit OFFSET :offset');
         $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
         $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
         $stmt->execute();
         $rows = $stmt->fetchAll();
         $total = (int)$pdo->query('SELECT FOUND_ROWS()')->fetchColumn();
 
-        // Format ingredients for all rows
+        // Format recipe_steps for all rows
         $rows = array_map('format_recipe_row', $rows);
 
         json_ok(['data' => $rows, 'page' => $page, 'limit' => $limit, 'total' => $total]);
@@ -670,27 +714,26 @@ if ($method === 'POST' && preg_match('#^/recipes$#', $path)) {
             json_err('Content-Type must be application/json', 415);
         }
         $body = read_json_body();
-        $categoryId = (int)($body['category_id'] ?? 0);
-        $name       = trim((string)($body['name'] ?? ''));
-        $recipeTime = isset($body['recipe_time']) ? (int)$body['recipe_time'] : null; // minutes
-        $details    = isset($body['details']) ? (string)$body['details'] : null;      // Markdown/HTML
-        $image      = isset($body['image']) ? trim((string)$body['image']) : null;    // path or URL
-        $ingredients = isset($body['ingredients']) ? parse_ingredients($body['ingredients']) : null; // JSON array
+        $categoryId = (int)($body['recipe_category_id'] ?? 0);
+        $name       = trim((string)($body['recipe_name'] ?? ''));
+        $cookTime   = isset($body['recipe_cook_time']) ? (int)$body['recipe_cook_time'] : null; // minutes
+        $steps      = isset($body['recipe_steps']) ? parse_recipe_steps($body['recipe_steps']) : null; // JSON
+        $image      = isset($body['recipe_image']) ? trim((string)$body['recipe_image']) : null; // path or URL
 
-        if ($categoryId <= 0) json_err('`category_id` is required');
-        if ($name === '' || mb_strlen($name) > 150) json_err('`name` is required (1-150 chars)');
+        if ($categoryId <= 0) json_err('`recipe_category_id` is required');
+        if ($name === '' || mb_strlen($name) > 150) json_err('`recipe_name` is required (1-150 chars)');
 
         // ensure category exists
         $chk = $pdo->prepare('SELECT id FROM categories WHERE id = ?');
         $chk->execute([$categoryId]);
         if (!$chk->fetch()) json_err('Category not found', 404);
 
-        $stmt = $pdo->prepare('INSERT INTO recipes (category_id, name, recipe_time, details, image, ingredients) VALUES (?,?,?,?,?,?)');
-        $stmt->execute([$categoryId, $name, $recipeTime, $details, $image, $ingredients]);
+        $stmt = $pdo->prepare('INSERT INTO recipes (recipe_category_id, recipe_name, recipe_cook_time, recipe_steps, recipe_image) VALUES (?,?,?,?,?)');
+        $stmt->execute([$categoryId, $name, $cookTime, $steps, $image]);
         $id = (int)$pdo->lastInsertId();
         
-        // Get the created recipe to return with properly formatted ingredients
-        $getStmt = $pdo->prepare('SELECT id, category_id, name, recipe_time, details, image, ingredients FROM recipes WHERE id = ?');
+        // Get the created recipe to return with properly formatted recipe_steps
+        $getStmt = $pdo->prepare('SELECT recipe_id, recipe_category_id, recipe_name, recipe_cook_time, recipe_steps, recipe_image FROM recipes WHERE recipe_id = ?');
         $getStmt->execute([$id]);
         $row = $getStmt->fetch();
         
@@ -713,55 +756,51 @@ if ($method === 'PUT' && preg_match('#^/recipes/(\d+)$#', $path, $m)) {
         $sets = [];
         $params = [];
 
-        if (isset($body['category_id'])) {
-            $cid = (int)$body['category_id'];
-            if ($cid <= 0) json_err('`category_id` must be a positive integer');
+        if (isset($body['recipe_category_id'])) {
+            $cid = (int)$body['recipe_category_id'];
+            if ($cid <= 0) json_err('`recipe_category_id` must be a positive integer');
             // ensure category exists
             $chk = $pdo->prepare('SELECT id FROM categories WHERE id = ?');
             $chk->execute([$cid]);
             if (!$chk->fetch()) json_err('Category not found', 404);
-            $sets[] = 'category_id = ?';
+            $sets[] = 'recipe_category_id = ?';
             $params[] = $cid;
         }
-        if (isset($body['name'])) {
-            $name = trim((string)$body['name']);
-            if ($name === '' || mb_strlen($name) > 150) json_err('`name` must be 1-150 chars');
-            $sets[] = 'name = ?';
+        if (isset($body['recipe_name'])) {
+            $name = trim((string)$body['recipe_name']);
+            if ($name === '' || mb_strlen($name) > 150) json_err('`recipe_name` must be 1-150 chars');
+            $sets[] = 'recipe_name = ?';
             $params[] = $name;
         }
-        if (array_key_exists('recipe_time', $body)) {
-            $rt = $body['recipe_time'] === null ? null : (int)$body['recipe_time'];
-            $sets[] = 'recipe_time = ?';
-            $params[] = $rt;
+        if (array_key_exists('recipe_cook_time', $body)) {
+            $ct = $body['recipe_cook_time'] === null ? null : (int)$body['recipe_cook_time'];
+            $sets[] = 'recipe_cook_time = ?';
+            $params[] = $ct;
         }
-        if (array_key_exists('details', $body)) {
-            $sets[] = 'details = ?';
-            $params[] = (string)$body['details'];
+        if (array_key_exists('recipe_steps', $body)) {
+            $sets[] = 'recipe_steps = ?';
+            $params[] = parse_recipe_steps($body['recipe_steps']);
         }
-        if (array_key_exists('image', $body)) {
-            $sets[] = 'image = ?';
-            $img = $body['image'];
+        if (array_key_exists('recipe_image', $body)) {
+            $sets[] = 'recipe_image = ?';
+            $img = $body['recipe_image'];
             $params[] = $img === null ? null : trim((string)$img);
-        }
-        if (array_key_exists('ingredients', $body)) {
-            $sets[] = 'ingredients = ?';
-            $params[] = parse_ingredients($body['ingredients']);
         }
 
         if (!$sets) json_err('Nothing to update');
 
         $params[] = $id;
-        $sql = 'UPDATE recipes SET ' . implode(', ', $sets) . ' WHERE id = ?';
+        $sql = 'UPDATE recipes SET ' . implode(', ', $sets) . ' WHERE recipe_id = ?';
         $stmt = $pdo->prepare($sql);
         $stmt->execute($params);
         if ($stmt->rowCount() === 0) {
             // Could be not found or same values; check existence explicitly
-            $chk = $pdo->prepare('SELECT id FROM recipes WHERE id = ?');
+            $chk = $pdo->prepare('SELECT recipe_id FROM recipes WHERE recipe_id = ?');
             $chk->execute([$id]);
             if (!$chk->fetch()) json_err('Recipe not found', 404);
         }
         // return the updated row
-        $get = $pdo->prepare('SELECT id, category_id, name, recipe_time, details, image, ingredients FROM recipes WHERE id = ?');
+        $get = $pdo->prepare('SELECT recipe_id, recipe_category_id, recipe_name, recipe_cook_time, recipe_steps, recipe_image FROM recipes WHERE recipe_id = ?');
         $get->execute([$id]);
         json_ok(format_recipe_row($get->fetch()));
     } catch (Throwable $e) {
@@ -773,7 +812,7 @@ if ($method === 'PUT' && preg_match('#^/recipes/(\d+)$#', $path, $m)) {
 if ($method === 'DELETE' && preg_match('#^/recipes/(\d+)$#', $path, $m)) {
     try {
         $id = (int)$m[1];
-        $stmt = $pdo->prepare('DELETE FROM recipes WHERE id = ?');
+        $stmt = $pdo->prepare('DELETE FROM recipes WHERE recipe_id = ?');
         $stmt->execute([$id]);
         if ($stmt->rowCount() === 0) json_err('Recipe not found', 404);
         json_ok(['deleted' => $id]);

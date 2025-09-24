@@ -8,6 +8,7 @@ import AppKit
 import UniformTypeIdentifiers
 #endif
 
+
 struct AddEditRecipeView: View {
     @EnvironmentObject private var model: AppViewModel
     @Environment(\.dismiss) private var dismiss
@@ -26,9 +27,15 @@ struct AddEditRecipeView: View {
     @State private var isSaving = false
     @State private var fileImporterTrigger = UUID()
     @State private var isCompressingImage = false
-    @State private var ingredients: [String] = []
-    @State private var newIngredient: String = ""
     
+    // Recipe Steps
+    @State private var recipeSteps: [RecipeStep] = []
+    @State private var expandedSteps: Set<Int> = []
+    
+    // Legacy ingredients (for backward compatibility)
+    @State private var legacyIngredients: [String] = []
+    @State private var newLegacyIngredient: String = ""
+    @State private var showingLegacySection = false
     
     // iOS specific photo states
 #if os(iOS)
@@ -52,7 +59,6 @@ struct AddEditRecipeView: View {
     }
     
     var body: some View {
-        
         NavigationStack {
             Form {
                 Section("Basic Information") {
@@ -63,9 +69,6 @@ struct AddEditRecipeView: View {
                         }
                     }
                     .pickerStyle(.menu)
-                    .onChange(of: selectedCategoryId) { oldValue, newValue in
-                        print("[AddEditRecipeView] User changed categoryId from \(oldValue) to \(newValue)")
-                    }
                     
                     // Recipe Name - REQUIRED
                     TextField("Recipe Name *", text: $recipeName)
@@ -73,192 +76,71 @@ struct AddEditRecipeView: View {
                     // Recipe Time - REQUIRED
                     HStack {
                         TextField("Cooking Time *", text: $recipeTime)
-                            //.keyboardType(.numberPad)
                         Text("minutes")
                             .foregroundStyle(.secondary)
                     }
                 }
 
-
-                
                 Section("Image") {
-                    VStack(alignment: .leading, spacing: 12) {
-                        // Photo Picker Button
-#if os(iOS)
-                        Button {
-                            showingImageActionSheet = true
-                        } label: {
-                            HStack {
-                                Image(systemName: "photo.badge.plus")
-                                Text((selectedImageData != nil || existingImagePath != nil) ? "Change Photo" : "Add Photo")
-                            }
-                        }
-                        .confirmationDialog("Add Photo", isPresented: $showingImageActionSheet) {
-                            Button("Take Photo") {
-                                showingCamera = true
-                            }
-                            Button("Choose from Library") {
-                                showingImagePicker = true
-                            }
-                            if selectedImageData != nil || existingImagePath != nil {
-                                Button("Remove Photo", role: .destructive) {
-                                    selectedImageData = nil
-                                    existingImagePath = nil
-                                }
-                            }
-                            Button("Cancel", role: .cancel) { }
-                        }
-#else
-                        // macOS File Picker Button
-                        Button {
-                            // Force refresh the fileImporter by changing the trigger
-                            fileImporterTrigger = UUID()
-                            showingImagePicker = true
-                        } label: {
-                            HStack {
-                                Image(systemName: "photo.badge.plus")
-                                Text((selectedImageData != nil || existingImagePath != nil) ? "Change Photo" : "Add Photo")
-                            }
-                        }
-                        .buttonStyle(.bordered)
-                        .contentShape(Rectangle())
-                        .zIndex(1)
-                        .allowsHitTesting(true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        
-                        // Add Remove Photo option for macOS when there's an image
-                        if selectedImageData != nil || existingImagePath != nil {
-                            Button("Remove Photo", role: .destructive) {
-                                selectedImageData = nil
-                                existingImagePath = nil
+                    imageSection
+                }
+                
+                // Recipe Steps Section
+                Section {
+                    VStack(alignment: .leading, spacing: 16) {
+
+                        HStack {
+                            Text("Recipe Steps")
+                                .font(.headline)
+                            Spacer()
+                            Button("Add Step") {
+                                addNewStep()
                             }
                             .buttonStyle(.bordered)
-                            .zIndex(1)
-                            .allowsHitTesting(true)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-#endif
-                        
-                        // Image Preview
-                        if let imageData = selectedImageData {
-                            Group {
-#if os(iOS)
-                                if let uiImage = UIImage(data: imageData) {
-                                    Image(uiImage: uiImage)
-                                        .resizable()
-                                        .aspectRatio(contentMode: .fill)
-                                        .frame(height: 200)
-                                        .clipped()
-                                        .cornerRadius(8)
-                                } else {
-                                    placeholderImageView
-                                }
-#else
-                                if let nsImage = NSImage(data: imageData) {
-                                    Image(nsImage: nsImage)
-                                        .resizable()
-                                        .aspectRatio(contentMode: .fill)
-                                        .frame(height: 200)
-                                        .clipped()
-                                        .cornerRadius(8)
-                                        .zIndex(0)
-                                } else {
-                                    placeholderImageView
-                                }
-#endif
-                            }
-                        }else if let imagePath = existingImagePath {
-                            AsyncImage(url: imageURL(from: imagePath)) { phase in
-                                switch phase {
-                                case .success(let image):
-                                    image
-                                        .resizable()
-                                        .aspectRatio(contentMode: .fill)
-                                        .frame(height: 200)
-                                        .clipped()
-                                        .cornerRadius(8)
-                                        .zIndex(0)
-                                case .failure(_):
-                                    Rectangle()
-                                        .fill(.gray.opacity(0.2))
-                                        .frame(height: 200)
-                                        .cornerRadius(8)
-                                        .overlay {
-                                            Image(systemName: "photo")
-                                                .foregroundStyle(.secondary)
-                                        }
-                                case .empty:
-                                    Rectangle()
-                                        .fill(.gray.opacity(0.2))
-                                        .frame(height: 200)
-                                        .cornerRadius(8)
-                                        .overlay {
-                                            ProgressView()
-                                        }
-                                @unknown default:
-                                    EmptyView()
-                                }
-                            }
                         }
                         
-                        if isUploading || isCompressingImage {
-                            HStack {
-                                ProgressView()
-                                    .scaleEffect(0.8)
-                                Text(isCompressingImage ? "Compressing image..." : "Uploading image...")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                        if recipeSteps.isEmpty {
+                            Text("No steps added yet. Add steps to structure your recipe with ingredients for each step.")
+                                .font(.caption)
+                                .padding(.vertical, 8)
+                        } else {
+                            ForEach(Array(recipeSteps.enumerated()), id: \.element.stepNumber) { index, step in
+                                StepEditView(
+                                    step: Binding(
+                                        get: { recipeSteps[index] },
+                                        set: { recipeSteps[index] = $0 }
+                                    ),
+                                    stepNumber: step.stepNumber,
+                                    onDelete: { deleteStep(at: index) },
+                                    isExpanded: Binding(
+                                        get: { expandedSteps.contains(step.stepNumber) },
+                                        set: { isExpanded in
+                                            if isExpanded {
+                                                expandedSteps.insert(step.stepNumber)
+                                            } else {
+                                                expandedSteps.remove(step.stepNumber)
+                                            }
+                                        }
+                                    )
+                                )
                             }
+                            .onMove(perform: moveSteps)
+                        }
+                    }
+                } header: {
+                    HStack {
+                        Text("Recipe Steps")
+                        Spacer()
+                        if !recipeSteps.isEmpty {
+                            Text("\(recipeSteps.count) steps")
+                                .font(.caption)
                         }
                     }
                 }
                 
-                Section("Ingredients") {
-                    // Add ingredient field
-                    HStack {
-                        TextField("Add ingredient", text: $newIngredient)
-                            .onSubmit {
-                                addIngredient()
-                            }
-                        
-                        Button("Add") {
-                            addIngredient()
-                        }
-                        .disabled(newIngredient.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    }
-                    
-                    // List of current ingredients
-                    if !ingredients.isEmpty {
-                        ForEach(Array(ingredients.enumerated()), id: \.offset) { index, ingredient in
-                            HStack {
-                                Text("• \(ingredient)")
-                                Spacer()
-                                Button {
-                                    ingredients.remove(at: index)
-                                } label: {
-                                    Image(systemName: "minus.circle.fill")
-                                        .foregroundColor(.red)
-                                }
-                            }
-                        }
-                        .onDelete(perform: deleteIngredients)
-                        .onMove(perform: moveIngredients)
-                    } else {
-                        Text("No ingredients added yet")
-                            .foregroundStyle(.secondary)
-                            .font(.caption)
-                    }
-                }
-
-                Section("Recipe Details") {
-                    TextEditor(text: $recipeDetails)
-                        .frame(minHeight: 400)
-                        .scrollContentBackground(.hidden)
-                }
             }
             .formStyle(.grouped)
             .navigationTitle(isEditing ? "Edit Recipe" : "Add Recipe")
-            //.navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
@@ -276,65 +158,12 @@ struct AddEditRecipeView: View {
                 }
             }
             .task {
-                // Load categories if empty
-                if model.categories.isEmpty {
-                    await model.loadCategories()
-                }
-                
-                // Initialize selection for create flow once categories are available
-                if !isEditing, selectedCategoryId == 0 {
-                    // Use preselected category if available, otherwise use first category
-                    if let preselected = preselectedCategoryId, model.categories.contains(where: { $0.id == preselected }) {
-                        selectedCategoryId = preselected
-                        print("[AddEditRecipeView] Initialized categoryId to preselected \(preselected)")
-                    } else if let firstId = model.categories.first?.id {
-                        selectedCategoryId = firstId
-                        print("[AddEditRecipeView] Initialized categoryId to first available \(firstId)")
-                    }
-                }
-                
-                // Setup for editing
-                if let recipe = editingRecipe {
-                    selectedCategoryId = recipe.category_id
-                    recipeName = recipe.name
-                    recipeTime = String(recipe.recipe_time)
-                    recipeDetails = recipe.details ?? ""
-                    existingImagePath = recipe.image
-                    // Initialize ingredients array
-                    ingredients = recipe.ingredients ?? []
-                    print("[AddEditRecipeView] Loaded \(ingredients.count) ingredients for editing")
-                }
+                await initializeView()
             }
             .onChange(of: model.categories) { _, newCategories in
-                let ids = Set(newCategories.map { $0.id })
-                
-                if isEditing {
-                    // For editing: ensure the recipe's category still exists, otherwise pick first available
-                    if let recipe = editingRecipe, !ids.contains(recipe.category_id) {
-                        selectedCategoryId = newCategories.first?.id ?? 0
-                        print("[AddEditRecipeView] Recipe's category \(recipe.category_id) not found; reset to \(selectedCategoryId)")
-                    }
-                } else {
-                    // For creating: prioritize preselected, then current selection, then default
-                    if selectedCategoryId == 0 {
-                        if let preselected = preselectedCategoryId, ids.contains(preselected) {
-                            selectedCategoryId = preselected
-                            print("[AddEditRecipeView] Categories loaded; set to preselected \(preselected)")
-                        } else {
-                            selectedCategoryId = newCategories.first?.id ?? 0
-                            print("[AddEditRecipeView] Categories loaded; defaulted categoryId to \(selectedCategoryId)")
-                        }
-                    } else if !ids.contains(selectedCategoryId) {
-                        if let preselected = preselectedCategoryId, ids.contains(preselected) {
-                            selectedCategoryId = preselected
-                            print("[AddEditRecipeView] Previous selection invalid; using preselected \(preselected)")
-                        } else {
-                            selectedCategoryId = newCategories.first?.id ?? 0
-                            print("[AddEditRecipeView] Previous selection invalid; reset to \(selectedCategoryId)")
-                        }
-                    }
-                }
+                handleCategoryChanges(newCategories)
             }
+            // Photo picker implementations (keeping your existing implementations)
             // iOS specific photo handling
 #if os(iOS)
             .photosPicker(
@@ -359,14 +188,11 @@ struct AddEditRecipeView: View {
                     }
                     
                     do {
-                        // Load the data
                         guard let originalData = try await newItem.loadTransferable(type: Data.self) else {
                             return
                         }
                         
                         print("[Image] Loaded \(Int(Double(originalData.count) / 1024.0))KB from photo picker")
-                        
-                        // Compress on background thread
                         let compressedData = await compressImageInBackground(originalData)
                         
                         await MainActor.run {
@@ -399,14 +225,11 @@ struct AddEditRecipeView: View {
                             }
                         }
                         
-                        // Get original data
                         guard let originalData = image.jpegData(compressionQuality: 0.95) else {
                             return
                         }
                         
                         print("[Camera] Captured \(Int(Double(originalData.count) / 1024.0))KB image")
-                        
-                        // Compress on background thread
                         let compressedData = await compressImageInBackground(originalData)
                         
                         await MainActor.run {
@@ -422,13 +245,11 @@ struct AddEditRecipeView: View {
                 }
             }
 #else
-            // macOS file importer - Fixed version
             .fileImporter(
                 isPresented: $showingImagePicker,
                 allowedContentTypes: [.image],
                 allowsMultipleSelection: false
             ) { result in
-                // Reset the picker state immediately
                 showingImagePicker = false
                 
                 switch result {
@@ -440,17 +261,412 @@ struct AddEditRecipeView: View {
                     print("Failed to pick image: \(error)")
                 }
             }
-            // This id forces the fileImporter to refresh when the trigger changes
             .id(fileImporterTrigger)
 #endif
-            .alert("Error",
-                   isPresented: .init(
-                    get: { model.error != nil },
-                    set: { if !$0 { model.error = nil } }
-                   ),
-                   actions: { Button("OK") { model.error = nil } },
-                   message: { Text(model.error ?? "") }
+//            .alert("Error", isPresented: .init(
+//                get: { model.error != nil },
+//                set: { if !$0 { model.error = nil } }
+//            )) {
+//                Button("OK") { model.error = nil }
+//            } message: {
+//                Text(model.error ?? "")
+//            }
+        }
+    }
+    
+    // MARK: - Step Management
+    
+    private func addNewStep() {
+        let newStepNumber = (recipeSteps.map(\.stepNumber).max() ?? 0) + 1
+        let newStep = RecipeStep(
+            stepNumber: newStepNumber,
+            instruction: "",
+            ingredients: []
+        )
+        recipeSteps.append(newStep)
+        expandedSteps.insert(newStepNumber)
+    }
+    
+    private func deleteStep(at index: Int) {
+        guard index < recipeSteps.count else { return }
+        let stepNumber = recipeSteps[index].stepNumber
+        recipeSteps.remove(at: index)
+        expandedSteps.remove(stepNumber)
+        
+        // Renumber remaining steps
+        for i in 0..<recipeSteps.count {
+            recipeSteps[i] = RecipeStep(
+                stepNumber: i + 1,
+                instruction: recipeSteps[i].instruction,
+                ingredients: recipeSteps[i].ingredients
             )
+        }
+        
+        // Update expanded set with new numbers
+        expandedSteps = Set(expandedSteps.compactMap { oldNumber in
+            guard oldNumber > stepNumber else { return oldNumber }
+            return oldNumber - 1
+        })
+    }
+    
+    private func moveSteps(from source: IndexSet, to destination: Int) {
+        recipeSteps.move(fromOffsets: source, toOffset: destination)
+        
+        // Renumber all steps after reordering
+        for i in 0..<recipeSteps.count {
+            recipeSteps[i] = RecipeStep(
+                stepNumber: i + 1,
+                instruction: recipeSteps[i].instruction,
+                ingredients: recipeSteps[i].ingredients
+            )
+        }
+        
+        // Preserve expanded state - just keep the current expanded set
+        // since we've renumbered everything sequentially
+    }
+    
+    // MARK: - Legacy Ingredient Management
+    
+    private func addLegacyIngredient() {
+        let trimmed = newLegacyIngredient.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        
+        if !legacyIngredients.contains(where: { $0.lowercased() == trimmed.lowercased() }) {
+            legacyIngredients.append(trimmed)
+            newLegacyIngredient = ""
+        } else {
+            newLegacyIngredient = ""
+        }
+    }
+    
+    private func deleteLegacyIngredients(at offsets: IndexSet) {
+        legacyIngredients.remove(atOffsets: offsets)
+    }
+    
+    private func moveLegacyIngredients(from source: IndexSet, to destination: Int) {
+        legacyIngredients.move(fromOffsets: source, toOffset: destination)
+    }
+    
+    private func convertLegacyIngredientsToSteps() {
+        guard !legacyIngredients.isEmpty else { return }
+        
+        if recipeSteps.isEmpty {
+            // Create first step with all legacy ingredients
+            let newStep = RecipeStep(
+                stepNumber: 1,
+                instruction: "Follow recipe instructions",
+                ingredients: legacyIngredients
+            )
+            recipeSteps.append(newStep)
+            expandedSteps.insert(1)
+        } else {
+            // Add to first step
+            recipeSteps[0] = RecipeStep(
+                stepNumber: recipeSteps[0].stepNumber,
+                instruction: recipeSteps[0].instruction,
+                ingredients: recipeSteps[0].ingredients + legacyIngredients
+            )
+        }
+        
+        legacyIngredients.removeAll()
+        showingLegacySection = false
+    }
+    
+    // MARK: - Initialization and State Management
+    
+    private func initializeView() async {
+        if model.categories.isEmpty {
+            await model.loadCategories()
+        }
+        
+        if !isEditing, selectedCategoryId == 0 {
+            if let preselected = preselectedCategoryId, model.categories.contains(where: { $0.id == preselected }) {
+                selectedCategoryId = preselected
+            } else if let firstId = model.categories.first?.id {
+                selectedCategoryId = firstId
+            }
+        }
+        
+        if let recipe = editingRecipe {
+            selectedCategoryId = recipe.category_id
+            recipeName = recipe.name
+            recipeTime = String(recipe.recipe_time)
+            recipeDetails = recipe.details ?? ""
+            existingImagePath = recipe.image
+            
+            // Load recipe steps
+            if let steps = recipe.recipeSteps?.steps, !steps.isEmpty {
+                recipeSteps = steps
+                // Expand first step by default
+                if let firstStep = steps.first {
+                    expandedSteps.insert(firstStep.stepNumber)
+                }
+            }
+            
+            // Load legacy ingredients (for recipes that haven't been converted yet)
+            if let ingredients = recipe.ingredients, !ingredients.isEmpty {
+                // Check if ingredients are already in steps
+                let allStepIngredients = Set(recipeSteps.flatMap(\.ingredients))
+                let uniqueLegacyIngredients = ingredients.filter { !allStepIngredients.contains($0) }
+                
+                if !uniqueLegacyIngredients.isEmpty {
+                    legacyIngredients = uniqueLegacyIngredients
+                    showingLegacySection = true
+                }
+            }
+        }
+    }
+    
+    private func handleCategoryChanges(_ newCategories: [Category]) {
+        let ids = Set(newCategories.map { $0.id })
+        
+        if isEditing {
+            if let recipe = editingRecipe, !ids.contains(recipe.category_id) {
+                selectedCategoryId = newCategories.first?.id ?? 0
+            }
+        } else {
+            if selectedCategoryId == 0 {
+                if let preselected = preselectedCategoryId, ids.contains(preselected) {
+                    selectedCategoryId = preselected
+                } else {
+                    selectedCategoryId = newCategories.first?.id ?? 0
+                }
+            } else if !ids.contains(selectedCategoryId) {
+                if let preselected = preselectedCategoryId, ids.contains(preselected) {
+                    selectedCategoryId = preselected
+                } else {
+                    selectedCategoryId = newCategories.first?.id ?? 0
+                }
+            }
+        }
+    }
+    
+    // MARK: - Save Recipe
+    
+    @MainActor
+    private func saveRecipe() async {
+        isSaving = true
+        defer { isSaving = false }
+        
+        let trimmedName = recipeName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedTime = recipeTime.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        guard !trimmedName.isEmpty else { return }
+        guard !trimmedTime.isEmpty, let timeValue = Int(trimmedTime) else { return }
+        
+        let trimmedDetails = recipeDetails.trimmingCharacters(in: .whitespacesAndNewlines)
+        let detailsToSave = trimmedDetails.isEmpty ? nil : trimmedDetails
+        
+        // Process recipe steps
+        let processedSteps: [RecipeStep] = recipeSteps.compactMap { step -> RecipeStep? in
+            let trimmedInstruction = step.instruction.trimmingCharacters(in: .whitespacesAndNewlines)
+            let processedIngredients = step.ingredients
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            
+            guard !trimmedInstruction.isEmpty || !processedIngredients.isEmpty else { return nil }
+            
+            return RecipeStep(
+                stepNumber: step.stepNumber,
+                instruction: trimmedInstruction.isEmpty ? "Step \(step.stepNumber)" : trimmedInstruction,
+                ingredients: processedIngredients
+            )
+        }
+        
+        // Process legacy ingredients
+        let processedLegacyIngredients = legacyIngredients
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        
+        // Combine processed steps with legacy ingredients if needed
+        let finalSteps: [RecipeStep]
+        if !processedLegacyIngredients.isEmpty && !processedSteps.isEmpty {
+            // Add legacy ingredients to the first step
+            var steps = processedSteps
+            steps[0] = RecipeStep(
+                stepNumber: steps[0].stepNumber,
+                instruction: steps[0].instruction,
+                ingredients: steps[0].ingredients + processedLegacyIngredients
+            )
+            finalSteps = steps
+        } else if !processedLegacyIngredients.isEmpty {
+            // Create a single step with legacy ingredients
+            finalSteps = [RecipeStep(
+                stepNumber: 1,
+                instruction: "Follow recipe instructions",
+                ingredients: processedLegacyIngredients
+            )]
+        } else {
+            finalSteps = processedSteps
+        }
+        
+        var imagePathToSave = existingImagePath
+        
+        // Upload image if selected
+        if let imageData = selectedImageData {
+            let fileName = "recipe_\(Int(Date().timeIntervalSince1970))_\(UUID().uuidString.prefix(8)).jpg"
+            if let uploadedPath = await model.uploadImage(imageData: imageData, fileName: String(fileName)) {
+                imagePathToSave = uploadedPath
+            }
+        }
+        
+        let success: Bool
+        if let recipe = editingRecipe {
+            success = await model.updateRecipeWithSteps(
+                id: recipe.id,
+                categoryId: selectedCategoryId != recipe.category_id ? selectedCategoryId : nil,
+                name: trimmedName != recipe.name ? trimmedName : nil,
+                recipeTime: timeValue != recipe.recipe_time ? timeValue : nil,
+                details: detailsToSave != recipe.details ? detailsToSave : nil,
+                image: imagePathToSave != recipe.image ? imagePathToSave : nil,
+                recipeSteps: finalSteps
+            )
+        } else {
+            success = await model.createRecipeWithSteps(
+                categoryId: selectedCategoryId,
+                name: trimmedName,
+                recipeTime: timeValue,
+                details: detailsToSave,
+                image: imagePathToSave,
+                recipeSteps: finalSteps
+            )
+        }
+        
+        if success {
+            dismiss()
+        }
+    }
+    
+    // MARK: - Image Section
+    
+    private var imageSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Photo Picker Button
+#if os(iOS)
+            Button {
+                showingImageActionSheet = true
+            } label: {
+                HStack {
+                    Image(systemName: "photo.badge.plus")
+                    Text((selectedImageData != nil || existingImagePath != nil) ? "Change Photo" : "Add Photo")
+                }
+            }
+            .confirmationDialog("Add Photo", isPresented: $showingImageActionSheet) {
+                Button("Take Photo") {
+                    showingCamera = true
+                }
+                Button("Choose from Library") {
+                    showingImagePicker = true
+                }
+                if selectedImageData != nil || existingImagePath != nil {
+                    Button("Remove Photo", role: .destructive) {
+                        selectedImageData = nil
+                        existingImagePath = nil
+                    }
+                }
+                Button("Cancel", role: .cancel) { }
+            }
+#else
+            // macOS File Picker Button
+            Button {
+                fileImporterTrigger = UUID()
+                showingImagePicker = true
+            } label: {
+                HStack {
+                    Image(systemName: "photo.badge.plus")
+                    Text((selectedImageData != nil || existingImagePath != nil) ? "Change Photo" : "Add Photo")
+                }
+            }
+            .buttonStyle(.bordered)
+            .contentShape(Rectangle())
+            .zIndex(1)
+            .allowsHitTesting(true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            
+            // Add Remove Photo option for macOS when there's an image
+            if selectedImageData != nil || existingImagePath != nil {
+                Button("Remove Photo", role: .destructive) {
+                    selectedImageData = nil
+                    existingImagePath = nil
+                }
+                .buttonStyle(.bordered)
+                .zIndex(1)
+                .allowsHitTesting(true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+#endif
+            
+            // Image Preview
+            if let imageData = selectedImageData {
+                Group {
+#if os(iOS)
+                    if let uiImage = UIImage(data: imageData) {
+                        Image(uiImage: uiImage)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(height: 200)
+                            .clipped()
+                            .cornerRadius(8)
+                    } else {
+                        placeholderImageView
+                    }
+#else
+                    if let nsImage = NSImage(data: imageData) {
+                        Image(nsImage: nsImage)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(height: 200)
+                            .clipped()
+                            .cornerRadius(8)
+                            .zIndex(0)
+                    } else {
+                        placeholderImageView
+                    }
+#endif
+                }
+            }else if let imagePath = existingImagePath {
+                AsyncImage(url: imageURL(from: imagePath)) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(height: 200)
+                            .clipped()
+                            .cornerRadius(8)
+                            .zIndex(0)
+                    case .failure(_):
+                        Rectangle()
+                            .fill(.gray.opacity(0.2))
+                            .frame(height: 200)
+                            .cornerRadius(8)
+                            .overlay {
+                                Image(systemName: "photo")
+                                    .foregroundStyle(.secondary)
+                            }
+                    case .empty:
+                        Rectangle()
+                            .fill(.gray.opacity(0.2))
+                            .frame(height: 200)
+                            .cornerRadius(8)
+                            .overlay {
+                                ProgressView()
+                            }
+                    @unknown default:
+                        EmptyView()
+                    }
+                }
+            }
+            
+            if isUploading || isCompressingImage {
+                HStack {
+                    ProgressView()
+                        .scaleEffect(0.8)
+                    Text(isCompressingImage ? "Compressing image..." : "Uploading image...")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
     }
     
@@ -490,11 +706,9 @@ struct AddEditRecipeView: View {
 #endif
             
             do {
-                // Read file data
                 let originalData = try Data(contentsOf: url, options: .mappedIfSafe)
                 print("[Image] Loaded \(Int(Double(originalData.count) / 1024.0))KB from file")
                 
-                // Compress immediately on background thread
                 let compressedData = await compressImageInBackground(originalData)
                 
                 await MainActor.run {
@@ -518,16 +732,13 @@ struct AddEditRecipeView: View {
         }
     }
     
-    
-    // New background compression function
+    // Background compression function
     private func compressImageInBackground(_ data: Data, maxDimension: CGFloat = 1600, quality: CGFloat = 0.7) async -> Data? {
 #if os(iOS)
-        // iOS UIKit operations must happen on main thread
         return await MainActor.run {
             return compressImageData(data, maxDimension: maxDimension, quality: quality)
         }
 #else
-        // macOS can do compression on background thread
         return await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 let result = compressImageData(data, maxDimension: maxDimension, quality: quality)
@@ -536,8 +747,6 @@ struct AddEditRecipeView: View {
         }
 #endif
     }
-    
-    
     
     // Cross-platform image compression helper
 #if os(iOS)
@@ -591,7 +800,6 @@ struct AddEditRecipeView: View {
         return compressedData
     }
 #else
-    // Fixed macOS version using modern APIs
     nonisolated private func compressImageData(_ data: Data, maxDimension: CGFloat = 1600, quality: CGFloat = 0.7) -> Data? {
         guard let nsImage = NSImage(data: data) else {
             print("[Compression] Failed to create NSImage from data")
@@ -613,7 +821,6 @@ struct AddEditRecipeView: View {
             print("[Compression] No resize needed, original size: \(originalSize)")
         }
         
-        // Create bitmap representation directly instead of using lockFocus
         guard let originalRep = NSBitmapImageRep(data: data) ?? nsImage.representations.first as? NSBitmapImageRep else {
             print("[Compression] Failed to get bitmap representation")
             return nil
@@ -622,7 +829,6 @@ struct AddEditRecipeView: View {
         let finalRep: NSBitmapImageRep
         
         if needsResize {
-            // Create new bitmap rep with target size
             let pixelsWide = Int(targetSize.width)
             let pixelsHigh = Int(targetSize.height)
             
@@ -643,7 +849,6 @@ struct AddEditRecipeView: View {
                 return nil
             }
             
-            // Draw the original image into the new rep
             NSGraphicsContext.saveGraphicsState()
             NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: resizedRep)
             NSGraphicsContext.current?.imageInterpolation = .high
@@ -661,7 +866,6 @@ struct AddEditRecipeView: View {
             finalRep = originalRep
         }
         
-        // Create JPEG data with compression
         guard let compressedData = finalRep.representation(
             using: .jpeg,
             properties: [.compressionFactor: quality]
@@ -677,110 +881,172 @@ struct AddEditRecipeView: View {
         return compressedData
     }
 #endif
+}
 
-    // Replace the saveRecipe method in AddEditRecipeView with this updated version:
+// MARK: - Step Edit View
 
-
-    @MainActor
-    private func saveRecipe() async {
-        isSaving = true
-        defer { isSaving = false }
-        
-        let trimmedName = recipeName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedTime = recipeTime.trimmingCharacters(in: .whitespacesAndNewlines)
-        
-        // Validate required fields
-        guard !trimmedName.isEmpty else {
-            print("Recipe name is required")
-            return
-        }
-        
-        guard !trimmedTime.isEmpty, let timeValue = Int(trimmedTime) else {
-            print("Valid cooking time is required")
-            return
-        }
-        
-        let trimmedDetails = recipeDetails.trimmingCharacters(in: .whitespacesAndNewlines)
-        let detailsToSave = trimmedDetails.isEmpty ? nil : trimmedDetails
-        
-        // Process ingredients - remove empty ones and trim whitespace
-        let processedIngredients = ingredients
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        let ingredientsToSave = processedIngredients.isEmpty ? nil : processedIngredients
-        
-        var imagePathToSave = existingImagePath
-
-        // Upload image if selected (already compressed!)
-        if let imageData = selectedImageData {
-            let sizeKB = Double(imageData.count) / 1024.0
-            print("[Upload] Uploading pre-compressed image: \(Int(sizeKB))KB")
-
-            let fileName = "recipe_\(Int(Date().timeIntervalSince1970))_\(UUID().uuidString.prefix(8)).jpg"
-            if let uploadedPath = await model.uploadImage(imageData: imageData, fileName: String(fileName)) {
-                imagePathToSave = uploadedPath
-            } else {
-                print("Image upload failed, continuing without image")
+struct StepEditView: View {
+    @Binding var step: RecipeStep
+    let stepNumber: Int
+    let onDelete: () -> Void
+    @Binding var isExpanded: Bool
+    
+    @State private var newIngredient: String = ""
+    @FocusState private var isInstructionFocused: Bool
+    @FocusState private var isNewIngredientFocused: Bool
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Step Header
+            HStack {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isExpanded.toggle()
+                    }
+                } label: {
+                    HStack {
+                        Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        
+                        Text("Step \(stepNumber)")
+                            .font(.headline)
+                        
+                        if !step.ingredients.isEmpty {
+                            Text("(\(step.ingredients.count) ingredients)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+                
+                Spacer()
+                
+                Button {
+                    onDelete()
+                } label: {
+                    Image(systemName: "trash")
+                        .foregroundColor(.red)
+                }
+                .buttonStyle(.plain)
+            }
+            
+            if isExpanded {
+                VStack(alignment: .leading, spacing: 12) {
+                    // Step Instruction
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Instructions:")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        
+                        TextField("",text: .init(
+                            get: { step.instruction },
+                            set: { newValue in
+                                step = RecipeStep(
+                                    stepNumber: step.stepNumber,
+                                    instruction: newValue,
+                                    ingredients: step.ingredients
+                                )
+                            }
+                        ), axis: .vertical)
+                        .focused($isInstructionFocused)
+                        .textFieldStyle(.roundedBorder)
+                        .lineLimit(3...6)
+                    }
+                    
+                    // Step Ingredients
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Ingredients:")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        
+                        // Add ingredient field
+                        HStack {
+                            TextField("Add ingredient for step \(stepNumber)", text: $newIngredient)
+                                .focused($isNewIngredientFocused)
+                                .textFieldStyle(.roundedBorder)
+                                .onSubmit {
+                                    addIngredient()
+                                }
+                            
+                            Button("Add") {
+                                addIngredient()
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(newIngredient.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        }
+                        
+                        // Current ingredients
+                        if !step.ingredients.isEmpty {
+                            ForEach(Array(step.ingredients.enumerated()), id: \.offset) { index, ingredient in
+                                HStack {
+                                    Text("• \(ingredient)")
+                                        .font(.body)
+                                    Spacer()
+                                    Button {
+                                        removeIngredient(at: index)
+                                    } label: {
+                                        Image(systemName: "minus.circle.fill")
+                                            .foregroundColor(.red)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                                .padding(.vertical, 2)
+                            }
+                        } else {
+                            Text("No ingredients for this step yet")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .padding(.vertical, 4)
+                        }
+                    }
+                }
+                .padding(.leading, 16)
             }
         }
-
-        let selectedName = model.categories.first(where: { $0.id == selectedCategoryId })?.name ?? "<unknown>"
-        print("[AddEditRecipeView] create/update — categoryId=\(selectedCategoryId) (\(selectedName)), name=\(trimmedName), time=\(timeValue), hasImage=\(selectedImageData != nil || imagePathToSave != nil), ingredients=\(processedIngredients.count)")
-        
-        let success: Bool
-        if let recipe = editingRecipe {
-            // Determine what changed for the update
-            let ingredientsChanged = (recipe.ingredients ?? []) != processedIngredients
-            
-            success = await model.updateRecipeWithUIFeedback(
-                id: recipe.id,
-                categoryId: selectedCategoryId != recipe.category_id ? selectedCategoryId : nil,
-                name: trimmedName != recipe.name ? trimmedName : nil,
-                recipeTime: timeValue != recipe.recipe_time ? timeValue : nil,
-                details: detailsToSave != recipe.details ? detailsToSave : nil,
-                image: imagePathToSave != recipe.image ? imagePathToSave : nil,
-                ingredients: ingredientsChanged ? ingredientsToSave : nil
-            )
-        } else {
-            success = await model.createRecipe(
-                categoryId: selectedCategoryId,
-                name: trimmedName,
-                recipeTime: timeValue,
-                details: detailsToSave,
-                image: imagePathToSave,
-                ingredients: ingredientsToSave
-            )
-        }
-        
-        if success {
-            dismiss()
-        }
+        //.padding()
+        //.background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
     }
     
     private func addIngredient() {
         let trimmed = newIngredient.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         
-        // Avoid duplicates
-        if !ingredients.contains(where: { $0.lowercased() == trimmed.lowercased() }) {
-            ingredients.append(trimmed)
-            newIngredient = ""
-        } else {
-            newIngredient = ""
+        var newIngredients = step.ingredients
+        if !newIngredients.contains(where: { $0.lowercased() == trimmed.lowercased() }) {
+            newIngredients.append(trimmed)
+            step = RecipeStep(
+                stepNumber: step.stepNumber,
+                instruction: step.instruction,
+                ingredients: newIngredients
+            )
         }
-    }
-
-    private func deleteIngredients(at offsets: IndexSet) {
-        ingredients.remove(atOffsets: offsets)
-    }
-
-    private func moveIngredients(from source: IndexSet, to destination: Int) {
-        ingredients.move(fromOffsets: source, toOffset: destination)
+        newIngredient = ""
     }
     
-    
+    private func removeIngredient(at index: Int) {
+        var newIngredients = step.ingredients
+        newIngredients.remove(at: index)
+        step = RecipeStep(
+            stepNumber: step.stepNumber,
+            instruction: step.instruction,
+            ingredients: newIngredients
+        )
+    }
 }
 
+
+
+
+
+
+
+
+
+
+
+// MARK: - iOS Camera
 // iOS Camera Support
 // Enhanced iOS 17+ Camera Implementation with Multi-Camera Support
 

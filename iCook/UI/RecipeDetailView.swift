@@ -8,7 +8,9 @@ struct RecipeDetailView: View {
     @State private var editingRecipe: Recipe?
     @State private var showingDeleteAlert = false
     @State private var isDeleting = false
-    @State private var checkedIngredients: Set<Int> = []
+    @State private var checkedIngredients: Set<String> = []
+    @State private var checkedSteps: Set<Int> = []
+    @State private var checkedStepIngredients: Set<String> = [] // Format: "stepNumber-ingredientIndex"
     @State private var showCopiedHUD = false
     
     var body: some View {
@@ -59,7 +61,107 @@ struct RecipeDetailView: View {
                         }
                     }
                     
-                    // Ingredients Section
+                    // Recipe Steps Section (NEW)
+                    if let recipeSteps = recipe.recipeSteps, !recipeSteps.steps.isEmpty {
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack {
+                                Image(systemName: "list.number")
+                                    .foregroundStyle(.secondary)
+                                Text("Recipe Steps")
+                                    .font(.title2)
+                                    .bold()
+                            }
+                            
+                            LazyVStack(alignment: .leading, spacing: 16) {
+                                ForEach(recipeSteps.steps, id: \.stepNumber) { step in
+                                    VStack(alignment: .leading, spacing: 12) {
+                                        // Step header with checkbox
+                                        HStack(alignment: .top, spacing: 12) {
+                                            Button {
+                                                if checkedSteps.contains(step.stepNumber) {
+                                                    checkedSteps.remove(step.stepNumber)
+                                                } else {
+                                                    checkedSteps.insert(step.stepNumber)
+                                                }
+                                            } label: {
+                                                Image(systemName: checkedSteps.contains(step.stepNumber) ? "checkmark.circle.fill" : "circle")
+                                                    .foregroundStyle(checkedSteps.contains(step.stepNumber) ? .green : .secondary)
+                                                    .font(.title3)
+                                            }
+                                            .buttonStyle(.plain)
+                                            
+                                            VStack(alignment: .leading, spacing: 8) {
+                                                Text("Step \(step.stepNumber)")
+                                                    .font(.headline)
+                                                    .strikethrough(checkedSteps.contains(step.stepNumber))
+                                                    .foregroundStyle(checkedSteps.contains(step.stepNumber) ? .secondary : .primary)
+                                                
+                                                Text(step.instruction)
+                                                    .font(.body)
+                                                    .textSelection(.enabled)
+                                                    .fixedSize(horizontal: false, vertical: true)
+                                                    .strikethrough(checkedSteps.contains(step.stepNumber))
+                                                    .foregroundStyle(checkedSteps.contains(step.stepNumber) ? .secondary : .primary)
+                                            }
+                                            
+                                            Spacer()
+                                        }
+                                        
+                                        // Step ingredients with sub-checkboxes
+                                        if !step.ingredients.isEmpty {
+                                            VStack(alignment: .leading, spacing: 8) {
+                                                Text("Ingredients for this step:")
+                                                    .font(.subheadline)
+                                                    .foregroundStyle(.secondary)
+                                                    .padding(.leading, 44) // Align with step content
+                                                
+                                                ForEach(Array(step.ingredients.enumerated()), id: \.offset) { ingredientIndex, ingredient in
+                                                    let checkboxKey = "\(step.stepNumber)-\(ingredientIndex)"
+                                                    
+                                                    HStack(alignment: .top, spacing: 12) {
+                                                        Spacer()
+                                                            .frame(width: 32) // Space for step checkbox alignment
+                                                        
+                                                        Button {
+                                                            if checkedStepIngredients.contains(checkboxKey) {
+                                                                checkedStepIngredients.remove(checkboxKey)
+                                                            } else {
+                                                                checkedStepIngredients.insert(checkboxKey)
+                                                            }
+                                                        } label: {
+                                                            Image(systemName: checkedStepIngredients.contains(checkboxKey) ? "checkmark.square.fill" : "square")
+                                                                .foregroundStyle(checkedStepIngredients.contains(checkboxKey) ? .blue : .secondary)
+                                                                .font(.body)
+                                                        }
+                                                        .buttonStyle(.plain)
+                                                        
+                                                        Text("• \(ingredient)")
+                                                            .font(.body)
+                                                            .textSelection(.enabled)
+                                                            .fixedSize(horizontal: false, vertical: true)
+                                                            .strikethrough(checkedStepIngredients.contains(checkboxKey))
+                                                            .foregroundStyle(checkedStepIngredients.contains(checkboxKey) ? .secondary : .primary)
+                                                        
+                                                        Spacer()
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    .padding(.vertical, 8)
+                                    
+                                    if step.stepNumber < recipeSteps.steps.count {
+                                        Divider()
+                                            .padding(.horizontal)
+                                    }
+                                }
+                            }
+                        }
+                        .padding()
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                    }
+                    
+                    // Ingredients Section (UNCHANGED - keeping existing functionality)
                     if let ingredients = recipe.ingredients, !ingredients.isEmpty {
                         VStack(alignment: .leading, spacing: 12) {
                             HStack {
@@ -90,17 +192,17 @@ struct RecipeDetailView: View {
                             LazyVGrid(columns: [
                                 GridItem(.flexible(), alignment: .leading)
                             ], alignment: .leading, spacing: 8) {
-                                ForEach(Array(ingredients.enumerated()), id: \.offset) { index, ingredient in
+                                ForEach(ingredients, id: \.self) { ingredient in
                                     HStack(alignment: .top, spacing: 12) {
                                         Button {
-                                            if checkedIngredients.contains(index) {
-                                                checkedIngredients.remove(index)
+                                            if checkedIngredients.contains(ingredient) {
+                                                checkedIngredients.remove(ingredient)
                                             } else {
-                                                checkedIngredients.insert(index)
+                                                checkedIngredients.insert(ingredient)
                                             }
                                         } label: {
-                                            Image(systemName: checkedIngredients.contains(index) ? "checkmark.circle.fill" : "circle")
-                                                .foregroundStyle(checkedIngredients.contains(index) ? .green : .secondary)
+                                            Image(systemName: checkedIngredients.contains(ingredient) ? "checkmark.circle.fill" : "circle")
+                                                .foregroundStyle(checkedIngredients.contains(ingredient) ? .green : .secondary)
                                                 .font(.title3)
                                         }
                                         .buttonStyle(.plain)
@@ -109,8 +211,8 @@ struct RecipeDetailView: View {
                                             .textSelection(.enabled)
                                             .font(.body)
                                             .fixedSize(horizontal: false, vertical: true)
-                                            .strikethrough(checkedIngredients.contains(index))
-                                            .foregroundStyle(checkedIngredients.contains(index) ? .secondary : .primary)
+                                            .strikethrough(checkedIngredients.contains(ingredient))
+                                            .foregroundStyle(checkedIngredients.contains(ingredient) ? .secondary : .primary)
                                         
                                         Spacer()
                                     }
@@ -121,7 +223,7 @@ struct RecipeDetailView: View {
                         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
                     }
                     
-                    // Instructions Section
+                    // Instructions Section (kept for backward compatibility)
                     if let details = recipe.details, !details.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         VStack(alignment: .leading, spacing: 12) {
                             HStack {
@@ -135,23 +237,6 @@ struct RecipeDetailView: View {
                             Text(details)
                                 .font(.body)
                                 .lineSpacing(4)
-                        }
-                        .padding()
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-                    } else {
-                        VStack(alignment: .leading, spacing: 12) {
-                            HStack {
-                                Image(systemName: "text.alignleft")
-                                    .foregroundStyle(.secondary)
-                                Text("Instructions")
-                                    .font(.title2)
-                                    .bold()
-                            }
-                            
-                            Text("No recipe instructions available.")
-                                .font(.body)
-                                .foregroundStyle(.secondary)
-                                .italic()
                         }
                         .padding()
                         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))

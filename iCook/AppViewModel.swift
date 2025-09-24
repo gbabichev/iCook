@@ -122,61 +122,6 @@ final class AppViewModel: ObservableObject {
     }
     
     @MainActor
-    func createRecipe(categoryId: Int, name: String, recipeTime: Int?, details: String?, image: String?, ingredients: [String]? = nil) async -> Bool {
-        isLoadingRecipes = true  // Use the specific loading flag instead of isLoading
-        defer { isLoadingRecipes = false }
-        
-        do {
-            let recipe = try await APIClient.createRecipe(
-                categoryId: categoryId,
-                name: name,
-                recipeTime: recipeTime,
-                details: details,
-                image: image,
-                ingredients: ingredients
-            )
-            recipes.insert(recipe, at: 0) // Add to beginning
-            error = nil
-            return true
-        } catch {
-            self.error = error.localizedDescription
-            return false
-        }
-    }
-
-    @MainActor
-    func updateRecipe(id: Int, categoryId: Int?, name: String?, recipeTime: Int?, details: String?, image: String?, ingredients: [String]? = nil) async -> Bool {
-        isLoadingRecipes = true  // Use the specific loading flag instead of isLoading
-        defer { isLoadingRecipes = false }
-        
-        do {
-            let updatedRecipe = try await APIClient.updateRecipe(
-                id: id,
-                categoryId: categoryId,
-                name: name,
-                recipeTime: recipeTime,
-                details: details,
-                image: image,
-                ingredients: ingredients
-            )
-            
-            // Update the recipe in the local arrays
-            if let index = recipes.firstIndex(where: { $0.id == id }) {
-                recipes[index] = updatedRecipe
-            }
-            if let index = randomRecipes.firstIndex(where: { $0.id == id }) {
-                randomRecipes[index] = updatedRecipe
-            }
-            
-            error = nil
-            return true
-        } catch {
-            self.error = error.localizedDescription
-            return false
-        }
-    }
-
-    @MainActor
     func deleteRecipe(id: Int) async -> Bool {
         error = nil
         
@@ -223,15 +168,72 @@ final class AppViewModel: ObservableObject {
         return success
     }
     
+//    @MainActor
+//    func updateRecipeWithUIFeedback(id: Int, categoryId: Int?, name: String?, recipeTime: Int?, details: String?, image: String?, ingredients: [String]? = nil) async -> Bool {
+//        let success = await updateRecipe(id: id, categoryId: categoryId, name: name, recipeTime: recipeTime, details: details, image: image, ingredients: ingredients)
+//        
+//        if success {
+//            // Post notification for views to refresh
+//            NotificationCenter.default.post(name: .recipeUpdated, object: id)
+//        }
+//        
+//        return success
+//    }
+    // Add these methods to your AppViewModel class:
+
     @MainActor
-    func updateRecipeWithUIFeedback(id: Int, categoryId: Int?, name: String?, recipeTime: Int?, details: String?, image: String?, ingredients: [String]? = nil) async -> Bool {
-        let success = await updateRecipe(id: id, categoryId: categoryId, name: name, recipeTime: recipeTime, details: details, image: image, ingredients: ingredients)
+    func createRecipeWithSteps(categoryId: Int, name: String, recipeTime: Int?, details: String?, image: String?, recipeSteps: [RecipeStep]? = nil) async -> Bool {
+        isLoadingRecipes = true
+        defer { isLoadingRecipes = false }
         
-        if success {
-            // Post notification for views to refresh
-            NotificationCenter.default.post(name: .recipeUpdated, object: id)
+        do {
+            let recipe = try await APIClient.createRecipe(
+                categoryId: categoryId,
+                name: name,
+                recipeTime: recipeTime,
+                details: details,
+                image: image,
+                recipeSteps: recipeSteps
+            )
+            recipes.insert(recipe, at: 0)
+            error = nil
+            return true
+        } catch {
+            self.error = error.localizedDescription
+            return false
         }
-        
-        return success
     }
+
+    @MainActor
+    func updateRecipeWithSteps(id: Int, categoryId: Int?, name: String?, recipeTime: Int?, details: String?, image: String?, recipeSteps: [RecipeStep]? = nil) async -> Bool {
+        isLoadingRecipes = true
+        defer { isLoadingRecipes = false }
+        
+        do {
+            let updatedRecipe = try await APIClient.updateRecipe(
+                id: id,
+                categoryId: categoryId,
+                name: name,
+                recipeTime: recipeTime,
+                details: details,
+                image: image,
+                recipeSteps: recipeSteps
+            )
+            
+            // Update the recipe in the local arrays
+            if let index = recipes.firstIndex(where: { $0.id == id }) {
+                recipes[index] = updatedRecipe
+            }
+            if let index = randomRecipes.firstIndex(where: { $0.id == id }) {
+                randomRecipes[index] = updatedRecipe
+            }
+            
+            error = nil
+            return true
+        } catch {
+            self.error = error.localizedDescription
+            return false
+        }
+    }
+    
 }
