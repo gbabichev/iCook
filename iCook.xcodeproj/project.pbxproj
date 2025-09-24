@@ -10,9 +10,22 @@
 		FFD702CE2E79AC8F0044C321 /* iCook.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = iCook.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		FF1C28792E837CF4008FE9ED /* Exceptions for "iCook" folder in "iCook" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				"PHP-API/api.php",
+			);
+			target = FFD702CD2E79AC8F0044C321 /* iCook */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		FFD702D02E79AC8F0044C321 /* iCook */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				FF1C28792E837CF4008FE9ED /* Exceptions for "iCook" folder in "iCook" target */,
+			);
 			path = iCook;
 			sourceTree = "<group>";
 		};
