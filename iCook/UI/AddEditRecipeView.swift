@@ -981,9 +981,17 @@ struct StepEditView: View {
                         if !step.ingredients.isEmpty {
                             ForEach(Array(step.ingredients.enumerated()), id: \.offset) { index, ingredient in
                                 HStack {
-                                    Text("• \(ingredient)")
-                                        .font(.body)
-                                    Spacer()
+                                    Text("•")
+                                        .foregroundStyle(.secondary)
+                                    
+                                    TextField("Ingredient", text: .init(
+                                        get: { ingredient },
+                                        set: { newValue in
+                                            updateIngredient(at: index, with: newValue)
+                                        }
+                                    ))
+                                    .textFieldStyle(.roundedBorder)
+                                    
                                     Button {
                                         removeIngredient(at: index)
                                     } label: {
@@ -1007,6 +1015,16 @@ struct StepEditView: View {
         }
         //.padding()
         //.background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+    }
+    
+    private func updateIngredient(at index: Int, with newValue: String) {
+        var newIngredients = step.ingredients
+        newIngredients[index] = newValue
+        step = RecipeStep(
+            stepNumber: step.stepNumber,
+            instruction: step.instruction,
+            ingredients: newIngredients
+        )
     }
     
     private func addIngredient() {

@@ -92,9 +92,22 @@ struct ContentView: View {
 extension Recipe {
     var imageURL: URL? {
         guard let path = image, !path.isEmpty else { return nil }
-        var comps = URLComponents(url: APIConfig.base, resolvingAgainstBaseURL: false)
-        comps?.query = nil
-        comps?.path = path.hasPrefix("/") ? path : "/" + path
-        return comps?.url
+
+        // Get base URL without the api.php file
+        var baseURLString = APIConfig.base.absoluteString
+        if let lastSlash = baseURLString.lastIndex(of: "/") {
+            baseURLString = String(baseURLString[..<lastSlash])
+        }
+
+        // Remove query parameters if present
+        if let queryIndex = baseURLString.firstIndex(of: "?") {
+            baseURLString = String(baseURLString[..<queryIndex])
+        }
+
+        // Construct the full image URL
+        let imagePath = path.hasPrefix("/") ? path : "/" + path
+        let fullURLString = baseURLString + imagePath
+
+        return URL(string: fullURLString)
     }
 }

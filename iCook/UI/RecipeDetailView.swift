@@ -67,7 +67,7 @@ struct RecipeDetailView: View {
                             HStack {
                                 Image(systemName: "list.number")
                                     .foregroundStyle(.secondary)
-                                Text("Recipe Steps")
+                                Text("Steps")
                                     .font(.title2)
                                     .bold()
                             }
@@ -91,10 +91,10 @@ struct RecipeDetailView: View {
                                             .buttonStyle(.plain)
                                             
                                             VStack(alignment: .leading, spacing: 8) {
-                                                Text("Step \(step.stepNumber)")
-                                                    .font(.headline)
-                                                    .strikethrough(checkedSteps.contains(step.stepNumber))
-                                                    .foregroundStyle(checkedSteps.contains(step.stepNumber) ? .secondary : .primary)
+//                                                Text("Step \(step.stepNumber)")
+//                                                    .font(.headline)
+//                                                    .strikethrough(checkedSteps.contains(step.stepNumber))
+//                                                    .foregroundStyle(checkedSteps.contains(step.stepNumber) ? .secondary : .primary)
                                                 
                                                 Text(step.instruction)
                                                     .font(.body)
@@ -110,10 +110,10 @@ struct RecipeDetailView: View {
                                         // Step ingredients with sub-checkboxes
                                         if !step.ingredients.isEmpty {
                                             VStack(alignment: .leading, spacing: 8) {
-                                                Text("Ingredients for this step:")
-                                                    .font(.subheadline)
-                                                    .foregroundStyle(.secondary)
-                                                    .padding(.leading, 44) // Align with step content
+//                                                Text("Ingredients for this step:")
+//                                                    .font(.subheadline)
+//                                                    .foregroundStyle(.secondary)
+//                                                    .padding(.leading, 44) // Align with step content
                                                 
                                                 ForEach(Array(step.ingredients.enumerated()), id: \.offset) { ingredientIndex, ingredient in
                                                     let checkboxKey = "\(step.stepNumber)-\(ingredientIndex)"

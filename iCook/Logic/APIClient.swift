@@ -93,7 +93,7 @@ public enum APIError: LocalizedError {
 public struct APIConfig {
     /// Replace with your server. Keep the full script path (api.php).
     /// Example: https://georgebabichev.com:8443/api.php
-    public static var base = URL(string: "https://georgebabichev.com:8443/api.php")!
+    public static var base = URL(string: "https://home.georgebabichev.com/iCook/api.php")!
 }
 
 // MARK: - Client
