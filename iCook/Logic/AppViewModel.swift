@@ -177,7 +177,7 @@ final class AppViewModel: ObservableObject {
         defer { isLoadingRecipes = false }
 
         let recipe = Recipe(
-            id: CKRecord.ID(),
+            id: source.isPersonal ? cloudKitManager.makePersonalRecordID() : CKRecord.ID(),
             sourceID: source.id,
             categoryID: categoryId,
             name: name,

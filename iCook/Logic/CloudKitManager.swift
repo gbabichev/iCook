@@ -27,6 +27,17 @@ class CloudKitManager: ObservableObject {
     private var privateDatabase: CKDatabase { container.privateCloudDatabase }
     private var sharedDatabase: CKDatabase { container.sharedCloudDatabase }
     private let userIdentifier: String? = UserDefaults.standard.string(forKey: "iCloudUserID")
+    private let personalZoneID = CKRecordZone.ID(zoneName: "PersonalSources", ownerName: CKCurrentUserDefaultName)
+    private lazy var personalZone: CKRecordZone = CKRecordZone(zoneID: personalZoneID)
+    private var currentAppVersion: String {
+        if let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String, !version.isEmpty {
+            return version
+        }
+        if let build = Bundle.main.object(forInfoDictionaryKey: kCFBundleVersionKey as String) as? String, !build.isEmpty {
+            return build
+        }
+        return "0"
+    }
 
     // Caches
     private var sourceCache: [CKRecord.ID: Source] = [:]
@@ -39,6 +50,7 @@ class CloudKitManager: ObservableObject {
         // Load from local cache immediately
         loadSourcesLocalCache()
         Task {
+            await ensurePersonalZoneExists()
             await setupiCloudUser()
             await loadSources()
         }
@@ -82,6 +94,8 @@ class CloudKitManager: ObservableObject {
     func saveCurrentSourceID() {
         if let sourceID = currentSource?.id {
             UserDefaults.standard.set(sourceID.recordName, forKey: "SelectedSourceID")
+            UserDefaults.standard.set(sourceID.zoneID.zoneName, forKey: "SelectedSourceZoneName")
+            UserDefaults.standard.set(sourceID.zoneID.ownerName, forKey: "SelectedSourceZoneOwner")
             printD("Saved selected source: \(sourceID.recordName)")
         }
     }
@@ -94,7 +108,15 @@ class CloudKitManager: ObservableObject {
 
             // Try to restore the previously selected source
             if let savedSourceID = UserDefaults.standard.string(forKey: "SelectedSourceID") {
-                let savedRecordID = CKRecord.ID(recordName: savedSourceID)
+                let savedZoneName = UserDefaults.standard.string(forKey: "SelectedSourceZoneName")
+                let savedZoneOwner = UserDefaults.standard.string(forKey: "SelectedSourceZoneOwner") ?? CKCurrentUserDefaultName
+                let savedRecordID: CKRecord.ID
+                if let zoneName = savedZoneName {
+                    let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: savedZoneOwner)
+                    savedRecordID = CKRecord.ID(recordName: savedSourceID, zoneID: zoneID)
+                } else {
+                    savedRecordID = CKRecord.ID(recordName: savedSourceID)
+                }
                 if let savedSource = sources.first(where: { $0.id == savedRecordID }) {
                     currentSource = savedSource
                     printD("Restored previously selected source: \(savedSource.name)")
@@ -189,7 +211,8 @@ class CloudKitManager: ObservableObject {
     private func createDefaultSource() async {
         printD("Creating default personal source for new user")
         do {
-            let recordID = CKRecord.ID()
+            await ensurePersonalZoneExists()
+            let recordID = CKRecord.ID(recordName: UUID().uuidString, zoneID: personalZoneID)
             let source = Source(
                 id: recordID,
                 name: "My Recipes",
@@ -215,7 +238,12 @@ class CloudKitManager: ObservableObject {
     }
 
     func createSource(name: String, isPersonal: Bool = true) async {
-        let recordID = CKRecord.ID()
+        if isPersonal {
+            await ensurePersonalZoneExists()
+        }
+        let recordID = isPersonal
+            ? CKRecord.ID(recordName: UUID().uuidString, zoneID: personalZoneID)
+            : CKRecord.ID()
         let source = Source(
             id: recordID,
             name: name,
@@ -388,7 +416,12 @@ class CloudKitManager: ObservableObject {
 
     func createCategory(name: String, icon: String, in source: Source) async {
         do {
-            let recordID = CKRecord.ID()
+            if source.isPersonal {
+                await ensurePersonalZoneExists()
+            }
+            let recordID = source.isPersonal
+                ? CKRecord.ID(recordName: UUID().uuidString, zoneID: personalZoneID)
+                : CKRecord.ID()
             let category = Category(id: recordID, sourceID: source.id, name: name, icon: icon)
 
             let database = source.isPersonal ? privateDatabase : sharedDatabase
@@ -690,6 +723,15 @@ class CloudKitManager: ObservableObject {
                 printD("Root record type: \(rootRecord.recordType)")
                 printD("Root record already has share: \(rootRecord.share != nil)")
 
+                if rootRecord.recordID.zoneID == CKRecordZone.default().zoneID {
+                    printD("Cannot share record in default zone. Prompting user to migrate.")
+                    await MainActor.run {
+                        self.error = "Sharing requires the source to be stored in the iCook zone. Please recreate this source to share it."
+                        completionHandler(nil)
+                    }
+                    return
+                }
+
                 // Check if already shared
                 if let existingShare = rootRecord.share {
                     printD("Record is already shared, fetching existing share...")
@@ -718,7 +760,7 @@ class CloudKitManager: ObservableObject {
                     }
                     privateDatabase.add(fetchOp)
                 } else {
-                    printD("Record not yet shared, creating share with preparation handler...")
+                    printD("Record not yet shared, creating share with preparation handler...") 
 
                     // Create the share with a unique ID
                     // IMPORTANT: Use the same zone ID as the root record!
@@ -736,11 +778,20 @@ class CloudKitManager: ObservableObject {
 
                         printD("Preparation handler called by UICloudSharingController")
 
-                        // DON'T save the share here - let UICloudSharingController handle it
-                        // Just verify the root record is shareable and return the share
-                        // The controller will save the share when the user confirms
-                        printD("Returning unsaved share to UICloudSharingController for processing")
-                        prepareCompletionHandler(share, self.container, nil)
+                        Task {
+                            do {
+                                let savedShare = try await self.saveShare(for: rootRecord, share: share)
+                                printD("Share saved successfully during preparation with ID: \(savedShare.recordID.recordName)")
+                                await MainActor.run {
+                                    prepareCompletionHandler(savedShare, self.container, nil)
+                                }
+                            } catch {
+                                printD("Error saving share during preparation: \(error.localizedDescription)")
+                                await MainActor.run {
+                                    prepareCompletionHandler(nil, nil, error)
+                                }
+                            }
+                        }
                     }
 
                     printD("UICloudSharingController created with preparation handler")
@@ -787,6 +838,12 @@ class CloudKitManager: ObservableObject {
             let privateRecord = try await privateDatabase.record(for: source.id)
             printD("Fetched source record from private database: \(privateRecord.recordID.recordName)")
 
+            if privateRecord.recordID.zoneID == CKRecordZone.default().zoneID {
+                printD("Cannot prepare share for record in default zone")
+                self.error = "Sharing requires the source to be stored in the iCook zone. Please recreate this source to share it."
+                return nil
+            }
+
             // If already shared, fetch and return the existing share
             if let shareID = privateRecord.share?.recordID {
                 // Fetch the actual share record
@@ -798,7 +855,6 @@ class CloudKitManager: ObservableObject {
             let share = CKShare(rootRecord: privateRecord)
             share.publicPermission = .readOnly
             share[CKShare.SystemFieldKey.title] = source.name
-            share[CKShare.SystemFieldKey.shareType] = "recipes.source"
 
             printD("Share created with ID: \(share.recordID.recordName)")
 
@@ -824,17 +880,60 @@ class CloudKitManager: ObservableObject {
         }
     }
 
-    /// Save a share to CloudKit after user confirms via UICloudSharingController
-    func saveShare(_ share: CKShare, for record: CKRecord) async -> Bool {
+    private func ensurePersonalZoneExists() async {
         do {
-            let database = sharedDatabase
-            _ = try await database.save(share)
-            printD("Share saved successfully for record: \(record.recordID.recordName)")
-            return true
+            let existingZones = try await privateDatabase.allRecordZones()
+            if existingZones.contains(where: { $0.zoneID == personalZoneID }) {
+                printD("Personal zone already exists: \(personalZoneID.zoneName)")
+                return
+            }
         } catch {
-            printD("Error saving share: \(error.localizedDescription)")
-            self.error = "Failed to save share"
-            return false
+            printD("Failed to fetch record zones: \(error.localizedDescription)")
+        }
+
+        do {
+            try await privateDatabase.modifyRecordZones(saving: [personalZone], deleting: [])
+            printD("Created personal zone: \(personalZoneID.zoneName)")
+        } catch {
+            printD("Failed to ensure personal zone: \(error.localizedDescription)")
+        }
+    }
+
+    /// Save a share to CloudKit after user confirms via UICloudSharingController
+    func saveShare(for record: CKRecord, share: CKShare) async throws -> CKShare {
+        try await withCheckedThrowingContinuation { continuation in
+            var savedShare = share
+
+            let operation = CKModifyRecordsOperation(recordsToSave: [share, record], recordIDsToDelete: nil)
+            operation.savePolicy = .ifServerRecordUnchanged
+            operation.perRecordSaveBlock = { recordID, result in
+                switch result {
+                case .success(let savedRecord):
+                    printD("Saved record during modify: \(savedRecord.recordType) - \(savedRecord.recordID.recordName)")
+                    if let shareRecord = savedRecord as? CKShare {
+                        savedShare = shareRecord
+                    }
+                case .failure(let error):
+                    printD("Error saving record \(recordID.recordName) during modify: \(error.localizedDescription)")
+                }
+            }
+            operation.modifyRecordsResultBlock = { result in
+                switch result {
+                case .success:
+                    printD("Share and root record saved successfully")
+                    continuation.resume(returning: savedShare)
+                case .failure(let error):
+                    if let ckError = error as? CKError,
+                       let serverShare = ckError.serverRecord as? CKShare {
+                        printD("Received server version of share: \(serverShare.recordID.recordName)")
+                        continuation.resume(returning: serverShare)
+                    } else {
+                        continuation.resume(throwing: error)
+                    }
+                }
+            }
+
+            self.privateDatabase.add(operation)
         }
     }
 
@@ -934,6 +1033,11 @@ class CloudKitManager: ObservableObject {
         printD("Share URL copied to pasteboard (macOS): \(shareURL.absoluteString)")
         return true
         #endif
+    }
+
+    /// Generate a new CKRecord.ID for content in the personal zone.
+    func makePersonalRecordID() -> CKRecord.ID {
+        CKRecord.ID(recordName: UUID().uuidString, zoneID: personalZoneID)
     }
 }
 

@@ -50,6 +50,8 @@ struct Source: Identifiable {
         case isPersonal
         case owner
         case lastModified
+        case zoneName
+        case zoneOwnerName
     }
 }
 
@@ -61,6 +63,8 @@ extension Source: Encodable {
         try container.encode(isPersonal, forKey: .isPersonal)
         try container.encode(owner, forKey: .owner)
         try container.encode(lastModified, forKey: .lastModified)
+        try container.encode(id.zoneID.zoneName, forKey: .zoneName)
+        try container.encode(id.zoneID.ownerName, forKey: .zoneOwnerName)
     }
 }
 
@@ -68,7 +72,13 @@ extension Source: Decodable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let recordName = try container.decode(String.self, forKey: .id)
-        self.id = CKRecord.ID(recordName: recordName)
+        if let zoneName = try container.decodeIfPresent(String.self, forKey: .zoneName) {
+            let ownerName = try container.decodeIfPresent(String.self, forKey: .zoneOwnerName) ?? CKCurrentUserDefaultName
+            let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: ownerName)
+            self.id = CKRecord.ID(recordName: recordName, zoneID: zoneID)
+        } else {
+            self.id = CKRecord.ID(recordName: recordName)
+        }
         self.name = try container.decode(String.self, forKey: .name)
         self.isPersonal = try container.decode(Bool.self, forKey: .isPersonal)
         self.owner = try container.decode(String.self, forKey: .owner)
