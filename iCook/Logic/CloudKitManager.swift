@@ -1,6 +1,12 @@
 import Foundation
 import Combine
 import CloudKit
+import ObjectiveC
+#if os(iOS)
+import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
 
 @MainActor
 class CloudKitManager: ObservableObject {
@@ -663,34 +669,154 @@ class CloudKitManager: ObservableObject {
     @Published var pendingShare: CKShare?
     @Published var pendingRecord: CKRecord?
 
-    /// Prepare a source for sharing and present the share controller
+    /// Prepare a UICloudSharingController for sharing a source
+    /// Creates and saves the share first, then creates the controller
     /// - Parameters:
-    ///   - source: The source to share (must not be personal)
+    ///   - source: The source to share (must be personal)
+    ///   - completionHandler: Called with the controller when ready, or nil on error
+    func prepareSharingController(for source: Source, completionHandler: @escaping (UICloudSharingController?) -> Void) {
+        guard source.isPersonal else {
+            self.error = "Cannot share sources that are already shared"
+            printD("Error: Cannot share non-personal source")
+            completionHandler(nil)
+            return
+        }
+
+        Task {
+            do {
+                // Fetch the source record from the PRIVATE database
+                let rootRecord = try await privateDatabase.record(for: source.id)
+                printD("Fetched source record from private database: \(rootRecord.recordID.recordName)")
+                printD("Root record type: \(rootRecord.recordType)")
+                printD("Root record already has share: \(rootRecord.share != nil)")
+
+                // Check if already shared
+                if let existingShare = rootRecord.share {
+                    printD("Record is already shared, fetching existing share...")
+                    // Already shared, fetch and use existing share
+                    let shareRecordID = existingShare.recordID
+                    let fetchOp = CKFetchRecordsOperation(recordIDs: [shareRecordID])
+
+                    fetchOp.fetchRecordsCompletionBlock = { recordsByID, error in
+                        if let error = error {
+                            printD("Error fetching existing share: \(error.localizedDescription)")
+                            completionHandler(nil)
+                            return
+                        }
+
+                        guard let share = recordsByID?[shareRecordID] as? CKShare else {
+                            printD("Could not cast fetched record to CKShare")
+                            completionHandler(nil)
+                            return
+                        }
+
+                        DispatchQueue.main.async {
+                            let controller = UICloudSharingController(share: share, container: self.container)
+                            printD("UICloudSharingController created for existing share with URL: \(share.url?.absoluteString ?? "pending")")
+                            completionHandler(controller)
+                        }
+                    }
+                    privateDatabase.add(fetchOp)
+                } else {
+                    printD("Record not yet shared, creating share with preparation handler...")
+
+                    // Create the share with a unique ID
+                    // IMPORTANT: Use the same zone ID as the root record!
+                    let shareID = CKRecord.ID(recordName: UUID().uuidString, zoneID: rootRecord.recordID.zoneID)
+                    var share = CKShare(rootRecord: rootRecord, shareID: shareID)
+                    share[CKShare.SystemFieldKey.title] = source.name as CKRecordValue
+                    share.publicPermission = .readOnly
+
+                    printD("Share instance created with ID: \(shareID.recordName)")
+
+                    // Create the controller with a preparation handler
+                    // The handler is called when the user is about to confirm sharing
+                    let controller = UICloudSharingController { [weak self] _, prepareCompletionHandler in
+                        guard let self = self else { return }
+
+                        printD("Preparation handler called by UICloudSharingController")
+
+                        // DON'T save the share here - let UICloudSharingController handle it
+                        // Just verify the root record is shareable and return the share
+                        // The controller will save the share when the user confirms
+                        printD("Returning unsaved share to UICloudSharingController for processing")
+                        prepareCompletionHandler(share, self.container, nil)
+                    }
+
+                    printD("UICloudSharingController created with preparation handler")
+
+                    // Create a delegate that will copy the URL to pasteboard
+                    let delegate = CloudKitShareDelegate()
+                    controller.delegate = delegate
+
+                    // Store the delegate on the controller to keep it alive
+                    objc_setAssociatedObject(controller, &CloudKitShareDelegate.associatedObjectKey, delegate, .OBJC_ASSOCIATION_RETAIN)
+
+                    printD("Delegate attached to controller")
+
+                    await MainActor.run {
+                        completionHandler(controller)
+                    }
+                }
+            } catch {
+                printD("Error preparing sharing controller: \(error.localizedDescription)")
+                if let ckError = error as? CKError {
+                    printD("CKError code: \(ckError.code)")
+                    printD("CKError: \(ckError.localizedDescription)")
+                }
+                await MainActor.run {
+                    self.error = "Failed to prepare share: \(error.localizedDescription)"
+                    completionHandler(nil)
+                }
+            }
+        }
+    }
+
+    /// Prepare a source for sharing - legacy method, kept for compatibility
+    /// - Parameters:
+    ///   - source: The source to share (must be personal)
     /// - Returns: A tuple of (share, record) if successful, nil otherwise
     func prepareShareForSource(_ source: Source) async -> (CKShare, CKRecord)? {
-        guard !source.isPersonal else {
-            self.error = "Cannot share personal sources"
+        guard source.isPersonal else {
+            self.error = "Cannot share sources that are already shared"
             return nil
         }
 
         do {
-            let database = sharedDatabase
-            let record = source.toCKRecord()
+            // Fetch the source record from the PRIVATE database
+            let privateRecord = try await privateDatabase.record(for: source.id)
+            printD("Fetched source record from private database: \(privateRecord.recordID.recordName)")
 
-            // Save record first if needed
-            let savedRecord = try await database.save(record)
-            printD("Source record saved to shared database: \(savedRecord.recordID.recordName)")
+            // If already shared, fetch and return the existing share
+            if let shareID = privateRecord.share?.recordID {
+                // Fetch the actual share record
+                let share = try await privateDatabase.record(for: shareID) as? CKShare
+                return share.map { (share: $0, record: privateRecord) }
+            }
 
-            // Create share
-            let share = CKShare(rootRecord: savedRecord)
+            // Create the share object with the private record as root
+            let share = CKShare(rootRecord: privateRecord)
             share.publicPermission = .readOnly
             share[CKShare.SystemFieldKey.title] = source.name
             share[CKShare.SystemFieldKey.shareType] = "recipes.source"
 
-            // Set up share metadata
-            printD("Share prepared for source: \(source.name)")
+            printD("Share created with ID: \(share.recordID.recordName)")
 
-            return (share, savedRecord)
+            // Save the share and root record together (the correct way)
+            printD("Saving share and root record together...")
+            let (savedRecords, _) = try await privateDatabase.modifyRecords(
+                saving: [share, privateRecord],
+                deleting: []
+            )
+
+            // Find the share in saved records
+            if let savedShare = savedRecords.compactMap({ $0 as? CKShare }).first {
+                printD("Share saved successfully with ID: \(savedShare.recordID.recordName)")
+                return (savedShare, privateRecord)
+            } else {
+                printD("Share was not returned in saved records")
+                return (share, privateRecord)
+            }
         } catch {
             printD("Error preparing share: \(error.localizedDescription)")
             self.error = "Failed to prepare share: \(error.localizedDescription)"
@@ -787,7 +913,71 @@ class CloudKitManager: ObservableObject {
             return false
         }
     }
+
+    /// Copy a share URL to the pasteboard
+    /// - Parameter share: The CKShare object to copy the URL from
+    /// - Returns: true if successful, false otherwise
+    func copyShareURLToPasteboard(_ share: CKShare) -> Bool {
+        guard let shareURL = share.url else {
+            printD("Error: Share URL is not available")
+            self.error = "Share URL not available"
+            return false
+        }
+
+        #if os(iOS)
+        UIPasteboard.general.url = shareURL
+        printD("Share URL copied to pasteboard: \(shareURL.absoluteString)")
+        return true
+        #else
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(shareURL.absoluteString, forType: .string)
+        printD("Share URL copied to pasteboard (macOS): \(shareURL.absoluteString)")
+        return true
+        #endif
+    }
 }
+
+// MARK: - Cloud Sharing Delegate
+#if os(iOS)
+/// Delegate for UICloudSharingController that handles share completion
+class CloudKitShareDelegate: NSObject, UICloudSharingControllerDelegate {
+    static var associatedObjectKey: UInt8 = 0
+
+    func cloudSharingControllerDidSaveShare(_ csc: UICloudSharingController) {
+        printD("========== cloudSharingControllerDidSaveShare ==========")
+        if let share = csc.share {
+            printD("Share ID: \(share.recordID.recordName)")
+            if let url = share.url {
+                printD("Share URL: \(url.absoluteString)")
+                DispatchQueue.main.async {
+                    UIPasteboard.general.url = url
+                    printD("Share URL copied to pasteboard!")
+                }
+            } else {
+                printD("WARNING: Share URL is nil in delegate")
+            }
+        } else {
+            printD("WARNING: Share object is nil")
+        }
+    }
+
+    func cloudSharingControllerDidStopSharing(_ csc: UICloudSharingController) {
+        printD("========== cloudSharingControllerDidStopSharing ==========")
+    }
+
+    func cloudSharingController(
+        _ csc: UICloudSharingController,
+        failedToSaveShareWithError error: Error
+    ) {
+        printD("========== failedToSaveShareWithError ==========")
+        printD("Error: \(error.localizedDescription)")
+    }
+
+    func itemTitle(for csc: UICloudSharingController) -> String? {
+        return "Share Recipe Source"
+    }
+}
+#endif
 
 // MARK: - Helper Functions
 func printD(_ message: String) {

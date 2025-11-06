@@ -1,19 +1,41 @@
 import SwiftUI
 import CloudKit
+#if os(iOS)
+import UIKit
+#endif
 
 struct SourceSelector: View {
     @EnvironmentObject private var viewModel: AppViewModel
     @State private var showNewSourceSheet = false
     @State private var newSourceName = ""
-    @State private var showShareSheet = false
-    @State private var sourceToShare: Source?
-    @State private var pendingShare: CKShare?
-    @State private var pendingRecord: CKRecord?
+    @State private var shareData: ShareData?
     @State private var isPreparingShare = false
+    @State private var showShareSuccess = false
+    @State private var sharingController: UICloudSharingController?
+    @State private var sharingCoordinator: SharingControllerWrapper.Coordinator?
+
+    struct ShareData: Identifiable {
+        let id = UUID()
+        let controller: UICloudSharingController
+        let source: Source
+    }
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
+                // Show any errors
+                if let error = viewModel.cloudKitManager.error {
+                    HStack {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.orange)
+                        Text(error)
+                            .font(.caption)
+                    }
+                    .padding()
+                    .background(.orange.opacity(0.1))
+                    .frame(maxWidth: .infinity)
+                }
+
                 if viewModel.sources.isEmpty {
                     VStack(spacing: 12) {
                         Image(systemName: "fork.knife")
@@ -109,35 +131,59 @@ struct SourceSelector: View {
             )
             .environmentObject(viewModel)
         }
-        .sheet(isPresented: $showShareSheet) {
-            if let share = pendingShare, let record = pendingRecord {
-                CloudSharingSheet(
-                    isPresented: $showShareSheet,
-                    container: viewModel.cloudKitManager.container,
-                    share: share,
-                    record: record,
-                    content: { EmptyView() },
-                    onCompletion: { success in
-                        if success {
-                            Task {
-                                _ = await viewModel.cloudKitManager.saveShare(share, for: record)
-                            }
-                        }
-                    }
-                )
-            }
+#if os(iOS)
+        // Show success alert when sharing completes
+        .alert("Share Completed!", isPresented: $showShareSuccess) {
+            Button("OK") { }
+        } message: {
+            Text("The share link has been copied to your clipboard. Paste it in Messages, Email, or any other app to share!")
         }
+#endif
     }
 
     private func prepareShare(for source: Source) async {
         isPreparingShare = true
         defer { isPreparingShare = false }
 
-        if let (share, record) = await viewModel.cloudKitManager.prepareShareForSource(source) {
-            pendingShare = share
-            pendingRecord = record
-            sourceToShare = source
-            showShareSheet = true
+        printD("Preparing share for source: \(source.name)")
+
+        // Use the new prepareSharingController method which follows CloudKit best practices
+        await MainActor.run {
+            viewModel.cloudKitManager.prepareSharingController(for: source) { controller in
+                if let controller = controller {
+                    printD("Sharing controller prepared successfully")
+                    // Present the controller directly via UIKit to ensure proper lifecycle
+                    presentUICloudSharingController(controller)
+                } else {
+                    printD("Failed to prepare sharing controller")
+                    printD("Error from CloudKitManager: \(viewModel.cloudKitManager.error ?? "No error message")")
+                }
+            }
+        }
+    }
+
+    /// Present UICloudSharingController directly via UIKit
+    private func presentUICloudSharingController(_ controller: UICloudSharingController) {
+        printD("Presenting UICloudSharingController via UIKit")
+
+        // Get the top view controller
+        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let window = windowScene.windows.first,
+              var topController = window.rootViewController else {
+            printD("Cannot find window or root view controller")
+            return
+        }
+
+        // Find the topmost view controller
+        while let presented = topController.presentedViewController {
+            topController = presented
+        }
+
+        // Present modally
+        DispatchQueue.main.async {
+            topController.present(controller, animated: true) {
+                printD("UICloudSharingController presented successfully")
+            }
         }
     }
 }
@@ -248,6 +294,116 @@ struct NewSourceSheet: View {
         }
     }
 }
+
+#if os(iOS)
+/// Wrapper to present a UICloudSharingController in SwiftUI
+struct SharingControllerWrapper: UIViewControllerRepresentable {
+    let controller: UICloudSharingController
+    var onCompletion: (Bool) -> Void = { _ in }
+    var onFailure: (Error) -> Void = { _ in }
+
+    func makeUIViewController(context: Context) -> UICloudSharingController {
+        printD("========== SharingControllerWrapper.makeUIViewController called ==========")
+        printD("Controller: \(controller)")
+        printD("Coordinator: \(context.coordinator)")
+
+        // Set delegate to handle callbacks
+        controller.delegate = context.coordinator
+        printD("Delegate set on controller")
+        printD("Controller.delegate: \(String(describing: controller.delegate))")
+
+        return controller
+    }
+
+    func updateUIViewController(_ uiViewController: UICloudSharingController, context: Context) {
+        // No update needed
+    }
+
+    func makeCoordinator() -> Coordinator {
+        return Coordinator(onCompletion: onCompletion, onFailure: onFailure)
+    }
+
+    class Coordinator: NSObject, UICloudSharingControllerDelegate {
+        var onCompletion: (Bool) -> Void
+        var onFailure: (Error) -> Void
+
+        init(onCompletion: @escaping (Bool) -> Void, onFailure: @escaping (Error) -> Void) {
+            self.onCompletion = onCompletion
+            self.onFailure = onFailure
+            DispatchQueue.main.async {
+                printD("Coordinator initialized")
+            }
+        }
+
+        deinit {
+            DispatchQueue.main.async {
+                printD("Coordinator deinitialized")
+            }
+        }
+
+        func cloudSharingControllerDidSaveShare(_ csc: UICloudSharingController) {
+            DispatchQueue.main.async {
+                printD("========== cloudSharingControllerDidSaveShare called ==========")
+                if let share = csc.share {
+                    printD("Share ID: \(share.recordID.recordName)")
+                    printD("Share has URL: \(share.url?.absoluteString ?? "nil")")
+                    if let url = share.url {
+                        printD("Copying share URL to pasteboard: \(url.absoluteString)")
+                        UIPasteboard.general.url = url
+                        printD("URL copied to pasteboard successfully")
+                    } else {
+                        printD("WARNING: Share URL is still nil!")
+                    }
+                } else {
+                    printD("WARNING: Share object is nil!")
+                }
+                printD("========== Calling onCompletion ==========")
+                self.onCompletion(true)
+            }
+        }
+
+        func cloudSharingControllerDidStopSharing(_ csc: UICloudSharingController) {
+            DispatchQueue.main.async {
+                printD("========== cloudSharingControllerDidStopSharing called ==========")
+                self.onCompletion(false)
+            }
+        }
+
+        func cloudSharingController(
+            _ csc: UICloudSharingController,
+            failedToSaveShareWithError error: Error
+        ) {
+            DispatchQueue.main.async {
+                printD("========== failedToSaveShareWithError called ==========")
+                printD("Error: \(error.localizedDescription)")
+                self.onFailure(error)
+            }
+        }
+
+        func itemTitle(for csc: UICloudSharingController) -> String? {
+            DispatchQueue.main.async {
+                printD("itemTitle called")
+            }
+            return "Share Recipe Source"
+        }
+
+        // Additional delegate methods to track all calls
+        func cloudSharingController(_ csc: UICloudSharingController, shouldStopSharingAfterSaving saveSuccess: Bool) -> Bool {
+            DispatchQueue.main.async {
+                printD("shouldStopSharingAfterSaving called: saveSuccess=\(saveSuccess)")
+            }
+            return true
+        }
+
+        func cloudSharingControllerDidStopSharingBecauseOfAccountChange(_ csc: UICloudSharingController) {
+            DispatchQueue.main.async {
+                printD("cloudSharingControllerDidStopSharingBecauseOfAccountChange called")
+                self.onCompletion(false)
+            }
+        }
+    }
+}
+#endif
 
 #Preview {
     SourceSelector()
