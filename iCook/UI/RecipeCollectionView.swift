@@ -559,6 +559,13 @@ struct RecipeCollectionView: View {
         }
 
 
+        // Watch model.recipes and update categoryRecipes when it changes
+        .onChange(of: model.recipes) { _, newRecipes in
+            if case .category = collectionType {
+                printD("model.recipes changed, updating categoryRecipes: \(newRecipes.count) recipes")
+                categoryRecipes = newRecipes
+            }
+        }
         // Also add this modifier to reset when category recipes change:
         .onChange(of: categoryRecipes) { _,newRecipes in
             // Only select new featured recipe if we don't have one or it's no longer valid

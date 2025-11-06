@@ -99,15 +99,23 @@ final class AppViewModel: ObservableObject {
 
     // MARK: - Recipe Management
     func loadRecipesForCategory(_ categoryID: CKRecord.ID) async {
-        guard let source = currentSource else { return }
-        guard let category = categories.first(where: { $0.id == categoryID }) else { return }
+        guard let source = currentSource else {
+            printD("loadRecipesForCategory: No current source")
+            return
+        }
+        guard let category = categories.first(where: { $0.id == categoryID }) else {
+            printD("loadRecipesForCategory: Category not found: \(categoryID)")
+            return
+        }
 
+        printD("loadRecipesForCategory: Loading recipes for \(category.name)")
         isLoadingRecipes = true
         defer { isLoadingRecipes = false }
 
         await cloudKitManager.loadRecipes(for: source, category: category)
         recipes = cloudKitManager.recipes
         error = cloudKitManager.error
+        printD("loadRecipesForCategory: Loaded \(recipes.count) recipes for \(category.name)")
     }
 
     func loadRandomRecipes(count: Int = 20) async {
@@ -139,7 +147,8 @@ final class AppViewModel: ObservableObject {
 
         await cloudKitManager.deleteRecipe(recipe, in: source)
 
-        recipes.removeAll { $0.id == id }
+        // Remove from the local recipes array immediately
+        self.recipes = recipes.filter { $0.id != id }
         randomRecipes.removeAll { $0.id == id }
 
         NotificationCenter.default.post(name: .recipeDeleted, object: id as CKRecord.ID)
@@ -184,8 +193,25 @@ final class AppViewModel: ObservableObject {
         }
 
         await cloudKitManager.createRecipe(recipeWithImage, in: source)
-        recipes.insert(recipeWithImage, at: 0)
         error = cloudKitManager.error
+
+        // Add recipe directly to local array without re-querying CloudKit
+        // (newly created recipe won't be indexed in CloudKit immediately)
+        if error == nil {
+            printD("Recipe created successfully, adding to local list")
+            let newRecipes = (recipes + [recipeWithImage]).sorted { $0.lastModified > $1.lastModified }
+            printD("Before: recipes.count = \(recipes.count)")
+            printD("Adding: \(recipeWithImage.name)")
+            self.recipes = newRecipes
+            printD("After: recipes.count = \(self.recipes.count)")
+            printD("recipes array: \(recipes.map { $0.name })")
+            // Also add to random recipes
+            self.randomRecipes = (randomRecipes + [recipeWithImage]).sorted { $0.lastModified > $1.lastModified }
+
+            // Small delay to ensure UI updates before sheet dismisses
+            try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 second
+        }
+
         return error == nil
     }
 
@@ -219,15 +245,18 @@ final class AppViewModel: ObservableObject {
         }
 
         await cloudKitManager.updateRecipe(updatedRecipe, in: source)
-
-        if let index = recipes.firstIndex(where: { $0.id == id }) {
-            recipes[index] = updatedRecipe
-        }
-        if let index = randomRecipes.firstIndex(where: { $0.id == id }) {
-            randomRecipes[index] = updatedRecipe
-        }
-
         error = cloudKitManager.error
+
+        // Update the recipe in the local array immediately
+        if error == nil {
+            if let index = recipes.firstIndex(where: { $0.id == id }) {
+                recipes[index] = updatedRecipe
+            }
+            if let index = randomRecipes.firstIndex(where: { $0.id == id }) {
+                randomRecipes[index] = updatedRecipe
+            }
+        }
+
         return error == nil
     }
 

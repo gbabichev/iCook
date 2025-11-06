@@ -372,7 +372,9 @@ class CloudKitManager: ObservableObject {
 
             if let savedCategory = Category.from(savedRecord) {
                 categoryCache[savedCategory.id] = savedCategory
-                await loadCategories(for: source)
+                // Add to UI immediately without re-querying CloudKit
+                self.categories = (categories + [savedCategory]).sorted { $0.name < $1.name }
+                printD("Category created: \(savedCategory.name)")
             }
         } catch {
             printD("Error creating category: \(error.localizedDescription)")
@@ -388,7 +390,9 @@ class CloudKitManager: ObservableObject {
 
             if let savedCategory = Category.from(savedRecord) {
                 categoryCache[savedCategory.id] = savedCategory
-                await loadCategories(for: source)
+                // Update in local array without re-querying CloudKit
+                self.categories = categories.map { $0.id == savedCategory.id ? savedCategory : $0 }
+                printD("Category updated: \(savedCategory.name)")
             }
         } catch {
             printD("Error updating category: \(error.localizedDescription)")
@@ -401,7 +405,9 @@ class CloudKitManager: ObservableObject {
             let database = source.isPersonal ? privateDatabase : sharedDatabase
             try await database.deleteRecord(withID: category.id)
             categoryCache.removeValue(forKey: category.id)
-            await loadCategories(for: source)
+            // Remove from local array without re-querying CloudKit
+            self.categories = categories.filter { $0.id != category.id }
+            printD("Category deleted: \(category.name)")
         } catch {
             printD("Error deleting category: \(error.localizedDescription)")
             self.error = "Failed to delete category"
@@ -571,7 +577,7 @@ class CloudKitManager: ObservableObject {
 
             if let savedRecipe = Recipe.from(savedRecord) {
                 recipeCache[savedRecipe.id] = savedRecipe
-                await loadRecipes(for: source)
+                printD("Recipe created: \(savedRecipe.name)")
             }
         } catch {
             printD("Error creating recipe: \(error.localizedDescription)")
@@ -587,7 +593,7 @@ class CloudKitManager: ObservableObject {
 
             if let savedRecipe = Recipe.from(savedRecord) {
                 recipeCache[savedRecipe.id] = savedRecipe
-                await loadRecipes(for: source)
+                printD("Recipe updated: \(savedRecipe.name)")
             }
         } catch {
             printD("Error updating recipe: \(error.localizedDescription)")
@@ -600,7 +606,7 @@ class CloudKitManager: ObservableObject {
             let database = source.isPersonal ? privateDatabase : sharedDatabase
             try await database.deleteRecord(withID: recipe.id)
             recipeCache.removeValue(forKey: recipe.id)
-            await loadRecipes(for: source)
+            printD("Recipe deleted: \(recipe.name)")
         } catch {
             printD("Error deleting recipe: \(error.localizedDescription)")
             self.error = "Failed to delete recipe"
@@ -614,10 +620,7 @@ class CloudKitManager: ObservableObject {
             try imageData.write(to: tempURL)
 
             let asset = CKAsset(fileURL: tempURL)
-            var updatedRecipe = recipe
-            updatedRecipe.imageAsset = asset
-
-            await updateRecipe(updatedRecipe, in: source)
+            printD("Image asset created: \(tempURL)")
             return asset
         } catch {
             printD("Error saving image: \(error.localizedDescription)")

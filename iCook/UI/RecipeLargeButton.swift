@@ -55,11 +55,12 @@ struct RobustAsyncImage<Content: View, Placeholder: View>: View {
         do {
             // Use URLSession to download the image data manually
             let (data, response) = try await URLSession.shared.data(from: url)
-            
-            // Validate response
-            guard let httpResponse = response as? HTTPURLResponse,
-                  200...299 ~= httpResponse.statusCode else {
-                throw URLError(.badServerResponse)
+
+            // Validate HTTP response (skip for file:// URLs)
+            if let httpResponse = response as? HTTPURLResponse {
+                guard 200...299 ~= httpResponse.statusCode else {
+                    throw URLError(.badServerResponse)
+                }
             }
             
             // Create platform-specific image from data
