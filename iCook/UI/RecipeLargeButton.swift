@@ -162,7 +162,7 @@ struct RecipeLargeButtonWithState: View {
                     .font(.headline)
                     .lineLimit(2)
                 
-                Text("\(recipe.recipe_time) min")
+                Text("\(recipe.recipeTime) min")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

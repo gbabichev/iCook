@@ -1,4 +1,5 @@
 import SwiftUI
+import CloudKit
 
 // MARK: - Root Split View (Landmarks-style)
 
@@ -7,45 +8,57 @@ struct ContentView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     @State private var preferredColumn: NavigationSplitViewColumn = .detail
-    @State private var selectedCategoryID: Category.ID? = -1 // Use -1 as sentinel for "Home"
+    @State private var selectedCategoryID: CKRecord.ID?
+    @State private var isShowingHome = true
     @State private var showingAddCategory = false
     @State private var editingCategory: Category? = nil
-    
+    @State private var showSourceSelector = false
+
     // Recipe management state
     @State private var showingAddRecipe = false
 
     var body: some View {
         NavigationSplitView(preferredCompactColumn: $preferredColumn) {
-            CategoryList(
-                selection: $selectedCategoryID,
-                editingCategory: $editingCategory
-            )
-            .navigationSplitViewColumnWidth(min: 200, ideal: 250, max: 400)
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        showingAddCategory = true
-                    } label: {
-                        Image(systemName: "plus")
+            VStack(spacing: 0) {
+                // Source selector
+                SourceSelector(viewModel: model)
+
+                Divider()
+
+                // Category list
+                CategoryList(
+                    selection: $selectedCategoryID,
+                    editingCategory: $editingCategory,
+                    isShowingHome: $isShowingHome
+                )
+                .navigationSplitViewColumnWidth(min: 200, ideal: 250, max: 400)
+                .toolbar {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button {
+                            showingAddCategory = true
+                        } label: {
+                            Image(systemName: "plus")
+                        }
+                        .accessibilityLabel("Add Category")
                     }
-                    .accessibilityLabel("Add Category")
                 }
             }
         } detail: {
             // Single NavigationStack for the detail view
             NavigationStack {
-                if let id = selectedCategoryID, id != -1,
-                   let cat = model.categories.first(where: { $0.id == id }) {
+                if isShowingHome {
+                    RecipeCollectionView()
+                } else if let id = selectedCategoryID,
+                          let cat = model.categories.first(where: { $0.id == id }) {
                     RecipeCollectionView(category: cat)
                 } else {
-                    // Show home view when selectedCategoryID is nil or -1
                     RecipeCollectionView()
                 }
             }
 #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
 #endif
-            .toolbar{
+            .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Button {
                         showingAddRecipe = true
@@ -62,8 +75,10 @@ struct ContentView: View {
             }
         }
         .task {
-            if model.categories.isEmpty {
+            await model.loadSources()
+            if model.currentSource != nil {
                 await model.loadCategories()
+                await model.loadRandomRecipes()
             }
         }
         .alert("Error",
@@ -83,7 +98,7 @@ struct ContentView: View {
                 .environmentObject(model)
         }
         .sheet(isPresented: $showingAddRecipe) {
-            AddEditRecipeView(preselectedCategoryId: selectedCategoryID == -1 ? nil : selectedCategoryID)
+            AddEditRecipeView(preselectedCategoryId: isShowingHome ? nil : selectedCategoryID)
                 .environmentObject(model)
         }
     }
@@ -91,23 +106,7 @@ struct ContentView: View {
 
 extension Recipe {
     var imageURL: URL? {
-        guard let path = image, !path.isEmpty else { return nil }
-
-        // Get base URL without the api.php file
-        var baseURLString = APIConfig.base.absoluteString
-        if let lastSlash = baseURLString.lastIndex(of: "/") {
-            baseURLString = String(baseURLString[..<lastSlash])
-        }
-
-        // Remove query parameters if present
-        if let queryIndex = baseURLString.firstIndex(of: "?") {
-            baseURLString = String(baseURLString[..<queryIndex])
-        }
-
-        // Construct the full image URL
-        let imagePath = path.hasPrefix("/") ? path : "/" + path
-        let fullURLString = baseURLString + imagePath
-
-        return URL(string: fullURLString)
+        guard let asset = imageAsset else { return nil }
+        return asset.fileURL
     }
 }

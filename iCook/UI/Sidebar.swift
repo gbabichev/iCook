@@ -6,51 +6,66 @@
 //
 
 import SwiftUI
-// MARK: - List Column (Landmarks: *List)
+import CloudKit
 
-import SwiftUI
+// MARK: - List Column (Landmarks: *List)
 
 struct CategoryList: View {
     @EnvironmentObject private var model: AppViewModel
-    @Binding var selection: Category.ID?
+    @Binding var selection: CKRecord.ID?
     @Binding var editingCategory: Category?
-    
-    init(selection: Binding<Category.ID?>, editingCategory: Binding<Category?>) {
+    @Binding var isShowingHome: Bool
+
+    init(selection: Binding<CKRecord.ID?>, editingCategory: Binding<Category?>, isShowingHome: Binding<Bool>) {
         self._selection = selection
         self._editingCategory = editingCategory
+        self._isShowingHome = isShowingHome
     }
-    
+
     var body: some View {
-        List(selection: $selection) {
+        List {
             // Home/Featured section
-            NavigationLink(value: -1) {
+            Button(action: { isShowingHome = true }) {
                 HStack {
                     Image(systemName: "house.fill")
                         .foregroundStyle(.blue)
                         .frame(width: 24)
                     Text("Home")
+                    Spacer()
+                    if isShowingHome {
+                        Image(systemName: "checkmark")
+                            .foregroundStyle(.blue)
+                    }
                 }
             }
-            .tag(-1)
-            
+            .foregroundStyle(.primary)
+
             if !model.categories.isEmpty {
                 Section("Categories") {
                     ForEach(model.categories) { category in
-                        NavigationLink(value: category.id) {
+                        Button(action: {
+                            selection = category.id
+                            isShowingHome = false
+                        }) {
                             HStack {
                                 Image(systemName: category.icon)
                                     .frame(width: 24)
                                 Text(category.name)
+                                Spacer()
+                                if selection == category.id && !isShowingHome {
+                                    Image(systemName: "checkmark")
+                                        .foregroundStyle(.blue)
+                                }
                             }
                         }
-                        .tag(category.id)
+                        .foregroundStyle(.primary)
                         .contextMenu {
                             Button {
                                 editingCategory = category
                             } label: {
                                 Label("Edit Category", systemImage: "pencil")
                             }
-                            
+
                             Button(role: .destructive) {
                                 Task {
                                     await model.deleteCategory(id: category.id)
@@ -62,7 +77,7 @@ struct CategoryList: View {
                     }
                 }
             }
-            
+
             if model.isLoadingCategories {
                 HStack {
                     ProgressView()

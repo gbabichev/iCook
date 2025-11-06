@@ -55,14 +55,14 @@ struct RecipeDetailView: View {
                         HStack {
                             Image(systemName: "clock")
                                 .foregroundStyle(.secondary)
-                            Text("\(recipe.recipe_time) minutes")
+                            Text("\(recipe.recipeTime) minutes")
                                 .font(.headline)
                                 .foregroundStyle(.secondary)
                         }
                     }
                     
                     // Recipe Steps Section (NEW)
-                    if let recipeSteps = recipe.recipeSteps, !recipeSteps.steps.isEmpty {
+                    if !recipe.recipeSteps.isEmpty {
                         VStack(alignment: .leading, spacing: 12) {
                             HStack {
                                 Image(systemName: "list.number")
@@ -71,9 +71,9 @@ struct RecipeDetailView: View {
                                     .font(.title2)
                                     .bold()
                             }
-                            
+
                             LazyVStack(alignment: .leading, spacing: 16) {
-                                ForEach(recipeSteps.steps, id: \.stepNumber) { step in
+                                ForEach(recipe.recipeSteps, id: \.stepNumber) { step in
                                     VStack(alignment: .leading, spacing: 12) {
                                         // Step header with checkbox
                                         HStack(alignment: .top, spacing: 12) {
@@ -150,7 +150,7 @@ struct RecipeDetailView: View {
                                     }
                                     .padding(.vertical, 8)
                                     
-                                    if step.stepNumber < recipeSteps.steps.count {
+                                    if step.stepNumber < recipe.recipeSteps.count {
                                         Divider()
                                             .padding(.horizontal)
                                     }

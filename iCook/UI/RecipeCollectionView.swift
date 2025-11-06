@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import CloudKit
 
 enum RecipeCollectionType: Equatable {
     case home
@@ -191,7 +192,7 @@ struct RecipeCollectionView: View {
                         .font(.largeTitle)
                         .fontWeight(.bold)
 
-                    Text("\(recipe.recipe_time) minutes")
+                    Text("\(recipe.recipeTime) minutes")
                         .font(.headline)
                         .opacity(0.8)
                     
@@ -230,7 +231,7 @@ struct RecipeCollectionView: View {
                                 .fontWeight(.bold)
                                 .foregroundColor(.white)
                                 .multilineTextAlignment(.center)
-                            Text("\(recipe.recipe_time) minutes")
+                            Text("\(recipe.recipeTime) minutes")
                                 .font(.headline)
                                 .foregroundColor(.white)
                                 .opacity(0.8)
@@ -371,29 +372,18 @@ struct RecipeCollectionView: View {
         isLoading = true
         error = nil
         defer { isLoading = false }
-        
-        do {
-            print("Loading recipes for category: \(category.name) (ID: \(category.id))")
-            let recipes = try await APIClient.fetchRecipes(categoryID: category.id, page: 1, limit: 100)
-            
-            guard !Task.isCancelled else { return }
-            
-            print("Loaded \(recipes.count) recipes for category \(category.name)")
-            self.categoryRecipes = recipes
-            
-            // Select featured recipe AFTER setting categoryRecipes
-            if !recipes.isEmpty {
-                selectedFeaturedRecipe = recipes.randomElement()
-                print("Selected featured recipe: \(selectedFeaturedRecipe?.name ?? "none")")
-            }
-        } catch {
-            guard !Task.isCancelled else { return }
-            
-            let errorMsg = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-            if !errorMsg.contains("cancelled") {
-                self.error = errorMsg
-            }
-            print("Error loading category recipes: \(error)")
+
+        await model.loadRecipesForCategory(category.id)
+        categoryRecipes = model.recipes
+
+        // Select featured recipe AFTER setting categoryRecipes
+        if !categoryRecipes.isEmpty {
+            selectedFeaturedRecipe = categoryRecipes.randomElement()
+            print("Selected featured recipe: \(selectedFeaturedRecipe?.name ?? "none")")
+        }
+
+        if let modelError = model.error {
+            self.error = modelError
         }
     }
     
@@ -441,27 +431,29 @@ struct RecipeCollectionView: View {
     @MainActor
     private func performSearch(with query: String) async {
         guard !query.isEmpty else { return }
-        
+
         isSearching = true
         showingSearchResults = true
-        
+
         defer { isSearching = false }
-        
-        do {
-            let results = try await APIClient.searchRecipes(query: query)
-            searchResults = results
-        } catch {
-            print("Search error: \(error)")
-            model.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-            searchResults = []
+
+        await model.searchRecipes(query: query)
+        searchResults = model.recipes
+
+        if let modelError = model.error {
+            print("Search error: \(modelError)")
         }
     }
     
     // MARK: - UI View
-    
+
+    private var shouldShowEmptyState: Bool {
+        !isLoading && recipes.isEmpty && !(isHome && model.randomRecipes.isEmpty) && !showingSearchResults
+    }
+
     var body: some View {
         Group {
-            if !isLoading && recipes.isEmpty && !(isHome && model.randomRecipes.isEmpty) && !showingSearchResults {
+            if shouldShowEmptyState {
                 // Centered empty state - replaces the entire scroll view
                 VStack(spacing: 16) {
                     Image(systemName: collectionType.emptyStateIcon)
@@ -515,10 +507,10 @@ struct RecipeCollectionView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .recipeDeleted)) { notification in
-            if let deletedRecipeId = notification.object as? Int {
+            if let deletedRecipeId = notification.object as? CKRecord.ID {
                 // Remove from category recipes immediately for better UX
                 categoryRecipes.removeAll { $0.id == deletedRecipeId }
-                
+
                 // Refresh category data to ensure consistency
                 Task {
                     if case .category = collectionType {
@@ -528,9 +520,9 @@ struct RecipeCollectionView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .recipeUpdated)) { notification in
-            if let updatedRecipeId = notification.object as? Int {
-                print("Recipe \(updatedRecipeId) was updated, refreshing view")
-                
+            if let updatedRecipeId = notification.object as? CKRecord.ID {
+                print("Recipe updated, refreshing view")
+
                 // Refresh category data to ensure consistency
                 Task {
                     if case .category = collectionType {

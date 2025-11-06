@@ -1,0 +1,509 @@
+import Foundation
+import Combine
+import CloudKit
+
+@MainActor
+class CloudKitManager: ObservableObject {
+    static let shared = CloudKitManager()
+
+    // MARK: - Published Properties
+    @Published var currentSource: Source?
+    @Published var sources: [Source] = []
+    @Published var categories: [Category] = []
+    @Published var recipes: [Recipe] = []
+    @Published var isLoading = false
+    @Published var error: String?
+    @Published var sharedSourceInvitations: [SharedSourceInvitation] = []
+
+    // MARK: - Private Properties
+    private let container: CKContainer
+    private var privateDatabase: CKDatabase { container.privateCloudDatabase }
+    private var sharedDatabase: CKDatabase { container.sharedCloudDatabase }
+    private let userIdentifier: String? = UserDefaults.standard.string(forKey: "iCloudUserID")
+
+    // Caches
+    private var sourceCache: [CKRecord.ID: Source] = [:]
+    private var categoryCache: [CKRecord.ID: Category] = [:]
+    private var recipeCache: [CKRecord.ID: Recipe] = [:]
+    private var isCreatingDefaultSource = false
+
+    init() {
+        self.container = CKContainer(identifier: "iCloud.com.georgebabichev.iCook")
+        Task {
+            await setupiCloudUser()
+            await loadSources()
+        }
+    }
+
+    // MARK: - Setup
+    private func setupiCloudUser() async {
+        do {
+            let userRecord = try await container.userRecordID()
+            UserDefaults.standard.set(userRecord.recordName, forKey: "iCloudUserID")
+        } catch {
+            printD("Error setting up iCloud user: \(error.localizedDescription)")
+            self.error = "Failed to connect to iCloud"
+        }
+    }
+
+    // MARK: - Source Management
+    func loadSources() async {
+        isLoading = true
+        defer { isLoading = false }
+
+        do {
+            // Load personal sources from private database
+            let personalSources = try await fetchSourcesFromDatabase(privateDatabase, isPersonal: true)
+
+            // Load shared sources from shared database
+            let sharedSources = try await fetchSourcesFromDatabase(sharedDatabase, isPersonal: false)
+
+            var allSources = personalSources + sharedSources
+            allSources.sort { $0.lastModified > $1.lastModified }
+
+            self.sources = allSources
+
+            // Set default source if none selected
+            if currentSource == nil, !allSources.isEmpty {
+                currentSource = allSources.first(where: { $0.isPersonal }) ?? allSources.first
+            }
+        } catch {
+            printD("Error loading sources: \(error.localizedDescription)")
+            // If no sources exist yet, initialize with a default personal source
+            if sources.isEmpty && !isCreatingDefaultSource {
+                isCreatingDefaultSource = true
+                await createDefaultSource()
+                isCreatingDefaultSource = false
+            }
+        }
+    }
+
+    private func fetchSourcesFromDatabase(_ database: CKDatabase, isPersonal: Bool) async throws -> [Source] {
+        let predicate = NSPredicate(format: "TRUEPREDICATE")
+        let query = CKQuery(recordType: "Source", predicate: predicate)
+        let (results, _) = try await database.records(matching: query)
+
+        return results.compactMap { _, result in
+            guard case .success(let record) = result,
+                  let source = Source.from(record) else {
+                return nil
+            }
+            return source
+        }
+    }
+
+    private func createDefaultSource() async {
+        printD("Creating default personal source for new user")
+        do {
+            let recordID = CKRecord.ID()
+            let source = Source(
+                id: recordID,
+                name: "My Recipes",
+                isPersonal: true,
+                owner: userIdentifier ?? "Unknown",
+                lastModified: Date()
+            )
+
+            let record = source.toCKRecord()
+            let savedRecord = try await privateDatabase.save(record)
+
+            if let savedSource = Source.from(savedRecord) {
+                sourceCache[savedSource.id] = savedSource
+                sources = [savedSource]
+                currentSource = savedSource
+                printD("Default source created: \(savedSource.name)")
+            }
+        } catch {
+            printD("Error creating default source: \(error.localizedDescription)")
+            self.error = "Failed to create default source"
+        }
+    }
+
+    func createSource(name: String, isPersonal: Bool = true) async {
+        do {
+            let recordID = CKRecord.ID()
+            let source = Source(
+                id: recordID,
+                name: name,
+                isPersonal: isPersonal,
+                owner: userIdentifier ?? "Unknown",
+                lastModified: Date()
+            )
+
+            let database = isPersonal ? privateDatabase : sharedDatabase
+            let record = source.toCKRecord()
+            let savedRecord = try await database.save(record)
+
+            if let savedSource = Source.from(savedRecord) {
+                sourceCache[savedSource.id] = savedSource
+                await loadSources()
+            }
+        } catch {
+            printD("Error creating source: \(error.localizedDescription)")
+            self.error = "Failed to create source"
+        }
+    }
+
+    func updateSource(_ source: Source) async {
+        do {
+            let database = source.isPersonal ? privateDatabase : sharedDatabase
+            let record = source.toCKRecord()
+            let savedRecord = try await database.save(record)
+
+            if let savedSource = Source.from(savedRecord) {
+                sourceCache[savedSource.id] = savedSource
+                if currentSource?.id == savedSource.id {
+                    currentSource = savedSource
+                }
+                await loadSources()
+            }
+        } catch {
+            printD("Error updating source: \(error.localizedDescription)")
+            self.error = "Failed to update source"
+        }
+    }
+
+    func deleteSource(_ source: Source) async {
+        do {
+            let database = source.isPersonal ? privateDatabase : sharedDatabase
+            try await database.deleteRecord(withID: source.id)
+            sourceCache.removeValue(forKey: source.id)
+            if currentSource?.id == source.id {
+                currentSource = nil
+            }
+            await loadSources()
+        } catch {
+            printD("Error deleting source: \(error.localizedDescription)")
+            self.error = "Failed to delete source"
+        }
+    }
+
+    // MARK: - Category Management
+    func loadCategories(for source: Source) async {
+        guard let sourceID = currentSource?.id else { return }
+
+        isLoading = true
+        defer { isLoading = false }
+
+        do {
+            let database = source.isPersonal ? privateDatabase : sharedDatabase
+            let predicate = NSPredicate(format: "sourceID == %@", CKRecord.Reference(recordID: sourceID, action: .none))
+            let query = CKQuery(recordType: "Category", predicate: predicate)
+            query.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true)]
+
+            let (results, _) = try await database.records(matching: query)
+
+            let categories = results.compactMap { _, result -> Category? in
+                guard case .success(let record) = result,
+                      let category = Category.from(record) else {
+                    return nil
+                }
+                categoryCache[category.id] = category
+                return category
+            }
+
+            self.categories = categories
+        } catch {
+            let errorDesc = error.localizedDescription
+            // Silently handle "record type not found" errors - schema is still being created
+            if !errorDesc.contains("Did not find record type") {
+                printD("Error loading categories: \(errorDesc)")
+                self.error = "Failed to load categories"
+            }
+            self.categories = []
+        }
+    }
+
+    func createCategory(name: String, icon: String, in source: Source) async {
+        do {
+            let recordID = CKRecord.ID()
+            let category = Category(id: recordID, sourceID: source.id, name: name, icon: icon)
+
+            let database = source.isPersonal ? privateDatabase : sharedDatabase
+            let record = category.toCKRecord()
+            let savedRecord = try await database.save(record)
+
+            if let savedCategory = Category.from(savedRecord) {
+                categoryCache[savedCategory.id] = savedCategory
+                await loadCategories(for: source)
+            }
+        } catch {
+            printD("Error creating category: \(error.localizedDescription)")
+            self.error = "Failed to create category"
+        }
+    }
+
+    func updateCategory(_ category: Category, in source: Source) async {
+        do {
+            let database = source.isPersonal ? privateDatabase : sharedDatabase
+            let record = category.toCKRecord()
+            let savedRecord = try await database.save(record)
+
+            if let savedCategory = Category.from(savedRecord) {
+                categoryCache[savedCategory.id] = savedCategory
+                await loadCategories(for: source)
+            }
+        } catch {
+            printD("Error updating category: \(error.localizedDescription)")
+            self.error = "Failed to update category"
+        }
+    }
+
+    func deleteCategory(_ category: Category, in source: Source) async {
+        do {
+            let database = source.isPersonal ? privateDatabase : sharedDatabase
+            try await database.deleteRecord(withID: category.id)
+            categoryCache.removeValue(forKey: category.id)
+            await loadCategories(for: source)
+        } catch {
+            printD("Error deleting category: \(error.localizedDescription)")
+            self.error = "Failed to delete category"
+        }
+    }
+
+    // MARK: - Recipe Management
+    func loadRecipes(for source: Source, category: Category? = nil) async {
+        isLoading = true
+        defer { isLoading = false }
+
+        do {
+            let database = source.isPersonal ? privateDatabase : sharedDatabase
+
+            var predicate: NSPredicate
+            if let category = category {
+                predicate = NSPredicate(
+                    format: "sourceID == %@ AND categoryID == %@",
+                    CKRecord.Reference(recordID: source.id, action: .none),
+                    CKRecord.Reference(recordID: category.id, action: .none)
+                )
+            } else {
+                predicate = NSPredicate(
+                    format: "sourceID == %@",
+                    CKRecord.Reference(recordID: source.id, action: .none)
+                )
+            }
+
+            let query = CKQuery(recordType: "Recipe", predicate: predicate)
+            query.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true)]
+
+            let (results, _) = try await database.records(matching: query)
+
+            let recipes = results.compactMap { _, result -> Recipe? in
+                guard case .success(let record) = result,
+                      let recipe = Recipe.from(record) else {
+                    return nil
+                }
+                recipeCache[recipe.id] = recipe
+                return recipe
+            }
+
+            self.recipes = recipes
+        } catch {
+            let errorDesc = error.localizedDescription
+            // Silently handle "record type not found" errors - schema is still being created
+            if !errorDesc.contains("Did not find record type") {
+                printD("Error loading recipes: \(errorDesc)")
+                self.error = "Failed to load recipes"
+            }
+            self.recipes = []
+        }
+    }
+
+    func loadRandomRecipes(for source: Source, count: Int = 20) async {
+        isLoading = true
+        defer { isLoading = false }
+
+        do {
+            let database = source.isPersonal ? privateDatabase : sharedDatabase
+            let predicate = NSPredicate(
+                format: "sourceID == %@",
+                CKRecord.Reference(recordID: source.id, action: .none)
+            )
+            let query = CKQuery(recordType: "Recipe", predicate: predicate)
+
+            let (results, _) = try await database.records(matching: query)
+
+            var recipes = results.compactMap { _, result -> Recipe? in
+                guard case .success(let record) = result,
+                      let recipe = Recipe.from(record) else {
+                    return nil
+                }
+                return recipe
+            }
+
+            recipes.shuffle()
+            self.recipes = Array(recipes.prefix(count))
+        } catch {
+            let errorDesc = error.localizedDescription
+            // Silently handle "record type not found" errors - schema is still being created
+            if !errorDesc.contains("Did not find record type") {
+                printD("Error loading random recipes: \(errorDesc)")
+                self.error = "Failed to load recipes"
+            }
+            self.recipes = []
+        }
+    }
+
+    func searchRecipes(in source: Source, query: String) async {
+        isLoading = true
+        defer { isLoading = false }
+
+        do {
+            let database = source.isPersonal ? privateDatabase : sharedDatabase
+            let predicate = NSPredicate(
+                format: "sourceID == %@ AND name CONTAINS[cd] %@",
+                CKRecord.Reference(recordID: source.id, action: .none),
+                query
+            )
+
+            let cloudQuery = CKQuery(recordType: "Recipe", predicate: predicate)
+            cloudQuery.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true)]
+
+            let (results, _) = try await database.records(matching: cloudQuery)
+
+            let recipes = results.compactMap { _, result -> Recipe? in
+                guard case .success(let record) = result,
+                      let recipe = Recipe.from(record) else {
+                    return nil
+                }
+                recipeCache[recipe.id] = recipe
+                return recipe
+            }
+
+            self.recipes = recipes
+        } catch {
+            let errorDesc = error.localizedDescription
+            // Silently handle "record type not found" errors - schema is still being created
+            if !errorDesc.contains("Did not find record type") {
+                printD("Error searching recipes: \(errorDesc)")
+                self.error = "Failed to search recipes"
+            }
+            self.recipes = []
+        }
+    }
+
+    func createRecipe(_ recipe: Recipe, in source: Source) async {
+        do {
+            let database = source.isPersonal ? privateDatabase : sharedDatabase
+            let record = recipe.toCKRecord()
+            let savedRecord = try await database.save(record)
+
+            if let savedRecipe = Recipe.from(savedRecord) {
+                recipeCache[savedRecipe.id] = savedRecipe
+                await loadRecipes(for: source)
+            }
+        } catch {
+            printD("Error creating recipe: \(error.localizedDescription)")
+            self.error = "Failed to create recipe"
+        }
+    }
+
+    func updateRecipe(_ recipe: Recipe, in source: Source) async {
+        do {
+            let database = source.isPersonal ? privateDatabase : sharedDatabase
+            let record = recipe.toCKRecord()
+            let savedRecord = try await database.save(record)
+
+            if let savedRecipe = Recipe.from(savedRecord) {
+                recipeCache[savedRecipe.id] = savedRecipe
+                await loadRecipes(for: source)
+            }
+        } catch {
+            printD("Error updating recipe: \(error.localizedDescription)")
+            self.error = "Failed to update recipe"
+        }
+    }
+
+    func deleteRecipe(_ recipe: Recipe, in source: Source) async {
+        do {
+            let database = source.isPersonal ? privateDatabase : sharedDatabase
+            try await database.deleteRecord(withID: recipe.id)
+            recipeCache.removeValue(forKey: recipe.id)
+            await loadRecipes(for: source)
+        } catch {
+            printD("Error deleting recipe: \(error.localizedDescription)")
+            self.error = "Failed to delete recipe"
+        }
+    }
+
+    // MARK: - Image Handling
+    func saveImage(_ imageData: Data, for recipe: Recipe, in source: Source) async -> CKAsset? {
+        do {
+            let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".jpg")
+            try imageData.write(to: tempURL)
+
+            let asset = CKAsset(fileURL: tempURL)
+            var updatedRecipe = recipe
+            updatedRecipe.imageAsset = asset
+
+            await updateRecipe(updatedRecipe, in: source)
+            return asset
+        } catch {
+            printD("Error saving image: \(error.localizedDescription)")
+            self.error = "Failed to save image"
+            return nil
+        }
+    }
+
+    func getImageData(from asset: CKAsset) async -> Data? {
+        do {
+            guard let fileURL = asset.fileURL else { return nil }
+            return try Data(contentsOf: fileURL)
+        } catch {
+            printD("Error reading image: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    // MARK: - Sharing
+    func prepareShareForSource(_ source: Source) async -> CKShare? {
+        guard !source.isPersonal else {
+            self.error = "Cannot share personal sources"
+            return nil
+        }
+
+        do {
+            let database = sharedDatabase
+            let record = source.toCKRecord()
+
+            // Save record first if needed
+            let savedRecord = try await database.save(record)
+
+            // Create share
+            let share = CKShare(rootRecord: savedRecord)
+            share.publicPermission = .readOnly
+            share[CKShare.SystemFieldKey.title] = source.name
+
+            // Note: In a production app, you would use UICloudSharingController
+            // to manage sharing. This is a simplified version for testing.
+            // The share object is prepared but not saved - the app should use
+            // CloudKit's standard sharing UI
+            return share
+        } catch {
+            printD("Error preparing share: \(error.localizedDescription)")
+            self.error = "Failed to prepare share"
+            return nil
+        }
+    }
+
+    func acceptSharedSource(_ metadata: CKShare.Metadata) async {
+        // Note: Proper share acceptance should be handled via CloudKit's share system
+        // This is a placeholder for future implementation
+        // When the user accepts a share via CloudKit UI, the shared data will be
+        // automatically available in the shared database on the next sync
+        await loadSources()
+    }
+
+    func loadSharedSourceInvitations() async {
+        // This is a simplified approach - CloudKit shares are typically handled via UICloudSharingController
+        // For full implementation, would need to set up proper share handling
+        // Currently, shared sources are automatically synced when user accepts the share invitation
+    }
+}
+
+// MARK: - Helper Functions
+func printD(_ message: String) {
+    #if DEBUG
+    print("[CloudKit] \(message)")
+    #endif
+}

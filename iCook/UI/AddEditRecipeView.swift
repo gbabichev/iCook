@@ -1,5 +1,6 @@
 import SwiftUI
 import Combine
+import CloudKit
 #if os(iOS)
 import PhotosUI
 import UIKit
@@ -12,11 +13,11 @@ import UniformTypeIdentifiers
 struct AddEditRecipeView: View {
     @EnvironmentObject private var model: AppViewModel
     @Environment(\.dismiss) private var dismiss
-    
+
     let editingRecipe: Recipe?
-    let preselectedCategoryId: Int?
-    
-    @State private var selectedCategoryId: Int = 0
+    let preselectedCategoryId: CKRecord.ID?
+
+    @State private var selectedCategoryId: CKRecord.ID?
     @State private var recipeName: String = ""
     @State private var recipeTime: String = ""
     @State private var recipeDetails: String = ""
@@ -53,7 +54,7 @@ struct AddEditRecipeView: View {
     
     var isEditing: Bool { editingRecipe != nil }
     
-    init(editingRecipe: Recipe? = nil, preselectedCategoryId: Int? = nil) {
+    init(editingRecipe: Recipe? = nil, preselectedCategoryId: CKRecord.ID? = nil) {
         self.editingRecipe = editingRecipe
         self.preselectedCategoryId = preselectedCategoryId
     }
@@ -63,12 +64,17 @@ struct AddEditRecipeView: View {
             Form {
                 Section("Basic Information") {
                     // Category Picker
-                    Picker("Category", selection: $selectedCategoryId) {
-                        ForEach(model.categories) { category in
-                            Text(category.name).tag(Int(category.id))
+                    if !model.categories.isEmpty {
+                        Picker("Category", selection: $selectedCategoryId) {
+                            ForEach(model.categories) { category in
+                                Text(category.name).tag(category.id as CKRecord.ID?)
+                            }
                         }
+                        .pickerStyle(.menu)
+                    } else {
+                        Text("No categories available")
+                            .foregroundStyle(.secondary)
                     }
-                    .pickerStyle(.menu)
                     
                     // Recipe Name - REQUIRED
                     TextField("Recipe Name *", text: $recipeName)
@@ -378,8 +384,8 @@ struct AddEditRecipeView: View {
         if model.categories.isEmpty {
             await model.loadCategories()
         }
-        
-        if !isEditing, selectedCategoryId == 0 {
+
+        if !isEditing, selectedCategoryId == nil {
             if let preselected = preselectedCategoryId, model.categories.contains(where: { $0.id == preselected }) {
                 selectedCategoryId = preselected
             } else if let firstId = model.categories.first?.id {
@@ -388,27 +394,27 @@ struct AddEditRecipeView: View {
         }
         
         if let recipe = editingRecipe {
-            selectedCategoryId = recipe.category_id
+            selectedCategoryId = recipe.categoryID
             recipeName = recipe.name
-            recipeTime = String(recipe.recipe_time)
+            recipeTime = String(recipe.recipeTime)
             recipeDetails = recipe.details ?? ""
-            existingImagePath = recipe.image
-            
+            // existingImagePath is no longer used with CloudKit assets
+
             // Load recipe steps
-            if let steps = recipe.recipeSteps?.steps, !steps.isEmpty {
-                recipeSteps = steps
+            if !recipe.recipeSteps.isEmpty {
+                recipeSteps = recipe.recipeSteps
                 // Expand first step by default
-                if let firstStep = steps.first {
+                if let firstStep = recipe.recipeSteps.first {
                     expandedSteps.insert(firstStep.stepNumber)
                 }
             }
-            
+
             // Load legacy ingredients (for recipes that haven't been converted yet)
             if let ingredients = recipe.ingredients, !ingredients.isEmpty {
                 // Check if ingredients are already in steps
                 let allStepIngredients = Set(recipeSteps.flatMap(\.ingredients))
                 let uniqueLegacyIngredients = ingredients.filter { !allStepIngredients.contains($0) }
-                
+
                 if !uniqueLegacyIngredients.isEmpty {
                     legacyIngredients = uniqueLegacyIngredients
                     showingLegacySection = true
@@ -419,23 +425,23 @@ struct AddEditRecipeView: View {
     
     private func handleCategoryChanges(_ newCategories: [Category]) {
         let ids = Set(newCategories.map { $0.id })
-        
+
         if isEditing {
-            if let recipe = editingRecipe, !ids.contains(recipe.category_id) {
-                selectedCategoryId = newCategories.first?.id ?? 0
+            if let recipe = editingRecipe, !ids.contains(recipe.categoryID) {
+                selectedCategoryId = newCategories.first?.id
             }
         } else {
-            if selectedCategoryId == 0 {
+            if selectedCategoryId == nil {
                 if let preselected = preselectedCategoryId, ids.contains(preselected) {
                     selectedCategoryId = preselected
                 } else {
-                    selectedCategoryId = newCategories.first?.id ?? 0
+                    selectedCategoryId = newCategories.first?.id
                 }
-            } else if !ids.contains(selectedCategoryId) {
+            } else if let categoryId = selectedCategoryId, !ids.contains(categoryId) {
                 if let preselected = preselectedCategoryId, ids.contains(preselected) {
                     selectedCategoryId = preselected
                 } else {
-                    selectedCategoryId = newCategories.first?.id ?? 0
+                    selectedCategoryId = newCategories.first?.id
                 }
             }
         }
@@ -500,34 +506,28 @@ struct AddEditRecipeView: View {
             finalSteps = processedSteps
         }
         
-        var imagePathToSave = existingImagePath
-        
-        // Upload image if selected
-        if let imageData = selectedImageData {
-            let fileName = "recipe_\(Int(Date().timeIntervalSince1970))_\(UUID().uuidString.prefix(8)).jpg"
-            if let uploadedPath = await model.uploadImage(imageData: imageData, fileName: String(fileName)) {
-                imagePathToSave = uploadedPath
-            }
+        guard let categoryId = selectedCategoryId else {
+            return // Category is required
         }
-        
+
         let success: Bool
         if let recipe = editingRecipe {
             success = await model.updateRecipeWithSteps(
                 id: recipe.id,
-                categoryId: selectedCategoryId != recipe.category_id ? selectedCategoryId : nil,
+                categoryId: selectedCategoryId != recipe.categoryID ? selectedCategoryId : nil,
                 name: trimmedName != recipe.name ? trimmedName : nil,
-                recipeTime: timeValue != recipe.recipe_time ? timeValue : nil,
+                recipeTime: timeValue != recipe.recipeTime ? timeValue : nil,
                 details: detailsToSave != recipe.details ? detailsToSave : nil,
-                image: imagePathToSave != recipe.image ? imagePathToSave : nil,
+                image: selectedImageData,
                 recipeSteps: finalSteps
             )
         } else {
             success = await model.createRecipeWithSteps(
-                categoryId: selectedCategoryId,
+                categoryId: categoryId,
                 name: trimmedName,
                 recipeTime: timeValue,
                 details: detailsToSave,
-                image: imagePathToSave,
+                image: selectedImageData,
                 recipeSteps: finalSteps
             )
         }
@@ -682,11 +682,9 @@ struct AddEditRecipeView: View {
     }
     
     private func imageURL(from path: String) -> URL? {
-        guard !path.isEmpty else { return nil }
-        var comps = URLComponents(url: APIConfig.base, resolvingAgainstBaseURL: false)
-        comps?.query = nil
-        comps?.path = path.hasPrefix("/") ? path : "/" + path
-        return comps?.url
+        // CloudKit assets don't use URL paths
+        // This is kept for backward compatibility but no longer functional
+        return nil
     }
     
     private func loadImageFromURL(_ url: URL) {
