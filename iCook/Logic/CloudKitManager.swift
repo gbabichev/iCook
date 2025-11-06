@@ -250,23 +250,34 @@ class CloudKitManager: ObservableObject {
         defer { isLoading = false }
 
         do {
-            let database = source.isPersonal ? privateDatabase : sharedDatabase
             let predicate = NSPredicate(format: "sourceID == %@", CKRecord.Reference(recordID: sourceID, action: .none))
             let query = CKQuery(recordType: "Category", predicate: predicate)
             query.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true)]
 
-            let (results, _) = try await database.records(matching: query)
+            var allCategories: [Category] = []
 
-            let categories = results.compactMap { _, result -> Category? in
-                guard case .success(let record) = result,
-                      let category = Category.from(record) else {
-                    return nil
+            // Try loading from the appropriate database
+            let database = source.isPersonal ? privateDatabase : sharedDatabase
+            do {
+                let (results, _) = try await database.records(matching: query)
+                let categories = results.compactMap { _, result -> Category? in
+                    guard case .success(let record) = result,
+                          let category = Category.from(record) else {
+                        return nil
+                    }
+                    categoryCache[category.id] = category
+                    return category
                 }
-                categoryCache[category.id] = category
-                return category
+                allCategories.append(contentsOf: categories)
+            } catch {
+                let errorDesc = error.localizedDescription
+                // SharedDB doesn't support zone-wide queries, so this is expected
+                if !errorDesc.contains("SharedDB does not support Zone Wide queries") {
+                    throw error
+                }
             }
 
-            self.categories = categories
+            self.categories = allCategories
         } catch {
             let errorDesc = error.localizedDescription
             // Silently handle "record type not found" errors - schema is still being created
@@ -331,8 +342,6 @@ class CloudKitManager: ObservableObject {
         defer { isLoading = false }
 
         do {
-            let database = source.isPersonal ? privateDatabase : sharedDatabase
-
             var predicate: NSPredicate
             if let category = category {
                 predicate = NSPredicate(
@@ -350,18 +359,30 @@ class CloudKitManager: ObservableObject {
             let query = CKQuery(recordType: "Recipe", predicate: predicate)
             query.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true)]
 
-            let (results, _) = try await database.records(matching: query)
+            var allRecipes: [Recipe] = []
 
-            let recipes = results.compactMap { _, result -> Recipe? in
-                guard case .success(let record) = result,
-                      let recipe = Recipe.from(record) else {
-                    return nil
+            // Try loading from the appropriate database
+            let database = source.isPersonal ? privateDatabase : sharedDatabase
+            do {
+                let (results, _) = try await database.records(matching: query)
+                let recipes = results.compactMap { _, result -> Recipe? in
+                    guard case .success(let record) = result,
+                          let recipe = Recipe.from(record) else {
+                        return nil
+                    }
+                    recipeCache[recipe.id] = recipe
+                    return recipe
                 }
-                recipeCache[recipe.id] = recipe
-                return recipe
+                allRecipes.append(contentsOf: recipes)
+            } catch {
+                let errorDesc = error.localizedDescription
+                // SharedDB doesn't support zone-wide queries, so this is expected
+                if !errorDesc.contains("SharedDB does not support Zone Wide queries") {
+                    throw error
+                }
             }
 
-            self.recipes = recipes
+            self.recipes = allRecipes
         } catch {
             let errorDesc = error.localizedDescription
             // Silently handle "record type not found" errors - schema is still being created
@@ -378,25 +399,36 @@ class CloudKitManager: ObservableObject {
         defer { isLoading = false }
 
         do {
-            let database = source.isPersonal ? privateDatabase : sharedDatabase
             let predicate = NSPredicate(
                 format: "sourceID == %@",
                 CKRecord.Reference(recordID: source.id, action: .none)
             )
             let query = CKQuery(recordType: "Recipe", predicate: predicate)
 
-            let (results, _) = try await database.records(matching: query)
+            var allRecipes: [Recipe] = []
 
-            var recipes = results.compactMap { _, result -> Recipe? in
-                guard case .success(let record) = result,
-                      let recipe = Recipe.from(record) else {
-                    return nil
+            // Try loading from the appropriate database
+            let database = source.isPersonal ? privateDatabase : sharedDatabase
+            do {
+                let (results, _) = try await database.records(matching: query)
+                let recipes = results.compactMap { _, result -> Recipe? in
+                    guard case .success(let record) = result,
+                          let recipe = Recipe.from(record) else {
+                        return nil
+                    }
+                    return recipe
                 }
-                return recipe
+                allRecipes.append(contentsOf: recipes)
+            } catch {
+                let errorDesc = error.localizedDescription
+                // SharedDB doesn't support zone-wide queries, so this is expected
+                if !errorDesc.contains("SharedDB does not support Zone Wide queries") {
+                    throw error
+                }
             }
 
-            recipes.shuffle()
-            self.recipes = Array(recipes.prefix(count))
+            allRecipes.shuffle()
+            self.recipes = Array(allRecipes.prefix(count))
         } catch {
             let errorDesc = error.localizedDescription
             // Silently handle "record type not found" errors - schema is still being created
@@ -413,7 +445,6 @@ class CloudKitManager: ObservableObject {
         defer { isLoading = false }
 
         do {
-            let database = source.isPersonal ? privateDatabase : sharedDatabase
             let predicate = NSPredicate(
                 format: "sourceID == %@ AND name CONTAINS[cd] %@",
                 CKRecord.Reference(recordID: source.id, action: .none),
@@ -423,18 +454,32 @@ class CloudKitManager: ObservableObject {
             let cloudQuery = CKQuery(recordType: "Recipe", predicate: predicate)
             cloudQuery.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true)]
 
-            let (results, _) = try await database.records(matching: cloudQuery)
+            var allRecipes: [Recipe] = []
 
-            let recipes = results.compactMap { _, result -> Recipe? in
-                guard case .success(let record) = result,
-                      let recipe = Recipe.from(record) else {
-                    return nil
+            // Try loading from the appropriate database
+            let database = source.isPersonal ? privateDatabase : sharedDatabase
+            do {
+                let (results, _) = try await database.records(matching: cloudQuery)
+
+                let recipes = results.compactMap { _, result -> Recipe? in
+                    guard case .success(let record) = result,
+                          let recipe = Recipe.from(record) else {
+                        return nil
+                    }
+                    recipeCache[recipe.id] = recipe
+                    return recipe
                 }
-                recipeCache[recipe.id] = recipe
-                return recipe
+
+                allRecipes.append(contentsOf: recipes)
+            } catch {
+                let errorDesc = error.localizedDescription
+                // SharedDB doesn't support zone-wide queries, so this is expected
+                if !errorDesc.contains("SharedDB does not support Zone Wide queries") {
+                    throw error
+                }
             }
 
-            self.recipes = recipes
+            self.recipes = allRecipes
         } catch {
             let errorDesc = error.localizedDescription
             // Silently handle "record type not found" errors - schema is still being created
