@@ -29,6 +29,8 @@ class CloudKitManager: ObservableObject {
 
     init() {
         self.container = CKContainer(identifier: "iCloud.com.georgebabichev.iCook")
+        // Load from local cache immediately
+        loadSourcesLocalCache()
         Task {
             await setupiCloudUser()
             await loadSources()
@@ -46,6 +48,31 @@ class CloudKitManager: ObservableObject {
         }
     }
 
+    // MARK: - Local Cache (UserDefaults backup)
+    private func saveSourcesLocalCache() {
+        do {
+            let encoded = try JSONEncoder().encode(sources)
+            UserDefaults.standard.set(encoded, forKey: "SourcesCache")
+            printD("Cached \(sources.count) sources locally")
+        } catch {
+            printD("Error saving sources cache: \(error.localizedDescription)")
+        }
+    }
+
+    private func loadSourcesLocalCache() {
+        do {
+            guard let data = UserDefaults.standard.data(forKey: "SourcesCache") else { return }
+            let decoded = try JSONDecoder().decode([Source].self, from: data)
+            sources = decoded
+            if currentSource == nil, !sources.isEmpty {
+                currentSource = sources.first(where: { $0.isPersonal }) ?? sources.first
+            }
+            printD("Loaded \(sources.count) sources from local cache")
+        } catch {
+            printD("Error loading sources cache: \(error.localizedDescription)")
+        }
+    }
+
     // MARK: - Source Management
     func loadSources() async {
         isLoading = true
@@ -55,20 +82,35 @@ class CloudKitManager: ObservableObject {
             // Load personal sources from private database
             let personalSources = try await fetchSourcesFromDatabase(privateDatabase, isPersonal: true)
 
-            // Load shared sources from shared database
-            let sharedSources = try await fetchSourcesFromDatabase(sharedDatabase, isPersonal: false)
+            var allSources = personalSources
 
-            var allSources = personalSources + sharedSources
+            // Try to load shared sources from shared database (it may not support zone-wide queries)
+            do {
+                let sharedSources = try await fetchSourcesFromDatabase(sharedDatabase, isPersonal: false)
+                allSources.append(contentsOf: sharedSources)
+            } catch {
+                let errorDesc = error.localizedDescription
+                // SharedDB doesn't support zone-wide queries, so this is expected
+                if !errorDesc.contains("SharedDB does not support Zone Wide queries") {
+                    printD("Note: Could not load shared sources: \(errorDesc)")
+                }
+            }
+
             allSources.sort { $0.lastModified > $1.lastModified }
 
             self.sources = allSources
+            saveSourcesLocalCache()
 
             // Set default source if none selected
             if currentSource == nil, !allSources.isEmpty {
                 currentSource = allSources.first(where: { $0.isPersonal }) ?? allSources.first
             }
         } catch {
-            printD("Error loading sources: \(error.localizedDescription)")
+            let errorDesc = error.localizedDescription
+            // Silently handle schema/indexing errors - CloudKit is still setting up
+            if !errorDesc.contains("Did not find record type") && !errorDesc.contains("not marked queryable") {
+                printD("Error loading sources: \(errorDesc)")
+            }
             // If no sources exist yet, initialize with a default personal source
             if sources.isEmpty && !isCreatingDefaultSource {
                 isCreatingDefaultSource = true
@@ -79,7 +121,9 @@ class CloudKitManager: ObservableObject {
     }
 
     private func fetchSourcesFromDatabase(_ database: CKDatabase, isPersonal: Bool) async throws -> [Source] {
-        let predicate = NSPredicate(format: "TRUEPREDICATE")
+        // Use a queryable field (lastModified) instead of TRUEPREDICATE to avoid "recordName is not marked queryable" error
+        // This predicate matches all records where lastModified is after the distant past (i.e., all records)
+        let predicate = NSPredicate(format: "lastModified >= %@", Date.distantPast as NSDate)
         let query = CKQuery(recordType: "Source", predicate: predicate)
         let (results, _) = try await database.records(matching: query)
 
@@ -111,6 +155,7 @@ class CloudKitManager: ObservableObject {
                 sourceCache[savedSource.id] = savedSource
                 sources = [savedSource]
                 currentSource = savedSource
+                saveSourcesLocalCache()
                 printD("Default source created: \(savedSource.name)")
             }
         } catch {
@@ -132,14 +177,27 @@ class CloudKitManager: ObservableObject {
 
             let database = isPersonal ? privateDatabase : sharedDatabase
             let record = source.toCKRecord()
+            printD("Saving source to CloudKit: \(source.name) (record: \(record.recordID.recordName))")
             let savedRecord = try await database.save(record)
+            printD("Successfully saved to CloudKit: \(savedRecord.recordID.recordName)")
 
             if let savedSource = Source.from(savedRecord) {
                 sourceCache[savedSource.id] = savedSource
-                await loadSources()
+                // Add to UI immediately without waiting for query
+                sources.append(savedSource)
+                sources.sort { $0.lastModified > $1.lastModified }
+                saveSourcesLocalCache()
+                if currentSource == nil {
+                    currentSource = savedSource
+                }
+                printD("Source created: \(savedSource.name)")
             }
         } catch {
             printD("Error creating source: \(error.localizedDescription)")
+            if let ckError = error as? CKError {
+                printD("CKError code: \(ckError.errorCode)")
+                printD("CKError description: \(ckError.errorUserInfo)")
+            }
             self.error = "Failed to create source"
         }
     }
@@ -152,10 +210,14 @@ class CloudKitManager: ObservableObject {
 
             if let savedSource = Source.from(savedRecord) {
                 sourceCache[savedSource.id] = savedSource
+                // Update in local array
+                if let index = sources.firstIndex(where: { $0.id == savedSource.id }) {
+                    sources[index] = savedSource
+                }
                 if currentSource?.id == savedSource.id {
                     currentSource = savedSource
                 }
-                await loadSources()
+                saveSourcesLocalCache()
             }
         } catch {
             printD("Error updating source: \(error.localizedDescription)")
@@ -168,10 +230,12 @@ class CloudKitManager: ObservableObject {
             let database = source.isPersonal ? privateDatabase : sharedDatabase
             try await database.deleteRecord(withID: source.id)
             sourceCache.removeValue(forKey: source.id)
+            // Remove from local array
+            sources.removeAll { $0.id == source.id }
             if currentSource?.id == source.id {
-                currentSource = nil
+                currentSource = sources.first
             }
-            await loadSources()
+            saveSourcesLocalCache()
         } catch {
             printD("Error deleting source: \(error.localizedDescription)")
             self.error = "Failed to delete source"

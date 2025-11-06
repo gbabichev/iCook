@@ -42,6 +42,38 @@ struct Source: Identifiable {
 
         return Source(id: record.recordID, name: name, isPersonal: isPersonal, owner: owner, lastModified: lastModified)
     }
+
+    // MARK: - Manual Codable Implementation
+    enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case isPersonal
+        case owner
+        case lastModified
+    }
+}
+
+extension Source: Encodable {
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id.recordName, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(isPersonal, forKey: .isPersonal)
+        try container.encode(owner, forKey: .owner)
+        try container.encode(lastModified, forKey: .lastModified)
+    }
+}
+
+extension Source: Decodable {
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let recordName = try container.decode(String.self, forKey: .id)
+        self.id = CKRecord.ID(recordName: recordName)
+        self.name = try container.decode(String.self, forKey: .name)
+        self.isPersonal = try container.decode(Bool.self, forKey: .isPersonal)
+        self.owner = try container.decode(String.self, forKey: .owner)
+        self.lastModified = try container.decode(Date.self, forKey: .lastModified)
+    }
 }
 
 // MARK: - Category (Belongs to a Source)
