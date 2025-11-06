@@ -184,8 +184,8 @@ class CloudKitManager: ObservableObject {
             if let savedSource = Source.from(savedRecord) {
                 sourceCache[savedSource.id] = savedSource
                 // Add to UI immediately without waiting for query
-                sources.append(savedSource)
-                sources.sort { $0.lastModified > $1.lastModified }
+                // Reassign the entire array so SwiftUI detects the change
+                self.sources = (sources + [savedSource]).sorted { $0.lastModified > $1.lastModified }
                 saveSourcesLocalCache()
                 if currentSource == nil {
                     currentSource = savedSource
@@ -210,10 +210,8 @@ class CloudKitManager: ObservableObject {
 
             if let savedSource = Source.from(savedRecord) {
                 sourceCache[savedSource.id] = savedSource
-                // Update in local array
-                if let index = sources.firstIndex(where: { $0.id == savedSource.id }) {
-                    sources[index] = savedSource
-                }
+                // Update in local array - reassign to ensure SwiftUI detects change
+                self.sources = sources.map { $0.id == savedSource.id ? savedSource : $0 }
                 if currentSource?.id == savedSource.id {
                     currentSource = savedSource
                 }
@@ -230,16 +228,52 @@ class CloudKitManager: ObservableObject {
             let database = source.isPersonal ? privateDatabase : sharedDatabase
             try await database.deleteRecord(withID: source.id)
             sourceCache.removeValue(forKey: source.id)
-            // Remove from local array
-            sources.removeAll { $0.id == source.id }
+            // Remove from local array - reassign to ensure SwiftUI detects change
+            self.sources = sources.filter { $0.id != source.id }
             if currentSource?.id == source.id {
-                currentSource = sources.first
+                currentSource = self.sources.first
             }
             saveSourcesLocalCache()
         } catch {
             printD("Error deleting source: \(error.localizedDescription)")
             self.error = "Failed to delete source"
         }
+    }
+
+    // MARK: - Debug Functions
+    func debugDeleteAllSourcesAndReset() async {
+        printD("Debug: Starting delete all sources (count: \(sources.count))")
+
+        // Delete all sources from CloudKit
+        let sourcesToDelete = sources // Copy the array since we'll be modifying it
+        for (index, source) in sourcesToDelete.enumerated() {
+            printD("Debug: Deleting source \(index + 1)/\(sourcesToDelete.count): \(source.name)")
+            do {
+                let database = source.isPersonal ? privateDatabase : sharedDatabase
+                try await database.deleteRecord(withID: source.id)
+                sourceCache.removeValue(forKey: source.id)
+                printD("Debug: Successfully deleted \(source.name)")
+            } catch {
+                printD("Debug: Error deleting source \(source.name): \(error.localizedDescription)")
+            }
+        }
+
+        // Clear local state
+        printD("Debug: Clearing all local state")
+        sources.removeAll()
+        categories.removeAll()
+        recipes.removeAll()
+        currentSource = nil
+        sourceCache.removeAll()
+        categoryCache.removeAll()
+        recipeCache.removeAll()
+        saveSourcesLocalCache()
+        printD("Debug: Local state cleared, sources now: \(sources.count)")
+
+        // Recreate default source
+        printD("Debug: Recreating default source")
+        await createDefaultSource()
+        printD("Debug: Done! Current sources: \(sources.count)")
     }
 
     // MARK: - Category Management

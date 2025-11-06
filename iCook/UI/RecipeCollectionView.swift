@@ -481,7 +481,7 @@ struct RecipeCollectionView: View {
                 }
             }
         }
-        .searchable(text: $searchText, placement: .automatic, prompt: "Search recipes")
+//        .searchable(text: $searchText, placement: .automatic, prompt: "Search recipes")
         .onSubmit(of: .search) {
             if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 performSearch()
@@ -520,7 +520,7 @@ struct RecipeCollectionView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .recipeUpdated)) { notification in
-            if let updatedRecipeId = notification.object as? CKRecord.ID {
+            if notification.object is CKRecord.ID {
                 print("Recipe updated, refreshing view")
 
                 // Refresh category data to ensure consistency

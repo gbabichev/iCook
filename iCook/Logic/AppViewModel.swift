@@ -38,13 +38,18 @@ final class AppViewModel: ObservableObject {
 
     func createSource(name: String) async -> Bool {
         await cloudKitManager.createSource(name: name, isPersonal: true)
-        await loadSources()
+        // Copy sources directly from CloudKitManager without re-querying
+        // (the new source might not be indexed in CloudKit yet)
+        sources = cloudKitManager.sources
+        currentSource = cloudKitManager.currentSource
         return true
     }
 
     func deleteSource(_ source: Source) async -> Bool {
         await cloudKitManager.deleteSource(source)
-        await loadSources()
+        // Copy sources directly from CloudKitManager without re-querying
+        sources = cloudKitManager.sources
+        currentSource = cloudKitManager.currentSource
         return true
     }
 
@@ -64,7 +69,8 @@ final class AppViewModel: ObservableObject {
         error = nil
 
         await cloudKitManager.createCategory(name: name, icon: icon, in: source)
-        await loadCategories()
+        // Copy directly from CloudKitManager without re-querying
+        categories = cloudKitManager.categories
         return error == nil
     }
 
@@ -77,7 +83,8 @@ final class AppViewModel: ObservableObject {
         updatedCategory.icon = icon
 
         await cloudKitManager.updateCategory(updatedCategory, in: source)
-        await loadCategories()
+        // Copy directly from CloudKitManager without re-querying
+        categories = cloudKitManager.categories
         return error == nil
     }
 
@@ -86,7 +93,8 @@ final class AppViewModel: ObservableObject {
         guard let category = categories.first(where: { $0.id == id }) else { return }
 
         await cloudKitManager.deleteCategory(category, in: source)
-        await loadCategories()
+        // Copy directly from CloudKitManager without re-querying
+        categories = cloudKitManager.categories
     }
 
     // MARK: - Recipe Management
@@ -226,5 +234,10 @@ final class AppViewModel: ObservableObject {
     // MARK: - Sharing
     func prepareShareForSource(_ source: Source) async -> CKShare? {
         return await cloudKitManager.prepareShareForSource(source)
+    }
+
+    // MARK: - Debug
+    func debugDeleteAllSourcesAndReset() async {
+        await cloudKitManager.debugDeleteAllSourcesAndReset()
     }
 }

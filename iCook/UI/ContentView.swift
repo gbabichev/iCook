@@ -16,6 +16,7 @@ struct ContentView: View {
 
     // Recipe management state
     @State private var showingAddRecipe = false
+    @State private var isDebugOperationInProgress = false
 
     var body: some View {
         NavigationSplitView(preferredCompactColumn: $preferredColumn) {
@@ -67,6 +68,30 @@ struct ContentView: View {
                     }
                     .accessibilityLabel("Add Recipe")
                 }
+                ToolbarItem(placement: .primaryAction) {
+                    Menu {
+                        Section("Debug") {
+                            Button(role: .destructive) {
+                                isDebugOperationInProgress = true
+                                Task {
+                                    await model.debugDeleteAllSourcesAndReset()
+                                    // Reload the UI - don't call loadSources() since the default source is already created
+                                    if model.currentSource != nil {
+                                        selectedCategoryID = nil
+                                        isShowingHome = true
+                                        await model.loadCategories()
+                                        await model.loadRandomRecipes()
+                                    }
+                                    isDebugOperationInProgress = false
+                                }
+                            } label: {
+                                Label("Delete all Sources & Restart", systemImage: "trash.fill")
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "ladybug")
+                    }
+                }
                 ToolbarSpacer(.flexible)
             }
             .ignoresSafeArea(edges: .top)
@@ -100,6 +125,24 @@ struct ContentView: View {
         .sheet(isPresented: $showingAddRecipe) {
             AddEditRecipeView(preselectedCategoryId: isShowingHome ? nil : selectedCategoryID)
                 .environmentObject(model)
+        }
+        .overlay(alignment: .center) {
+            if isDebugOperationInProgress {
+                ZStack {
+                    Color.black.opacity(0.3)
+                        .ignoresSafeArea()
+
+                    VStack(spacing: 16) {
+                        ProgressView()
+                            .scaleEffect(1.5, anchor: .center)
+                        Text("Resetting sources...")
+                            .font(.headline)
+                    }
+                    .padding(32)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                }
+                .transition(.opacity)
+            }
         }
     }
 }
