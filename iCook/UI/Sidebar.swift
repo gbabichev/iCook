@@ -25,7 +25,7 @@ struct CategoryList: View {
     var body: some View {
         List {
             // Home/Featured section
-            Button(action: { isShowingHome = true }) {
+            NavigationLink(destination: RecipeCollectionView()) {
                 HStack {
                     Image(systemName: "house.fill")
                         .foregroundStyle(.blue)
@@ -38,15 +38,14 @@ struct CategoryList: View {
                     }
                 }
             }
-            .foregroundStyle(.primary)
+            .onTapGesture {
+                isShowingHome = true
+            }
 
             if !model.categories.isEmpty {
                 Section("Categories") {
                     ForEach(model.categories) { category in
-                        Button(action: {
-                            selection = category.id
-                            isShowingHome = false
-                        }) {
+                        NavigationLink(destination: RecipeCollectionView(category: category)) {
                             HStack {
                                 Image(systemName: category.icon)
                                     .frame(width: 24)
@@ -58,7 +57,10 @@ struct CategoryList: View {
                                 }
                             }
                         }
-                        .foregroundStyle(.primary)
+                        .onTapGesture {
+                            selection = category.id
+                            isShowingHome = false
+                        }
                         .contextMenu {
                             Button {
                                 editingCategory = category

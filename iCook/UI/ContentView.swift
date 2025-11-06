@@ -12,12 +12,6 @@ struct ContentView: View {
     @State private var isShowingHome = true
     @State private var showingAddCategory = false
     @State private var editingCategory: Category? = nil
-    @State private var showNewSourceSheet = false
-    @State private var newSourceName = ""
-
-    // Recipe management state
-    @State private var showingAddRecipe = false
-    @State private var isDebugOperationInProgress = false
 
     var body: some View {
         NavigationSplitView(preferredCompactColumn: $preferredColumn) {
@@ -44,16 +38,6 @@ struct ContentView: View {
                     isShowingHome: $isShowingHome
                 )
                 .navigationSplitViewColumnWidth(min: 200, ideal: 250, max: 400)
-                .onChange(of: selectedCategoryID) { _ in
-                    if horizontalSizeClass == .compact {
-                        preferredColumn = .detail
-                    }
-                }
-                .onChange(of: isShowingHome) { _ in
-                    if horizontalSizeClass == .compact {
-                        preferredColumn = .detail
-                    }
-                }
                 .toolbar {
                     ToolbarItem(placement: .primaryAction) {
                         Button {
@@ -70,83 +54,19 @@ struct ContentView: View {
             NavigationStack {
                 if isShowingHome {
                     RecipeCollectionView()
+                        .ignoresSafeArea(edges: .top)
                 } else if let id = selectedCategoryID,
                           let cat = model.categories.first(where: { $0.id == id }) {
                     RecipeCollectionView(category: cat)
+                        .ignoresSafeArea(edges: .top)
                 } else {
                     RecipeCollectionView()
+                        .ignoresSafeArea(edges: .top)
                 }
             }
 #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
 #endif
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        showingAddRecipe = true
-                    } label: {
-                        Image(systemName: "plus.circle.fill")
-                    }
-                    .accessibilityLabel("Add Recipe")
-                }
-                ToolbarItem(placement: .primaryAction) {
-                    Menu {
-                        if let source = model.currentSource {
-                            Section(source.name) {
-                                ForEach(model.sources, id: \.id) { s in
-                                    Button {
-                                        Task {
-                                            await model.selectSource(s)
-                                        }
-                                    } label: {
-                                        HStack {
-                                            Text(s.name)
-                                            if model.currentSource?.id == s.id {
-                                                Image(systemName: "checkmark")
-                                            }
-                                        }
-                                    }
-                                }
-
-                                Divider()
-
-                                Button(action: { showNewSourceSheet = true }) {
-                                    Label("New Source", systemImage: "plus")
-                                }
-                            }
-                        }
-                    } label: {
-                        Image(systemName: "cloud")
-                    }
-                    .accessibilityLabel("Sources")
-                }
-                ToolbarItem(placement: .primaryAction) {
-                    Menu {
-                        Section("Debug") {
-                            Button(role: .destructive) {
-                                isDebugOperationInProgress = true
-                                Task {
-                                    await model.debugDeleteAllSourcesAndReset()
-                                    // Reload the UI - don't call loadSources() since the default source is already created
-                                    if model.currentSource != nil {
-                                        selectedCategoryID = nil
-                                        isShowingHome = true
-                                        await model.loadCategories()
-                                        await model.loadRandomRecipes()
-                                    }
-                                    isDebugOperationInProgress = false
-                                }
-                            } label: {
-                                Label("Delete all Sources & Restart", systemImage: "trash.fill")
-                            }
-                        }
-                    } label: {
-                        Image(systemName: "ladybug")
-                    }
-                }
-                ToolbarSpacer(.flexible)
-            }
-            .ignoresSafeArea(edges: .top)
             .navigationDestination(for: Recipe.self) { recipe in
                 RecipeDetailView(recipe: recipe)
             }
@@ -173,35 +93,6 @@ struct ContentView: View {
         .sheet(item: $editingCategory) { category in
             AddCategoryView(editingCategory: category)
                 .environmentObject(model)
-        }
-        .sheet(isPresented: $showingAddRecipe) {
-            AddEditRecipeView(preselectedCategoryId: isShowingHome ? nil : selectedCategoryID)
-                .environmentObject(model)
-        }
-        .sheet(isPresented: $showNewSourceSheet) {
-            NewSourceSheet(
-                isPresented: $showNewSourceSheet,
-                viewModel: model,
-                sourceName: $newSourceName
-            )
-        }
-        .overlay(alignment: .center) {
-            if isDebugOperationInProgress {
-                ZStack {
-                    Color.black.opacity(0.3)
-                        .ignoresSafeArea()
-
-                    VStack(spacing: 16) {
-                        ProgressView()
-                            .scaleEffect(1.5, anchor: .center)
-                        Text("Resetting sources...")
-                            .font(.headline)
-                    }
-                    .padding(32)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-                }
-                .transition(.opacity)
-            }
         }
     }
 }

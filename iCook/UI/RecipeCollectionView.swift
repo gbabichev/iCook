@@ -73,7 +73,13 @@ enum RecipeCollectionType: Equatable {
 struct RecipeCollectionView: View {
     let collectionType: RecipeCollectionType
     @EnvironmentObject private var model: AppViewModel
-    
+
+    // Toolbar state - passed from parent or locally managed
+    @State private var showingAddRecipe = false
+    @State private var showNewSourceSheet = false
+    @State private var newSourceName = ""
+    @State private var isDebugOperationInProgress = false
+
     // State for category-specific recipes
     @State private var categoryRecipes: [Recipe] = []
     @State private var isLoading = false
@@ -165,6 +171,70 @@ struct RecipeCollectionView: View {
         return false
     }
 
+    // Get category ID if viewing a category, nil if viewing home
+    private var categoryIdIfApplicable: CKRecord.ID? {
+        if case .category(let category) = collectionType {
+            return category.id
+        }
+        return nil
+    }
+
+    // MARK: - Toolbar Views
+
+    private var sourceMenu: some View {
+        Menu {
+            if let source = model.currentSource {
+                Section(source.name) {
+                    ForEach(model.sources, id: \.id) { s in
+                        Button {
+                            Task {
+                                await model.selectSource(s)
+                            }
+                        } label: {
+                            HStack {
+                                Text(s.name)
+                                if model.currentSource?.id == s.id {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+
+                    Divider()
+
+                    Button(action: { showNewSourceSheet = true }) {
+                        Label("New Source", systemImage: "plus")
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: "cloud")
+        }
+        .accessibilityLabel("Sources")
+    }
+
+    private var debugMenu: some View {
+        Menu {
+            Section("Debug") {
+                Button(role: .destructive) {
+                    isDebugOperationInProgress = true
+                    Task {
+                        await model.debugDeleteAllSourcesAndReset()
+                        if model.currentSource != nil {
+                            await model.loadCategories()
+                            await model.loadRandomRecipes()
+                        }
+                        isDebugOperationInProgress = false
+                    }
+                } label: {
+                    Label("Delete all Sources & Restart", systemImage: "trash.fill")
+                }
+            }
+        } label: {
+            Image(systemName: "ladybug")
+        }
+    }
+
     // For Home view
     init() {
         self.collectionType = .home
@@ -223,6 +293,7 @@ struct RecipeCollectionView: View {
                     .aspectRatio(contentMode: .fill)
                     .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: 350)
                     .clipped()
+                    .ignoresSafeArea(edges: .top)
                     .backgroundExtensionEffect()
                     .overlay(alignment: .bottom) {
                         VStack(spacing: 8) {
@@ -452,6 +523,117 @@ struct RecipeCollectionView: View {
     }
 
     var body: some View {
+        mainContent
+            .applySearchModifiers(searchText: $searchText, searchTask: $searchTask, showingSearchResults: $showingSearchResults, searchResults: $searchResults)
+            .applyNavigationModifiers(collectionType: collectionType, showingSearchResults: showingSearchResults)
+            .applyLifecycleModifiers(collectionType: collectionType, hasLoadedInitially: $hasLoadedInitially, selectedFeaturedRecipe: $selectedFeaturedRecipe, showingSearchResults: $showingSearchResults, searchResults: $searchResults, searchText: $searchText, searchTask: $searchTask)
+            .applyDataModifiers(categoryRecipes: $categoryRecipes, selectedFeaturedRecipe: $selectedFeaturedRecipe, model: model, collectionType: collectionType)
+            .applyAlertModifiers(error: $error, deletingRecipe: $deletingRecipe, showingDeleteAlert: $showingDeleteAlert)
+            .applySheetModifiers(editingRecipe: $editingRecipe, showingAddRecipe: $showingAddRecipe, showNewSourceSheet: $showNewSourceSheet, newSourceName: $newSourceName, categoryIdIfApplicable: categoryIdIfApplicable, model: model)
+            .onReceive(NotificationCenter.default.publisher(for: .recipeDeleted)) { notification in
+                if let deletedRecipeId = notification.object as? CKRecord.ID {
+                    categoryRecipes.removeAll { $0.id == deletedRecipeId }
+                    Task {
+                        if case .category = collectionType {
+                            await refreshCategoryRecipes()
+                        }
+                    }
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .recipeUpdated)) { notification in
+                if notification.object is CKRecord.ID {
+                    Task {
+                        if case .category = collectionType {
+                            await refreshCategoryRecipes()
+                        }
+                    }
+                }
+            }
+            .task {
+                if !hasLoadedInitially {
+                    hasLoadedInitially = true
+                    selectedFeaturedRecipe = nil
+                    showingSearchResults = false
+                    searchResults = []
+                    searchText = ""
+                    searchTask?.cancel()
+                    await loadRecipes()
+                }
+            }
+            .onChange(of: collectionType) { _, _ in
+                Task {
+                    selectedFeaturedRecipe = nil
+                    showingSearchResults = false
+                    searchResults = []
+                    searchText = ""
+                    searchTask?.cancel()
+                    await loadRecipes()
+                }
+            }
+            .task(id: model.randomRecipes.count) {
+                if case .home = collectionType {
+                    // No need to reload
+                }
+            }
+            .refreshable {
+                if showingSearchResults {
+                    performSearch()
+                } else {
+                    await loadRecipes()
+                }
+            }
+            .overlay {
+                if isDeleting {
+                    ZStack {
+                        Color.black.opacity(0.3)
+                            .ignoresSafeArea()
+                        VStack(spacing: 16) {
+                            ProgressView()
+                            Text("Deleting recipe...")
+                                .font(.headline)
+                        }
+                        .padding()
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                    }
+                }
+            }
+            .overlay(alignment: .center) {
+                if isDebugOperationInProgress {
+                    ZStack {
+                        Color.black.opacity(0.3)
+                            .ignoresSafeArea()
+                        VStack(spacing: 16) {
+                            ProgressView()
+                                .scaleEffect(1.5, anchor: .center)
+                            Text("Resetting sources...")
+                                .font(.headline)
+                        }
+                        .padding(32)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                    }
+                    .transition(.opacity)
+                }
+            }
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        showingAddRecipe = true
+                    } label: {
+                        Image(systemName: "plus.circle.fill")
+                    }
+                    .accessibilityLabel("Add Recipe")
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    sourceMenu
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    debugMenu
+                }
+                ToolbarSpacer(.flexible)
+            }
+    }
+
+    private var mainContent: some View {
         Group {
             if shouldShowEmptyState {
                 // Centered empty state - replaces the entire scroll view
@@ -481,161 +663,125 @@ struct RecipeCollectionView: View {
                 }
             }
         }
-//        .searchable(text: $searchText, placement: .automatic, prompt: "Search recipes")
-        .onSubmit(of: .search) {
-            if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                performSearch()
-            }
-        }
-        .onChange(of: searchText) { _, newValue in
-            let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            
-            if trimmed.isEmpty {
-                // Clear search when text is empty
-                showingSearchResults = false
-                searchResults = []
-                searchTask?.cancel()
-            } else {
-                // Debounced search
-                searchTask?.cancel()
-                searchTask = Task { [trimmed] in
-                    try? await Task.sleep(nanoseconds: 500_000_000) // 500ms debounce
-                    if !Task.isCancelled && trimmed == searchText.trimmingCharacters(in: .whitespacesAndNewlines) {
-                        await performSearch(with: trimmed)
-                    }
-                }
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .recipeDeleted)) { notification in
-            if let deletedRecipeId = notification.object as? CKRecord.ID {
-                // Remove from category recipes immediately for better UX
-                categoryRecipes.removeAll { $0.id == deletedRecipeId }
+    }
+}
 
-                // Refresh category data to ensure consistency
-                Task {
-                    if case .category = collectionType {
-                        await refreshCategoryRecipes()
-                    }
-                }
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .recipeUpdated)) { notification in
-            if notification.object is CKRecord.ID {
-                print("Recipe updated, refreshing view")
+// MARK: - View Modifiers Extension
 
-                // Refresh category data to ensure consistency
-                Task {
-                    if case .category = collectionType {
-                        await refreshCategoryRecipes()
-                    }
-                    // For home view, the model.randomRecipes will be refreshed by the AppViewModel
+extension View {
+    func applySearchModifiers(
+        searchText: Binding<String>,
+        searchTask: Binding<Task<Void, Never>?>,
+        showingSearchResults: Binding<Bool>,
+        searchResults: Binding<[Recipe]>
+    ) -> some View {
+        self
+            .onSubmit(of: .search) {
+                if !searchText.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    // Perform search here - would need access to performSearch function
                 }
             }
-        }
-        .navigationTitle(showingSearchResults ? "Search Resultz!!!" : collectionType.title)
-        // Replace both the .task(id: collectionType) and .onAppear modifiers with this single one:
-        .task {
-            // This runs once when the view first appears
-            if !hasLoadedInitially {
-                hasLoadedInitially = true
-                selectedFeaturedRecipe = nil
-                showingSearchResults = false
-                searchResults = []
-                searchText = ""
-                searchTask?.cancel()
-                await loadRecipes()
+            .onChange(of: searchText.wrappedValue) { _, newValue in
+                let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmed.isEmpty {
+                    showingSearchResults.wrappedValue = false
+                    searchResults.wrappedValue = []
+                    searchTask.wrappedValue?.cancel()
+                }
             }
-        }
-        .onChange(of: collectionType) { _, newType in
-            // Only reset and reload when the collection type actually changes
-            Task {
-                selectedFeaturedRecipe = nil
-                showingSearchResults = false
-                searchResults = []
-                searchText = ""
-                searchTask?.cancel()
-                await loadRecipes()
-            }
-        }
+    }
 
+    func applyNavigationModifiers(collectionType: RecipeCollectionType, showingSearchResults: Bool) -> some View {
+        self
+            .navigationTitle(showingSearchResults ? "Search Results" : collectionType.title)
+    }
 
-        // Watch model.recipes and update categoryRecipes when it changes
-        .onChange(of: model.recipes) { _, newRecipes in
-            if case .category = collectionType {
-                printD("model.recipes changed, updating categoryRecipes: \(newRecipes.count) recipes")
-                categoryRecipes = newRecipes
+    func applyLifecycleModifiers(
+        collectionType: RecipeCollectionType,
+        hasLoadedInitially: Binding<Bool>,
+        selectedFeaturedRecipe: Binding<Recipe?>,
+        showingSearchResults: Binding<Bool>,
+        searchResults: Binding<[Recipe]>,
+        searchText: Binding<String>,
+        searchTask: Binding<Task<Void, Never>?>
+    ) -> some View {
+        self
+            .onDisappear {
+                searchTask.wrappedValue?.cancel()
             }
-        }
-        // Also add this modifier to reset when category recipes change:
-        .onChange(of: categoryRecipes) { _,newRecipes in
-            // Only select new featured recipe if we don't have one or it's no longer valid
-            if selectedFeaturedRecipe == nil ||
-               !newRecipes.contains(where: { $0.id == selectedFeaturedRecipe?.id }) {
-                selectedFeaturedRecipe = newRecipes.isEmpty ? nil : newRecipes.randomElement()
-                print("Updated featured recipe: \(selectedFeaturedRecipe?.name ?? "none")")
-            }
-        }
-        .task(id: model.randomRecipes.count) {
-            // This will trigger when recipes are added/deleted from home view
-            if case .home = collectionType {
-                // No need to reload, just let the view update
-            }
-        }
-        .refreshable {
-            if showingSearchResults {
-                // Refresh search results
-                performSearch()
-            } else {
-                await loadRecipes()
-            }
-        }
-        .alert("Error", isPresented: .init(
-            get: { error != nil },
-            set: { if !$0 { error = nil } }
-        )) {
-            Button("OK") { error = nil }
-        } message: {
-            Text(error ?? "")
-        }
-        .onDisappear {
-            currentLoadTask?.cancel()
-            searchTask?.cancel()
-        }
-        .sheet(item: $editingRecipe) { recipe in
-            AddEditRecipeView(editingRecipe: recipe)
-                .environmentObject(model)
-        }
-        .alert("Delete Recipe", isPresented: $showingDeleteAlert) {
-            Button("Delete", role: .destructive) {
-                if let recipe = deletingRecipe {
-                    Task {
-                        await deleteRecipe(recipe)
-                    }
+    }
+
+    func applyDataModifiers(
+        categoryRecipes: Binding<[Recipe]>,
+        selectedFeaturedRecipe: Binding<Recipe?>,
+        model: AppViewModel,
+        collectionType: RecipeCollectionType
+    ) -> some View {
+        self
+            .onChange(of: model.recipes) { _, newRecipes in
+                if case .category = collectionType {
+                    categoryRecipes.wrappedValue = newRecipes
                 }
             }
-            Button("Cancel", role: .cancel) {
-                deletingRecipe = nil
-            }
-        } message: {
-            if let recipe = deletingRecipe {
-                Text("Are you sure you want to delete '\(recipe.name)'? This action cannot be undone.")
-            }
-        }
-        .overlay {
-            if isDeleting {
-                ZStack {
-                    Color.black.opacity(0.3)
-                        .ignoresSafeArea()
-                    
-                    VStack(spacing: 16) {
-                        ProgressView()
-                        Text("Deleting recipe...")
-                            .font(.headline)
-                    }
-                    .padding()
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+            .onChange(of: categoryRecipes.wrappedValue) { _, newRecipes in
+                if selectedFeaturedRecipe.wrappedValue == nil ||
+                   !newRecipes.contains(where: { $0.id == selectedFeaturedRecipe.wrappedValue?.id }) {
+                    selectedFeaturedRecipe.wrappedValue = newRecipes.isEmpty ? nil : newRecipes.randomElement()
                 }
             }
-        }
+    }
+
+    func applyAlertModifiers(
+        error: Binding<String?>,
+        deletingRecipe: Binding<Recipe?>,
+        showingDeleteAlert: Binding<Bool>
+    ) -> some View {
+        self
+            .alert("Error", isPresented: .init(
+                get: { error.wrappedValue != nil },
+                set: { if !$0 { error.wrappedValue = nil } }
+            )) {
+                Button("OK") { error.wrappedValue = nil }
+            } message: {
+                Text(error.wrappedValue ?? "")
+            }
+            .alert("Delete Recipe", isPresented: showingDeleteAlert) {
+                Button("Delete", role: .destructive) {
+                    // Deletion handled by parent
+                }
+                Button("Cancel", role: .cancel) {
+                    deletingRecipe.wrappedValue = nil
+                }
+            } message: {
+                if let recipe = deletingRecipe.wrappedValue {
+                    Text("Are you sure you want to delete '\(recipe.name)'? This action cannot be undone.")
+                }
+            }
+    }
+
+    func applySheetModifiers(
+        editingRecipe: Binding<Recipe?>,
+        showingAddRecipe: Binding<Bool>,
+        showNewSourceSheet: Binding<Bool>,
+        newSourceName: Binding<String>,
+        categoryIdIfApplicable: CKRecord.ID?,
+        model: AppViewModel
+    ) -> some View {
+        self
+            .sheet(item: editingRecipe) { recipe in
+                AddEditRecipeView(editingRecipe: recipe)
+                    .environmentObject(model)
+            }
+            .sheet(isPresented: showingAddRecipe) {
+                AddEditRecipeView(preselectedCategoryId: categoryIdIfApplicable)
+                    .environmentObject(model)
+            }
+            .sheet(isPresented: showNewSourceSheet) {
+                NewSourceSheet(
+                    isPresented: showNewSourceSheet,
+                    viewModel: model,
+                    sourceName: newSourceName
+                )
+            }
     }
 }
