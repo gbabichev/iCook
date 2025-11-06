@@ -12,7 +12,7 @@ final class AppViewModel: ObservableObject {
     @Published var error: String?
 
     // CloudKit manager
-    private let cloudKitManager = CloudKitManager.shared
+    let cloudKitManager = CloudKitManager.shared
 
     // Source management
     @Published var currentSource: Source?

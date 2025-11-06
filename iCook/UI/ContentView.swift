@@ -21,6 +21,21 @@ struct ContentView: View {
     var body: some View {
         NavigationSplitView(preferredCompactColumn: $preferredColumn) {
             VStack(spacing: 0) {
+                // iCloud status banner
+                if !model.cloudKitManager.isCloudKitAvailable {
+                    HStack {
+                        Image(systemName: "exclamationmark.icloud")
+                            .foregroundStyle(.orange)
+                        Text("Using local storage only. Sign in to iCloud to enable cloud sync.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(Color.orange.opacity(0.1))
+                }
+
                 // Source selector
                 SourceSelector(viewModel: model)
 

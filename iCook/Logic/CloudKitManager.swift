@@ -14,6 +14,7 @@ class CloudKitManager: ObservableObject {
     @Published var isLoading = false
     @Published var error: String?
     @Published var sharedSourceInvitations: [SharedSourceInvitation] = []
+    @Published var isCloudKitAvailable = true // Assume available until proven otherwise
 
     // MARK: - Private Properties
     private let container: CKContainer
@@ -42,9 +43,22 @@ class CloudKitManager: ObservableObject {
         do {
             let userRecord = try await container.userRecordID()
             UserDefaults.standard.set(userRecord.recordName, forKey: "iCloudUserID")
+            isCloudKitAvailable = true
+            printD("iCloud user authenticated successfully")
         } catch {
-            printD("Error setting up iCloud user: \(error.localizedDescription)")
-            self.error = "Failed to connect to iCloud"
+            let errorDesc = error.localizedDescription
+            printD("Error setting up iCloud user: \(errorDesc)")
+
+            // Check if this is an auth error (not signed in)
+            if errorDesc.contains("authenticated account") ||
+               errorDesc.contains("iCloud account") ||
+               errorDesc.contains("No iCloud") {
+                isCloudKitAvailable = false
+                printD("CloudKit unavailable: User not signed into iCloud. Using local-only mode.")
+                self.error = "iCloud not available. Using local storage only."
+            } else {
+                self.error = "Failed to connect to iCloud"
+            }
         }
     }
 
@@ -77,6 +91,17 @@ class CloudKitManager: ObservableObject {
     func loadSources() async {
         isLoading = true
         defer { isLoading = false }
+
+        // If CloudKit is not available, use local cache only
+        guard isCloudKitAvailable else {
+            printD("CloudKit not available, using cached sources only")
+            if sources.isEmpty && !isCreatingDefaultSource {
+                isCreatingDefaultSource = true
+                await createDefaultSource()
+                isCreatingDefaultSource = false
+            }
+            return
+        }
 
         do {
             // Load personal sources from private database
@@ -165,40 +190,53 @@ class CloudKitManager: ObservableObject {
     }
 
     func createSource(name: String, isPersonal: Bool = true) async {
-        do {
-            let recordID = CKRecord.ID()
-            let source = Source(
-                id: recordID,
-                name: name,
-                isPersonal: isPersonal,
-                owner: userIdentifier ?? "Unknown",
-                lastModified: Date()
-            )
+        let recordID = CKRecord.ID()
+        let source = Source(
+            id: recordID,
+            name: name,
+            isPersonal: isPersonal,
+            owner: userIdentifier ?? "Unknown",
+            lastModified: Date()
+        )
 
-            let database = isPersonal ? privateDatabase : sharedDatabase
-            let record = source.toCKRecord()
-            printD("Saving source to CloudKit: \(source.name) (record: \(record.recordID.recordName))")
-            let savedRecord = try await database.save(record)
-            printD("Successfully saved to CloudKit: \(savedRecord.recordID.recordName)")
+        // If CloudKit is available, save to it
+        if isCloudKitAvailable {
+            do {
+                let database = isPersonal ? privateDatabase : sharedDatabase
+                let record = source.toCKRecord()
+                printD("Saving source to CloudKit: \(source.name) (record: \(record.recordID.recordName))")
+                let savedRecord = try await database.save(record)
+                printD("Successfully saved to CloudKit: \(savedRecord.recordID.recordName)")
 
-            if let savedSource = Source.from(savedRecord) {
-                sourceCache[savedSource.id] = savedSource
-                // Add to UI immediately without waiting for query
-                // Reassign the entire array so SwiftUI detects the change
-                self.sources = (sources + [savedSource]).sorted { $0.lastModified > $1.lastModified }
-                saveSourcesLocalCache()
-                if currentSource == nil {
-                    currentSource = savedSource
+                if let savedSource = Source.from(savedRecord) {
+                    sourceCache[savedSource.id] = savedSource
+                    // Add to UI immediately without waiting for query
+                    // Reassign the entire array so SwiftUI detects the change
+                    self.sources = (sources + [savedSource]).sorted { $0.lastModified > $1.lastModified }
+                    saveSourcesLocalCache()
+                    if currentSource == nil {
+                        currentSource = savedSource
+                    }
+                    printD("Source created: \(savedSource.name)")
                 }
-                printD("Source created: \(savedSource.name)")
+            } catch {
+                printD("Error creating source: \(error.localizedDescription)")
+                if let ckError = error as? CKError {
+                    printD("CKError code: \(ckError.errorCode)")
+                    printD("CKError description: \(ckError.errorUserInfo)")
+                }
+                self.error = "Failed to create source"
             }
-        } catch {
-            printD("Error creating source: \(error.localizedDescription)")
-            if let ckError = error as? CKError {
-                printD("CKError code: \(ckError.errorCode)")
-                printD("CKError description: \(ckError.errorUserInfo)")
+        } else {
+            // CloudKit not available, save locally only
+            printD("CloudKit not available, saving source locally only: \(source.name)")
+            sourceCache[source.id] = source
+            self.sources = (sources + [source]).sorted { $0.lastModified > $1.lastModified }
+            saveSourcesLocalCache()
+            if currentSource == nil {
+                currentSource = source
             }
-            self.error = "Failed to create source"
+            printD("Source created locally: \(source.name)")
         }
     }
 
