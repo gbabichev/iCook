@@ -15,11 +15,15 @@ struct CategoryList: View {
     @Binding var selection: CKRecord.ID?
     @Binding var editingCategory: Category?
     @Binding var isShowingHome: Bool
+    @Binding var showingAddCategory: Bool
+    @State private var showNewSourceSheet = false
+    @State private var newSourceName = ""
 
-    init(selection: Binding<CKRecord.ID?>, editingCategory: Binding<Category?>, isShowingHome: Binding<Bool>) {
+    init(selection: Binding<CKRecord.ID?>, editingCategory: Binding<Category?>, isShowingHome: Binding<Bool>, showingAddCategory: Binding<Bool>) {
         self._selection = selection
         self._editingCategory = editingCategory
         self._isShowingHome = isShowingHome
+        self._showingAddCategory = showingAddCategory
     }
 
     var body: some View {
@@ -38,9 +42,6 @@ struct CategoryList: View {
                     }
                 }
             }
-            .onTapGesture {
-                isShowingHome = true
-            }
 
             if !model.categories.isEmpty {
                 Section("Categories") {
@@ -56,10 +57,6 @@ struct CategoryList: View {
                                         .foregroundStyle(.blue)
                                 }
                             }
-                        }
-                        .onTapGesture {
-                            selection = category.id
-                            isShowingHome = false
                         }
                         .contextMenu {
                             Button {
@@ -92,6 +89,58 @@ struct CategoryList: View {
         }
         .navigationTitle("iCook")
         .listStyle(.sidebar)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                sourceMenu
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    showingAddCategory = true
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .accessibilityLabel("Add Category")
+            }
+        }
+        .sheet(isPresented: $showNewSourceSheet) {
+            NewSourceSheet(
+                isPresented: $showNewSourceSheet,
+                viewModel: model,
+                sourceName: $newSourceName
+            )
+        }
+    }
+
+    private var sourceMenu: some View {
+        Menu {
+            if let source = model.currentSource {
+                Section(source.name) {
+                    ForEach(model.sources, id: \.id) { s in
+                        Button {
+                            Task {
+                                await model.selectSource(s)
+                            }
+                        } label: {
+                            HStack {
+                                Text(s.name)
+                                if model.currentSource?.id == s.id {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+
+                    Divider()
+
+                    Button(action: { showNewSourceSheet = true }) {
+                        Label("New Source", systemImage: "plus")
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: "cloud")
+        }
+        .accessibilityLabel("Sources")
     }
 }
 

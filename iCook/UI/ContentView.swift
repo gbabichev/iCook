@@ -35,19 +35,10 @@ struct ContentView: View {
                 CategoryList(
                     selection: $selectedCategoryID,
                     editingCategory: $editingCategory,
-                    isShowingHome: $isShowingHome
+                    isShowingHome: $isShowingHome,
+                    showingAddCategory: $showingAddCategory
                 )
                 .navigationSplitViewColumnWidth(min: 200, ideal: 250, max: 400)
-                .toolbar {
-                    ToolbarItem(placement: .primaryAction) {
-                        Button {
-                            showingAddCategory = true
-                        } label: {
-                            Image(systemName: "plus")
-                        }
-                        .accessibilityLabel("Add Category")
-                    }
-                }
             }
         } detail: {
             // Single NavigationStack for the detail view

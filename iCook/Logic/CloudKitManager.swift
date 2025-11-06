@@ -73,11 +73,30 @@ class CloudKitManager: ObservableObject {
         }
     }
 
+    func saveCurrentSourceID() {
+        if let sourceID = currentSource?.id {
+            UserDefaults.standard.set(sourceID.recordName, forKey: "SelectedSourceID")
+            printD("Saved selected source: \(sourceID.recordName)")
+        }
+    }
+
     private func loadSourcesLocalCache() {
         do {
             guard let data = UserDefaults.standard.data(forKey: "SourcesCache") else { return }
             let decoded = try JSONDecoder().decode([Source].self, from: data)
             sources = decoded
+
+            // Try to restore the previously selected source
+            if let savedSourceID = UserDefaults.standard.string(forKey: "SelectedSourceID") {
+                let savedRecordID = CKRecord.ID(recordName: savedSourceID)
+                if let savedSource = sources.first(where: { $0.id == savedRecordID }) {
+                    currentSource = savedSource
+                    printD("Restored previously selected source: \(savedSource.name)")
+                    return
+                }
+            }
+
+            // Fallback: pick default source if no saved selection
             if currentSource == nil, !sources.isEmpty {
                 currentSource = sources.first(where: { $0.isPersonal }) ?? sources.first
             }

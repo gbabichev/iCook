@@ -31,6 +31,7 @@ final class AppViewModel: ObservableObject {
 
     func selectSource(_ source: Source) async {
         cloudKitManager.currentSource = source
+        cloudKitManager.saveCurrentSourceID()
         currentSource = source
         await loadCategories()
         await loadRandomRecipes()
@@ -42,6 +43,7 @@ final class AppViewModel: ObservableObject {
         // (the new source might not be indexed in CloudKit yet)
         sources = cloudKitManager.sources
         currentSource = cloudKitManager.currentSource
+        cloudKitManager.saveCurrentSourceID()
         return true
     }
 
@@ -50,6 +52,7 @@ final class AppViewModel: ObservableObject {
         // Copy sources directly from CloudKitManager without re-querying
         sources = cloudKitManager.sources
         currentSource = cloudKitManager.currentSource
+        cloudKitManager.saveCurrentSourceID()
         return true
     }
 
