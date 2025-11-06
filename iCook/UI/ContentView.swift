@@ -12,7 +12,8 @@ struct ContentView: View {
     @State private var isShowingHome = true
     @State private var showingAddCategory = false
     @State private var editingCategory: Category? = nil
-    @State private var showSourceSelector = false
+    @State private var showNewSourceSheet = false
+    @State private var newSourceName = ""
 
     // Recipe management state
     @State private var showingAddRecipe = false
@@ -36,11 +37,6 @@ struct ContentView: View {
                     .background(Color.orange.opacity(0.1))
                 }
 
-                // Source selector
-                SourceSelector(viewModel: model)
-
-                Divider()
-
                 // Category list
                 CategoryList(
                     selection: $selectedCategoryID,
@@ -48,6 +44,16 @@ struct ContentView: View {
                     isShowingHome: $isShowingHome
                 )
                 .navigationSplitViewColumnWidth(min: 200, ideal: 250, max: 400)
+                .onChange(of: selectedCategoryID) { _ in
+                    if horizontalSizeClass == .compact {
+                        preferredColumn = .detail
+                    }
+                }
+                .onChange(of: isShowingHome) { _ in
+                    if horizontalSizeClass == .compact {
+                        preferredColumn = .detail
+                    }
+                }
                 .toolbar {
                     ToolbarItem(placement: .primaryAction) {
                         Button {
@@ -82,6 +88,37 @@ struct ContentView: View {
                         Image(systemName: "plus.circle.fill")
                     }
                     .accessibilityLabel("Add Recipe")
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    Menu {
+                        if let source = model.currentSource {
+                            Section(source.name) {
+                                ForEach(model.sources, id: \.id) { s in
+                                    Button {
+                                        Task {
+                                            await model.selectSource(s)
+                                        }
+                                    } label: {
+                                        HStack {
+                                            Text(s.name)
+                                            if model.currentSource?.id == s.id {
+                                                Image(systemName: "checkmark")
+                                            }
+                                        }
+                                    }
+                                }
+
+                                Divider()
+
+                                Button(action: { showNewSourceSheet = true }) {
+                                    Label("New Source", systemImage: "plus")
+                                }
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "cloud")
+                    }
+                    .accessibilityLabel("Sources")
                 }
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
@@ -140,6 +177,13 @@ struct ContentView: View {
         .sheet(isPresented: $showingAddRecipe) {
             AddEditRecipeView(preselectedCategoryId: isShowingHome ? nil : selectedCategoryID)
                 .environmentObject(model)
+        }
+        .sheet(isPresented: $showNewSourceSheet) {
+            NewSourceSheet(
+                isPresented: $showNewSourceSheet,
+                viewModel: model,
+                sourceName: $newSourceName
+            )
         }
         .overlay(alignment: .center) {
             if isDebugOperationInProgress {
