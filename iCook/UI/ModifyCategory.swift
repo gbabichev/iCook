@@ -36,12 +36,13 @@ struct IconButton: View {
 struct AddCategoryView: View {
     @EnvironmentObject private var model: AppViewModel
     @Environment(\.dismiss) private var dismiss
-    
+
     let editingCategory: Category?
-    
+
     @State private var categoryName: String = ""
     @State private var selectedIcon: String = "fork.knife"
     @State private var isSaving = false
+    @State private var showReadOnlyAlert = false
     
     // Fixed: Removed duplicates from commonIcons array
     private let commonIcons = [
@@ -78,11 +79,23 @@ struct AddCategoryView: View {
     var body: some View {
         NavigationStack {
             Form {
+                if let source = model.currentSource, !model.canEditSource(source) {
+                    Section {
+                        HStack {
+                            Image(systemName: "lock.fill")
+                                .foregroundColor(.orange)
+                            Text("This source is read-only")
+                                .foregroundColor(.orange)
+                        }
+                    }
+                }
+
                 Section("Category Information") {
                     TextField("Category Name", text: $categoryName)
+                        .disabled(!canEdit)
                         //.textInputAutocapitalization(.words)
                 }
-                
+
                 Section("Choose an Icon") {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 8), spacing: 12) {
                         ForEach(commonIcons, id: \.self) { icon in
@@ -107,6 +120,7 @@ struct AddCategoryView: View {
                                     )
                             }
                             .buttonStyle(PlainButtonStyle())
+                            .disabled(!canEdit)
                         }
                     }
                     .padding(.vertical, 8)
@@ -121,14 +135,14 @@ struct AddCategoryView: View {
                         dismiss()
                     }
                 }
-                
+
                 ToolbarItem(placement: .confirmationAction) {
                     Button(isEditing ? "Update" : "Create") {
                         Task {
                             await saveCategory()
                         }
                     }
-                    .disabled(categoryName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSaving)
+                    .disabled(!canEdit || categoryName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSaving)
                 }
             }
             .task {
@@ -146,6 +160,11 @@ struct AddCategoryView: View {
                    message: { Text(model.error ?? "") }
             )
         }
+    }
+
+    private var canEdit: Bool {
+        guard let source = model.currentSource else { return false }
+        return model.canEditSource(source)
     }
     
     @MainActor

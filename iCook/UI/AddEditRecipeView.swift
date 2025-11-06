@@ -51,7 +51,12 @@ struct AddEditRecipeView: View {
                         Int(recipeTime.trimmingCharacters(in: .whitespacesAndNewlines)) != nil
         return nameValid && timeValid
     }
-    
+
+    private var canEdit: Bool {
+        guard let source = model.currentSource else { return false }
+        return model.canEditSource(source)
+    }
+
     var isEditing: Bool { editingRecipe != nil }
     
     init(editingRecipe: Recipe? = nil, preselectedCategoryId: CKRecord.ID? = nil) {
@@ -62,6 +67,17 @@ struct AddEditRecipeView: View {
     var body: some View {
         NavigationStack {
             Form {
+                if let source = model.currentSource, !model.canEditSource(source) {
+                    Section {
+                        HStack {
+                            Image(systemName: "lock.fill")
+                                .foregroundColor(.orange)
+                            Text("This source is read-only")
+                                .foregroundColor(.orange)
+                        }
+                    }
+                }
+
                 Section("Basic Information") {
                     // Category Picker
                     if !model.categories.isEmpty {
@@ -71,26 +87,29 @@ struct AddEditRecipeView: View {
                             }
                         }
                         .pickerStyle(.menu)
+                        .disabled(!canEdit)
                     } else {
                         Text("No categories available")
                             .foregroundStyle(.secondary)
                     }
-                    
+
                     // Recipe Name - REQUIRED
                     TextField("Recipe Name *", text: $recipeName)
-                    
+                        .disabled(!canEdit)
+
                     // Recipe Time - REQUIRED
                     HStack {
                         TextField("Cooking Time *", text: $recipeTime)
+                            .disabled(!canEdit)
                         Text("minutes")
                             .foregroundStyle(.secondary)
                     }
                 }
 
                 Section("Image") {
-                    imageSection
+                    imageSection.disabled(!canEdit)
                 }
-                
+
                 // Recipe Steps Section
                 Section {
                     VStack(alignment: .leading, spacing: 16) {
@@ -103,6 +122,7 @@ struct AddEditRecipeView: View {
                                 addNewStep()
                             }
                             .buttonStyle(.bordered)
+                            .disabled(!canEdit)
                         }
                         
                         if recipeSteps.isEmpty {
@@ -153,14 +173,14 @@ struct AddEditRecipeView: View {
                         dismiss()
                     }
                 }
-                
+
                 ToolbarItem(placement: .confirmationAction) {
                     Button(isEditing ? "Update" : "Create") {
                         Task {
                             await saveRecipe()
                         }
                     }
-                    .disabled(!isFormValid || isSaving)
+                    .disabled(!isFormValid || isSaving || !canEdit)
                 }
             }
             .task {

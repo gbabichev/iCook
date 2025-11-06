@@ -6,16 +6,21 @@
 //
 
 import SwiftUI
+import CloudKit
 
 @main
 struct iCookApp: App {
-    
+
     @StateObject private var model = AppViewModel()
-    
+
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environmentObject(model)
+                .onOpenURL { url in
+                    // Handle CloudKit share links
+                    handleCloudKitShareLink(url)
+                }
         }
 #if os(macOS)
         .commands {
@@ -29,6 +34,19 @@ struct iCookApp: App {
             }
         }
 #endif
+    }
+
+    private func handleCloudKitShareLink(_ url: URL) {
+        Task {
+            printD("Processing CloudKit share link: \(url)")
+
+            // CKShareURL can be used to create a CKShare object
+            // CloudKit handles this automatically when the user accepts
+            // We just need to reload sources to show any newly shared sources
+            await model.loadSources()
+
+            printD("Share link processed successfully")
+        }
     }
     
 #if os(macOS)

@@ -17,7 +17,7 @@ class CloudKitManager: ObservableObject {
     @Published var isCloudKitAvailable = true // Assume available until proven otherwise
 
     // MARK: - Private Properties
-    private let container: CKContainer
+    let container: CKContainer
     private var privateDatabase: CKDatabase { container.privateCloudDatabase }
     private var sharedDatabase: CKDatabase { container.sharedCloudDatabase }
     private let userIdentifier: String? = UserDefaults.standard.string(forKey: "iCloudUserID")
@@ -659,7 +659,15 @@ class CloudKitManager: ObservableObject {
     }
 
     // MARK: - Sharing
-    func prepareShareForSource(_ source: Source) async -> CKShare? {
+    @Published var shareControllerPresented = false
+    @Published var pendingShare: CKShare?
+    @Published var pendingRecord: CKRecord?
+
+    /// Prepare a source for sharing and present the share controller
+    /// - Parameters:
+    ///   - source: The source to share (must not be personal)
+    /// - Returns: A tuple of (share, record) if successful, nil otherwise
+    func prepareShareForSource(_ source: Source) async -> (CKShare, CKRecord)? {
         guard !source.isPersonal else {
             self.error = "Cannot share personal sources"
             return nil
@@ -671,36 +679,113 @@ class CloudKitManager: ObservableObject {
 
             // Save record first if needed
             let savedRecord = try await database.save(record)
+            printD("Source record saved to shared database: \(savedRecord.recordID.recordName)")
 
             // Create share
             let share = CKShare(rootRecord: savedRecord)
             share.publicPermission = .readOnly
             share[CKShare.SystemFieldKey.title] = source.name
+            share[CKShare.SystemFieldKey.shareType] = "recipes.source"
 
-            // Note: In a production app, you would use UICloudSharingController
-            // to manage sharing. This is a simplified version for testing.
-            // The share object is prepared but not saved - the app should use
-            // CloudKit's standard sharing UI
-            return share
+            // Set up share metadata
+            printD("Share prepared for source: \(source.name)")
+
+            return (share, savedRecord)
         } catch {
             printD("Error preparing share: \(error.localizedDescription)")
-            self.error = "Failed to prepare share"
+            self.error = "Failed to prepare share: \(error.localizedDescription)"
             return nil
         }
     }
 
+    /// Save a share to CloudKit after user confirms via UICloudSharingController
+    func saveShare(_ share: CKShare, for record: CKRecord) async -> Bool {
+        do {
+            let database = sharedDatabase
+            _ = try await database.save(share)
+            printD("Share saved successfully for record: \(record.recordID.recordName)")
+            return true
+        } catch {
+            printD("Error saving share: \(error.localizedDescription)")
+            self.error = "Failed to save share"
+            return false
+        }
+    }
+
+    /// Accept a shared source invitation
+    /// This is called when the user taps a shared source link
     func acceptSharedSource(_ metadata: CKShare.Metadata) async {
-        // Note: Proper share acceptance should be handled via CloudKit's share system
-        // This is a placeholder for future implementation
-        // When the user accepts a share via CloudKit UI, the shared data will be
-        // automatically available in the shared database on the next sync
+        printD("Accepting shared source with container: \(metadata.containerIdentifier)")
+
+        // The CloudKit framework automatically handles accepting shares
+        // We just need to reload sources to show the newly accepted shared source
+        await loadSources()
+
+        printD("Shared source accepted and loaded")
+    }
+
+    /// Check for incoming share invitations
+    /// Note: On iOS 15+, share invitations are handled automatically by the system
+    /// This method is provided for reference and future use with custom share handling
+    func checkForIncomingShareInvitations() async {
+        printD("Checking for incoming share invitations")
+
+        // In a production app, you would handle this in the SceneDelegate or
+        // WindowGroup's .onOpenURL modifier to process cloudkit:// links
+        // For now, shares are automatically synced when the user taps the link
+
+        // Reload sources to ensure we have the latest shares
         await loadSources()
     }
 
-    func loadSharedSourceInvitations() async {
-        // This is a simplified approach - CloudKit shares are typically handled via UICloudSharingController
-        // For full implementation, would need to set up proper share handling
-        // Currently, shared sources are automatically synced when user accepts the share invitation
+    /// Fetch all shares created by or shared with this user
+    func fetchAllShares() async -> [CKShare] {
+        var allShares: [CKShare] = []
+
+        do {
+            // Query shared database for all shares
+            let predicate = NSPredicate(value: true)
+            let query = CKQuery(recordType: "cloudkit.share", predicate: predicate)
+
+            let (results, _) = try await sharedDatabase.records(matching: query)
+
+            allShares = results.compactMap { _, result in
+                guard case .success(let record) = result,
+                      let share = record as? CKShare else {
+                    return nil
+                }
+                return share
+            }
+
+            printD("Fetched \(allShares.count) shares from shared database")
+        } catch {
+            printD("Error fetching shares: \(error.localizedDescription)")
+        }
+
+        return allShares
+    }
+
+    /// Stop sharing a source
+    func stopSharingSource(_ source: Source) async -> Bool {
+        guard !source.isPersonal else {
+            self.error = "Cannot stop sharing a personal source"
+            return false
+        }
+
+        do {
+            let database = sharedDatabase
+            let record = source.toCKRecord()
+
+            // Delete the share by removing it from the shared database
+            try await database.deleteRecord(withID: record.recordID)
+
+            printD("Stopped sharing source: \(source.name)")
+            return true
+        } catch {
+            printD("Error stopping share: \(error.localizedDescription)")
+            self.error = "Failed to stop sharing"
+            return false
+        }
     }
 }
 

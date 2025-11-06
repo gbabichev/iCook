@@ -16,8 +16,7 @@ struct CategoryList: View {
     @Binding var editingCategory: Category?
     @Binding var isShowingHome: Bool
     @Binding var showingAddCategory: Bool
-    @State private var showNewSourceSheet = false
-    @State private var newSourceName = ""
+    @State private var showSourcesOverlay = false
 
     init(selection: Binding<CKRecord.ID?>, editingCategory: Binding<Category?>, isShowingHome: Binding<Bool>, showingAddCategory: Binding<Bool>) {
         self._selection = selection
@@ -91,7 +90,12 @@ struct CategoryList: View {
         .listStyle(.sidebar)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                sourceMenu
+                Button {
+                    showSourcesOverlay = true
+                } label: {
+                    Image(systemName: "cloud")
+                }
+                .accessibilityLabel("Sources")
             }
             ToolbarItem(placement: .primaryAction) {
                 Button {
@@ -102,45 +106,10 @@ struct CategoryList: View {
                 .accessibilityLabel("Add Category")
             }
         }
-        .sheet(isPresented: $showNewSourceSheet) {
-            NewSourceSheet(
-                isPresented: $showNewSourceSheet,
-                viewModel: model,
-                sourceName: $newSourceName
-            )
+        .sheet(isPresented: $showSourcesOverlay) {
+            SourceSelector()
+                .environmentObject(model)
         }
-    }
-
-    private var sourceMenu: some View {
-        Menu {
-            if let source = model.currentSource {
-                Section(source.name) {
-                    ForEach(model.sources, id: \.id) { s in
-                        Button {
-                            Task {
-                                await model.selectSource(s)
-                            }
-                        } label: {
-                            HStack {
-                                Text(s.name)
-                                if model.currentSource?.id == s.id {
-                                    Image(systemName: "checkmark")
-                                }
-                            }
-                        }
-                    }
-
-                    Divider()
-
-                    Button(action: { showNewSourceSheet = true }) {
-                        Label("New Source", systemImage: "plus")
-                    }
-                }
-            }
-        } label: {
-            Image(systemName: "cloud")
-        }
-        .accessibilityLabel("Sources")
     }
 }
 

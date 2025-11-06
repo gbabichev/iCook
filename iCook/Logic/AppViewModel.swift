@@ -264,8 +264,24 @@ final class AppViewModel: ObservableObject {
     }
 
     // MARK: - Sharing
-    func prepareShareForSource(_ source: Source) async -> CKShare? {
-        return await cloudKitManager.prepareShareForSource(source)
+    func isSourceShared(_ source: Source) -> Bool {
+        return !source.isPersonal
+    }
+
+    func canEditSource(_ source: Source) -> Bool {
+        // Users can edit personal sources they own
+        // Users cannot edit shared sources (read-only)
+        return source.isPersonal
+    }
+
+    func acceptShareInvitation(_ metadata: CKShare.Metadata) async {
+        await cloudKitManager.acceptSharedSource(metadata)
+        // Reload sources to display the newly accepted shared source
+        await loadSources()
+    }
+
+    func checkForSharedSourceInvitations() async {
+        await cloudKitManager.checkForIncomingShareInvitations()
     }
 
     // MARK: - Debug

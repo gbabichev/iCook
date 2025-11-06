@@ -2,149 +2,142 @@ import SwiftUI
 import CloudKit
 
 struct SourceSelector: View {
-    @ObservedObject var viewModel: AppViewModel
+    @EnvironmentObject private var viewModel: AppViewModel
     @State private var showNewSourceSheet = false
     @State private var newSourceName = ""
+    @State private var showShareSheet = false
+    @State private var sourceToShare: Source?
+    @State private var pendingShare: CKShare?
+    @State private var pendingRecord: CKRecord?
+    @State private var isPreparingShare = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Current source display
-            if let source = viewModel.currentSource {
-                VStack(spacing: 8) {
-                    Text("Current Source")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+        NavigationStack {
+            VStack(spacing: 0) {
+                if viewModel.sources.isEmpty {
+                    VStack(spacing: 12) {
+                        Image(systemName: "fork.knife")
+                            .font(.system(size: 40))
+                            .foregroundColor(.secondary)
 
-                    Menu {
-                        ForEach(viewModel.sources, id: \.id) { source in
-                            Button {
-                                Task {
-                                    await viewModel.selectSource(source)
-                                }
-                            } label: {
-                                HStack {
-                                    Text(source.name)
+                        Text("No Sources")
+                            .font(.headline)
+
+                        Text("Create a new source to get started")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(.gray.opacity(0.05))
+                } else {
+                    ScrollView {
+                        VStack(spacing: 12) {
+                            ForEach(viewModel.sources, id: \.id) { source in
+                                HStack(spacing: 12) {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(source.name)
+                                            .font(.headline)
+                                            .fontWeight(viewModel.currentSource?.id == source.id ? .semibold : .regular)
+
+                                        Text(source.isPersonal ? "Personal" : "Shared")
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                    }
+
+                                    Spacer()
+
+                                    // Share button for personal sources
+                                    if source.isPersonal {
+                                        Button(action: {
+                                            Task {
+                                                await prepareShare(for: source)
+                                            }
+                                        }) {
+                                            Image(systemName: "square.and.arrow.up")
+                                                .font(.system(size: 16))
+                                                .foregroundColor(.blue)
+                                                .padding(8)
+                                        }
+                                    }
+
+                                    // Selection indicator
                                     if viewModel.currentSource?.id == source.id {
-                                        Image(systemName: "checkmark")
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .font(.system(size: 18))
+                                            .foregroundColor(.blue)
                                     }
                                 }
-                            }
-                        }
-
-                        Divider()
-
-                        Button(action: { showNewSourceSheet = true }) {
-                            Label("New Personal Source", systemImage: "plus")
-                        }
-                    } label: {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(source.name)
-                                    .font(.headline)
-                                Text(source.isPersonal ? "Personal" : "Shared")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-
-                            Spacer()
-
-                            Image(systemName: "chevron.down")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                        .padding(.vertical, 8)
-                        .padding(.horizontal, 12)
-                        .background(.gray.opacity(0.1))
-                        .cornerRadius(8)
-                    }
-                }
-                .padding()
-            }
-
-            Divider()
-
-            // Sources List
-            if viewModel.sources.isEmpty {
-                VStack(spacing: 8) {
-                    Image(systemName: "fork.knife")
-                        .font(.system(size: 32))
-                        .foregroundColor(.secondary)
-
-                    Text("No Sources")
-                        .font(.headline)
-
-                    Text("Create a new personal source to get started")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-
-                    Button(action: { showNewSourceSheet = true }) {
-                        Label("New Source", systemImage: "plus.circle.fill")
-                            .font(.headline)
-                    }
-                    .buttonStyle(.bordered)
-                }
-                .frame(maxWidth: .infinity)
-                .padding()
-            } else {
-                List {
-                    Section(header: Text("My Sources")) {
-                        ForEach(viewModel.sources.filter { $0.isPersonal }, id: \.id) { source in
-                            SourceRow(
-                                source: source,
-                                isSelected: viewModel.currentSource?.id == source.id,
-                                onSelect: {
+                                .contentShape(Rectangle())
+                                .onTapGesture {
                                     Task {
                                         await viewModel.selectSource(source)
                                     }
-                                },
-                                onDelete: {
-                                    Task {
-                                        _ = await viewModel.deleteSource(source)
-                                    }
                                 }
-                            )
-                        }
-                    }
-
-                    if !viewModel.sources.filter({ !$0.isPersonal }).isEmpty {
-                        Section(header: Text("Shared Sources")) {
-                            ForEach(viewModel.sources.filter { !$0.isPersonal }, id: \.id) { source in
-                                SourceRow(
-                                    source: source,
-                                    isSelected: viewModel.currentSource?.id == source.id,
-                                    onSelect: {
-                                        Task {
-                                            await viewModel.selectSource(source)
-                                        }
-                                    },
-                                    onDelete: {
-                                        Task {
-                                            _ = await viewModel.deleteSource(source)
-                                        }
-                                    }
-                                )
+                                .padding()
+                                .background(.gray.opacity(0.05))
+                                .cornerRadius(8)
                             }
+                            .padding()
                         }
                     }
                 }
-                .listStyle(.sidebar)
-            }
 
-            // New source button
-            Button(action: { showNewSourceSheet = true }) {
-                Label("New Source", systemImage: "plus")
-                    .frame(maxWidth: .infinity)
+                Divider()
+
+                // New source button
+                Button(action: { showNewSourceSheet = true }) {
+                    Label("New Source", systemImage: "plus")
+                        .frame(maxWidth: .infinity)
+                        .foregroundColor(.blue)
+                }
+                .buttonStyle(.bordered)
+                .padding()
             }
-            .buttonStyle(.bordered)
-            .padding()
+            .navigationTitle("Sources")
+#if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+#endif
+            .task {
+                // Refresh sources when overlay opens
+                await viewModel.loadSources()
+            }
         }
         .sheet(isPresented: $showNewSourceSheet) {
             NewSourceSheet(
                 isPresented: $showNewSourceSheet,
-                viewModel: viewModel,
                 sourceName: $newSourceName
             )
+            .environmentObject(viewModel)
+        }
+        .sheet(isPresented: $showShareSheet) {
+            if let share = pendingShare, let record = pendingRecord {
+                CloudSharingSheet(
+                    isPresented: $showShareSheet,
+                    container: viewModel.cloudKitManager.container,
+                    share: share,
+                    record: record,
+                    content: { EmptyView() },
+                    onCompletion: { success in
+                        if success {
+                            Task {
+                                _ = await viewModel.cloudKitManager.saveShare(share, for: record)
+                            }
+                        }
+                    }
+                )
+            }
+        }
+    }
+
+    private func prepareShare(for source: Source) async {
+        isPreparingShare = true
+        defer { isPreparingShare = false }
+
+        if let (share, record) = await viewModel.cloudKitManager.prepareShareForSource(source) {
+            pendingShare = share
+            pendingRecord = record
+            sourceToShare = source
+            showShareSheet = true
         }
     }
 }
@@ -154,11 +147,13 @@ struct SourceRow: View {
     let isSelected: Bool
     let onSelect: () -> Void
     let onDelete: () -> Void
+    let onShare: () -> Void
 
     @State private var showDeleteConfirmation = false
 
     var body: some View {
-        HStack {
+        HStack(spacing: 12) {
+            // Source info
             VStack(alignment: .leading, spacing: 4) {
                 Text(source.name)
                     .font(.headline)
@@ -171,8 +166,20 @@ struct SourceRow: View {
 
             Spacer()
 
+            // Share button for personal sources
+            if source.isPersonal {
+                Button(action: onShare) {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.system(size: 16))
+                        .foregroundColor(.blue)
+                        .padding(8)
+                }
+            }
+
+            // Selection indicator
             if isSelected {
                 Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 18))
                     .foregroundColor(.blue)
             }
         }
@@ -196,7 +203,7 @@ struct SourceRow: View {
 
 struct NewSourceSheet: View {
     @Binding var isPresented: Bool
-    @ObservedObject var viewModel: AppViewModel
+    @EnvironmentObject private var viewModel: AppViewModel
     @Binding var sourceName: String
     @State private var isCreating = false
 
@@ -243,5 +250,6 @@ struct NewSourceSheet: View {
 }
 
 #Preview {
-    SourceSelector(viewModel: AppViewModel())
+    SourceSelector()
+        .environmentObject(AppViewModel())
 }

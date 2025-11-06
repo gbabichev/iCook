@@ -779,9 +779,9 @@ extension View {
             .sheet(isPresented: showNewSourceSheet) {
                 NewSourceSheet(
                     isPresented: showNewSourceSheet,
-                    viewModel: model,
                     sourceName: newSourceName
                 )
+                .environmentObject(model)
             }
     }
 }
