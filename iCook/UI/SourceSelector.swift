@@ -2,6 +2,8 @@ import SwiftUI
 import CloudKit
 #if os(iOS)
 import UIKit
+#elseif os(macOS)
+import AppKit
 #endif
 
 struct SourceSelector: View {
@@ -71,7 +73,6 @@ struct SourceSelector: View {
 
                                     Spacer()
 
-#if os(iOS)
                                     // Share button for personal sources
                                     if source.isPersonal {
                                         Button(action: {
@@ -85,7 +86,6 @@ struct SourceSelector: View {
                                                 .padding(8)
                                         }
                                     }
-#endif
 
                                     // Selection indicator
                                     if viewModel.currentSource?.id == source.id {
@@ -146,19 +146,18 @@ struct SourceSelector: View {
 #endif
     }
 
-#if os(iOS)
     private func prepareShare(for source: Source) async {
         isPreparingShare = true
         defer { isPreparingShare = false }
 
         printD("Preparing share for source: \(source.name)")
 
-        // Use the new prepareSharingController method which follows CloudKit best practices
+#if os(iOS)
+        // Use the UICloudSharingController on iOS
         await MainActor.run {
             viewModel.cloudKitManager.prepareSharingController(for: source) { controller in
                 if let controller = controller {
                     printD("Sharing controller prepared successfully")
-                    // Present the controller directly via UIKit to ensure proper lifecycle
                     presentUICloudSharingController(controller)
                 } else {
                     printD("Failed to prepare sharing controller")
@@ -166,8 +165,23 @@ struct SourceSelector: View {
                 }
             }
         }
+#elseif os(macOS)
+        // Get share URL and present NSSharingServicePicker on macOS
+        if let shareURL = await viewModel.cloudKitManager.getShareURL(for: source) {
+            printD("Got share URL: \(shareURL.absoluteString)")
+            await MainActor.run {
+                presentSharingServices(with: shareURL, sourceTitle: source.name)
+            }
+        } else {
+            await MainActor.run {
+                printD("Failed to get share URL")
+                printD("Error: \(viewModel.cloudKitManager.error ?? "No error message")")
+            }
+        }
+#endif
     }
 
+#if os(iOS)
     /// Present UICloudSharingController directly via UIKit
     private func presentUICloudSharingController(_ controller: UICloudSharingController) {
         printD("Presenting UICloudSharingController via UIKit")
@@ -192,9 +206,25 @@ struct SourceSelector: View {
             }
         }
     }
-#else
-    private func prepareShare(for source: Source) async {
-        printD("Sharing not available on macOS")
+#elseif os(macOS)
+    /// Present NSSharingServicePicker on macOS
+    private func presentSharingServices(with url: URL, sourceTitle: String) {
+        printD("Presenting NSSharingServicePicker with URL: \(url.absoluteString)")
+
+        let sharingServices = NSSharingService.sharingServices(forItems: [url])
+        let servicePicker = NSSharingServicePicker(items: [url])
+
+        // Find the share button view and present from there
+        if let window = NSApplication.shared.mainWindow,
+           let contentView = window.contentViewController?.view {
+            // Present the picker from the center of the window
+            servicePicker.show(relativeTo: NSZeroRect, of: contentView, preferredEdge: .minY)
+
+            printD("NSSharingServicePicker presented successfully")
+            printD("Available sharing services: \(sharingServices.map { $0.title }.joined(separator: ", "))")
+        } else {
+            printD("Could not find window to present from")
+        }
     }
 #endif
 }

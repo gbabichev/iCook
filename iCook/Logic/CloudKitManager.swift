@@ -702,6 +702,102 @@ class CloudKitManager: ObservableObject {
     @Published var pendingShare: CKShare?
     @Published var pendingRecord: CKRecord?
 
+    /// Get or create a share URL for a source (cross-platform)
+    /// - Parameter source: The source to share (must be personal)
+    /// - Returns: The share URL, or nil on error
+    func getShareURL(for source: Source) async -> URL? {
+        guard source.isPersonal else {
+            self.error = "Cannot share sources that are already shared"
+            printD("Error: Cannot share non-personal source")
+            return nil
+        }
+
+        do {
+            // Fetch the source record from the PRIVATE database
+            let rootRecord = try await privateDatabase.record(for: source.id)
+            printD("Fetched source record from private database: \(rootRecord.recordID.recordName)")
+
+            if rootRecord.recordID.zoneID == CKRecordZone.default().zoneID {
+                printD("Cannot share record in default zone")
+                self.error = "Sharing requires the source to be stored in the iCook zone. Please recreate this source to share it."
+                return nil
+            }
+
+            // Check if already shared
+            if let existingShare = rootRecord.share {
+                printD("Record is already shared, fetching existing share...")
+                let shareRecordID = existingShare.recordID
+
+                do {
+                    let share = try await privateDatabase.record(for: shareRecordID) as? CKShare
+                    if let url = share?.url {
+                        printD("Using existing share URL: \(url.absoluteString)")
+                        return url
+                    }
+                } catch {
+                    printD("Error fetching existing share: \(error.localizedDescription)")
+                }
+            }
+
+            // Create new share if not already shared
+            printD("Record not yet shared, creating share...")
+            let shareID = CKRecord.ID(recordName: UUID().uuidString, zoneID: rootRecord.recordID.zoneID)
+            var share = CKShare(rootRecord: rootRecord, shareID: shareID)
+            share[CKShare.SystemFieldKey.title] = source.name as CKRecordValue
+            share.publicPermission = .readWrite  // Allow read-write for collaboration
+
+            printD("Share instance created with ID: \(shareID.recordName)")
+
+            // Save the share and root record together
+            printD("Saving share and root record together...")
+            let (savedRecords, _) = try await privateDatabase.modifyRecords(
+                saving: [share, rootRecord],
+                deleting: []
+            )
+
+            // Find the saved share's ID
+            if let savedShare = savedRecords.compactMap({ $0 as? CKShare }).first {
+                printD("Share saved successfully with ID: \(savedShare.recordID.recordName)")
+
+                // CloudKit needs a moment to generate the URL after saving
+                // Fetch the share again to get the populated URL
+                printD("Fetching share to get URL...")
+                do {
+                    if let fetchedShare = try await privateDatabase.record(for: savedShare.recordID) as? CKShare,
+                       let url = fetchedShare.url {
+                        printD("Share URL obtained: \(url.absoluteString)")
+                        return url
+                    } else {
+                        printD("Warning: Fetched share doesn't have URL yet")
+                        // Try one more time after a brief delay
+                        try await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+                        if let retryShare = try await privateDatabase.record(for: savedShare.recordID) as? CKShare,
+                           let url = retryShare.url {
+                            printD("Share URL obtained on retry: \(url.absoluteString)")
+                            return url
+                        }
+                        return nil
+                    }
+                } catch {
+                    printD("Error fetching share for URL: \(error.localizedDescription)")
+                    return nil
+                }
+            } else {
+                printD("Error: Share not found in saved records")
+                return nil
+            }
+
+        } catch {
+            printD("Error getting share URL: \(error.localizedDescription)")
+            if let ckError = error as? CKError {
+                printD("CKError code: \(ckError.code)")
+                printD("CKError: \(ckError.localizedDescription)")
+            }
+            self.error = "Failed to get share URL: \(error.localizedDescription)"
+            return nil
+        }
+    }
+
 #if os(iOS)
     /// Prepare a UICloudSharingController for sharing a source
     /// Creates and saves the share first, then creates the controller
