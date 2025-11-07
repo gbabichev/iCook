@@ -8,8 +8,10 @@ struct SourceSelector: View {
     @EnvironmentObject private var viewModel: AppViewModel
     @State private var showNewSourceSheet = false
     @State private var newSourceName = ""
-    @State private var shareData: ShareData?
     @State private var isPreparingShare = false
+
+#if os(iOS)
+    @State private var shareData: ShareData?
     @State private var showShareSuccess = false
     @State private var sharingController: UICloudSharingController?
     @State private var sharingCoordinator: SharingControllerWrapper.Coordinator?
@@ -19,6 +21,7 @@ struct SourceSelector: View {
         let controller: UICloudSharingController
         let source: Source
     }
+#endif
 
     var body: some View {
         NavigationStack {
@@ -68,6 +71,7 @@ struct SourceSelector: View {
 
                                     Spacer()
 
+#if os(iOS)
                                     // Share button for personal sources
                                     if source.isPersonal {
                                         Button(action: {
@@ -81,6 +85,7 @@ struct SourceSelector: View {
                                                 .padding(8)
                                         }
                                     }
+#endif
 
                                     // Selection indicator
                                     if viewModel.currentSource?.id == source.id {
@@ -141,6 +146,7 @@ struct SourceSelector: View {
 #endif
     }
 
+#if os(iOS)
     private func prepareShare(for source: Source) async {
         isPreparingShare = true
         defer { isPreparingShare = false }
@@ -186,6 +192,11 @@ struct SourceSelector: View {
             }
         }
     }
+#else
+    private func prepareShare(for source: Source) async {
+        printD("Sharing not available on macOS")
+    }
+#endif
 }
 
 struct SourceRow: View {

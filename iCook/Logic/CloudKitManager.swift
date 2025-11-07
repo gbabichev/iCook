@@ -702,6 +702,7 @@ class CloudKitManager: ObservableObject {
     @Published var pendingShare: CKShare?
     @Published var pendingRecord: CKRecord?
 
+#if os(iOS)
     /// Prepare a UICloudSharingController for sharing a source
     /// Creates and saves the share first, then creates the controller
     /// - Parameters:
@@ -822,6 +823,7 @@ class CloudKitManager: ObservableObject {
             }
         }
     }
+#endif
 
     /// Prepare a source for sharing - legacy method, kept for compatibility
     /// - Parameters:
