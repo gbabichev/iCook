@@ -295,7 +295,6 @@ struct SourceSelector: View {
     private func presentSharingServices(with url: URL, sourceTitle: String) {
         printD("Presenting NSSharingServicePicker with URL: \(url.absoluteString)")
 
-        let sharingServices = NSSharingService.sharingServices(forItems: [url])
         let servicePicker = NSSharingServicePicker(items: [url])
 
         // Find the share button view and present from there
@@ -305,7 +304,6 @@ struct SourceSelector: View {
             servicePicker.show(relativeTo: NSZeroRect, of: contentView, preferredEdge: .minY)
 
             printD("NSSharingServicePicker presented successfully")
-            printD("Available sharing services: \(sharingServices.map { $0.title }.joined(separator: ", "))")
         } else {
             printD("Could not find window to present from")
         }

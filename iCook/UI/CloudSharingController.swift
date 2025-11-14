@@ -17,7 +17,8 @@ struct CloudSharingController: UIViewControllerRepresentable {
         printD("========== CLOUD SHARING CONTROLLER ==========")
         printD("Creating UICloudSharingController")
         printD("Share ID: \(share.recordID.recordName)")
-        printD("Container ID: \(container.containerIdentifier)")
+        let containerID = container.containerIdentifier ?? "unknown container"
+        printD("Container ID: \(containerID)")
         printD("Record ID: \(record.recordID.recordName)")
 
         let controller = UICloudSharingController(share: share, container: container)
