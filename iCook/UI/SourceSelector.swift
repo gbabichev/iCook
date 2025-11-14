@@ -14,7 +14,6 @@ struct SourceSelector: View {
     @State private var isPreparingShare = false
     @State private var showShareSuccess = false
     @State private var shareSuccessMessage = ""
-    @State private var hoveredSourceID: CKRecord.ID?
     @State private var sourceToDelete: Source?
     @State private var showDeleteConfirmation = false
 
@@ -28,6 +27,25 @@ struct SourceSelector: View {
         let controller: UICloudSharingController
         let source: Source
     }
+#endif
+
+#if os(macOS)
+private struct MacToolbarIconButton: View {
+    let systemImage: String
+    let help: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 13, weight: .semibold))
+                .frame(width: 28, height: 28)
+        }
+        .padding(4)
+        .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .help(help)
+    }
+}
 #endif
 
     var body: some View {
@@ -107,24 +125,20 @@ struct SourceSelector: View {
     private var macOSView: some View {
         VStack(spacing: 0) {
             // Title bar
-            HStack {
+            HStack(spacing: 8) {
                 Text("Sources")
                     .font(.title2)
                     .fontWeight(.semibold)
 
                 Spacer()
 
-                Button(action: { showNewSourceSheet = true }) {
-                    Image(systemName: "plus.circle")
-                        .font(.system(size: 16))
+                MacToolbarIconButton(systemImage: "plus", help: "Add new source") {
+                    showNewSourceSheet = true
                 }
-                .help("Add new source")
 
-                Button(action: { dismiss() }) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 12))
+                MacToolbarIconButton(systemImage: "xmark", help: "Close") {
+                    dismiss()
                 }
-                .help("Close")
             }
             .padding(12)
             .background(Color(nsColor: .controlBackgroundColor))
@@ -210,7 +224,6 @@ struct SourceSelector: View {
                             SourceRowWrapper(
                                 source: source,
                                 isSelected: viewModel.currentSource?.id == source.id,
-                                hoveredSourceID: $hoveredSourceID,
                                 onSelect: {
                                     Task {
                                         await viewModel.selectSource(source)
@@ -559,7 +572,6 @@ struct SharingControllerWrapper: UIViewControllerRepresentable {
 struct SourceRowWrapper: View {
     let source: Source
     let isSelected: Bool
-    @Binding var hoveredSourceID: CKRecord.ID?
     let onSelect: () -> Void
     let onShare: () -> Void
     let onDelete: () -> Void
@@ -595,33 +607,25 @@ struct SourceRowWrapper: View {
                         .font(.system(size: 14))
                 }
                 .buttonStyle(.bordered)
+#if os(macOS)
+                .controlSize(.small)
+#endif
             } else {
                 Color.clear
                     .frame(width: 32, height: 32)
             }
 
 #if os(macOS)
-            // Delete button on hover (macOS)
-            if hoveredSourceID == source.id {
-                Button(action: onDelete) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 14))
-                        .foregroundColor(.secondary)
-                }
-                .buttonStyle(.plain)
-            } else {
-                Color.clear
-                    .frame(width: 24, height: 24)
+            Button(role: .destructive, action: onDelete) {
+                Image(systemName: "trash")
+                    .font(.system(size: 14, weight: .semibold))
             }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
 #endif
         }
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
-#if os(macOS)
-        .onHover { hovering in
-            hoveredSourceID = hovering ? source.id : nil
-        }
-#endif
 #if os(iOS)
         .swipeActions(edge: .trailing) {
             Button(role: .destructive, action: onDelete) {
