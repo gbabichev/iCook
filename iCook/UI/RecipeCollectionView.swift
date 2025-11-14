@@ -653,7 +653,16 @@ struct RecipeCollectionView: View {
 
     private var mainContent: some View {
         Group {
-            if shouldShowEmptyState {
+            if isLoading || (isCategory && featuredRecipe == nil && !categoryRecipes.isEmpty) {
+                // Show loading spinner while data is loading OR while featured recipe is being selected (for categories)
+                VStack(spacing: 16) {
+                    ProgressView()
+                    Text(collectionType.loadingText)
+                        .font(.headline)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if shouldShowEmptyState {
                 // Centered empty state - replaces the entire scroll view
                 VStack(spacing: 16) {
                     Image(systemName: collectionType.emptyStateIcon)
