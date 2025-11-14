@@ -113,10 +113,6 @@ struct CategoryList: View {
                 .frame(minWidth: 400, minHeight: 300)
 #endif
         }
-        .sheet(isPresented: $showingAddCategory) {
-            AddCategoryView()
-                .environmentObject(model)
-        }
     }
 }
 
