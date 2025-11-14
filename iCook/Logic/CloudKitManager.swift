@@ -8,6 +8,11 @@ import UIKit
 import AppKit
 #endif
 
+struct ImageSaveResult {
+    let asset: CKAsset
+    let cachedPath: String?
+}
+
 @MainActor
 class CloudKitManager: ObservableObject {
     static let shared = CloudKitManager()
@@ -22,6 +27,7 @@ class CloudKitManager: ObservableObject {
     @Published var error: String?
     @Published var sharedSourceInvitations: [SharedSourceInvitation] = []
     @Published var isCloudKitAvailable = true // Assume available until proven otherwise
+    @Published var isOfflineMode = false
 
     // MARK: - Private Properties
     let container: CKContainer
@@ -45,6 +51,26 @@ class CloudKitManager: ObservableObject {
     private var categoryCache: [CKRecord.ID: Category] = [:]
     private var recipeCache: [CKRecord.ID: Recipe] = [:]
     private var isCreatingDefaultSource = false
+    private enum CacheFileType: String {
+        case categories
+        case recipes
+        case recipeCounts
+    }
+    private lazy var cacheDirectoryURL: URL = {
+        let defaultURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
+        let directory = defaultURL.appendingPathComponent("CloudKitCache", isDirectory: true)
+        if !FileManager.default.fileExists(atPath: directory.path) {
+            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+        return directory
+    }()
+    private lazy var imageCacheDirectory: URL = {
+        let directory = cacheDirectoryURL.appendingPathComponent("Images", isDirectory: true)
+        if !FileManager.default.fileExists(atPath: directory.path) {
+            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+        return directory
+    }()
 
     init() {
         self.container = CKContainer(identifier: "iCloud.com.georgebabichev.iCook")
@@ -133,6 +159,269 @@ class CloudKitManager: ObservableObject {
         } catch {
             printD("Error loading sources cache: \(error.localizedDescription)")
         }
+    }
+
+    private func sanitizedFileComponent(_ value: String) -> String {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
+        let scalars = value.unicodeScalars.map { allowed.contains($0) ? Character($0) : "-" }
+        return String(scalars)
+    }
+
+    private func cacheIdentifier(for id: CKRecord.ID) -> String {
+        let components = [id.zoneID.ownerName, id.zoneID.zoneName, id.recordName]
+        return components.map { sanitizedFileComponent($0) }.joined(separator: "_")
+    }
+
+    private func cacheFileURL(for type: CacheFileType, sourceID: CKRecord.ID, categoryID: CKRecord.ID? = nil) -> URL {
+        var filename = "\(type.rawValue)_\(cacheIdentifier(for: sourceID))"
+        if let categoryID = categoryID {
+            filename += "_\(cacheIdentifier(for: categoryID))"
+        }
+        return cacheDirectoryURL.appendingPathComponent(filename + ".json")
+    }
+
+    private func saveCategoriesLocalCache(_ categories: [Category], for source: Source) {
+        let url = cacheFileURL(for: .categories, sourceID: source.id)
+        do {
+            let encoded = try JSONEncoder().encode(categories)
+            try encoded.write(to: url, options: .atomic)
+            printD("Cached \(categories.count) categories for \(source.name)")
+        } catch {
+            printD("Error saving categories cache: \(error.localizedDescription)")
+        }
+    }
+
+    private func loadCategoriesLocalCache(for source: Source) -> [Category]? {
+        let url = cacheFileURL(for: .categories, sourceID: source.id)
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        do {
+            let data = try Data(contentsOf: url)
+            return try JSONDecoder().decode([Category].self, from: data)
+        } catch {
+            printD("Error loading categories cache: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    private func saveRecipesLocalCache(_ recipes: [Recipe], for source: Source, categoryID: CKRecord.ID?) {
+        let url = cacheFileURL(for: .recipes, sourceID: source.id, categoryID: categoryID)
+        do {
+            let encoded = try JSONEncoder().encode(recipes)
+            try encoded.write(to: url, options: .atomic)
+            let scopeDescription = categoryID.map { "category \($0.recordName)" } ?? "all categories"
+            printD("Cached \(recipes.count) recipes for source \(source.name) (\(scopeDescription))")
+        } catch {
+            printD("Error saving recipes cache: \(error.localizedDescription)")
+        }
+    }
+
+    private func loadRecipesLocalCache(for source: Source, categoryID: CKRecord.ID?) -> [Recipe]? {
+        let url = cacheFileURL(for: .recipes, sourceID: source.id, categoryID: categoryID)
+        if FileManager.default.fileExists(atPath: url.path) {
+            do {
+                let data = try Data(contentsOf: url)
+                let decoded = try JSONDecoder().decode([Recipe].self, from: data)
+                return decoded.map { recipe in
+                    var updated = recipe
+                    if let path = recipe.cachedImagePath,
+                       !FileManager.default.fileExists(atPath: path) {
+                        updated.cachedImagePath = nil
+                        if let fallback = cachedImagePath(for: recipe.id) {
+                            updated.cachedImagePath = fallback
+                        }
+                    } else if recipe.cachedImagePath == nil,
+                              let fallback = cachedImagePath(for: recipe.id) {
+                        updated.cachedImagePath = fallback
+                    }
+                    return updated
+                }
+            } catch {
+                printD("Error loading recipes cache: \(error.localizedDescription)")
+            }
+        }
+
+        // Fallback to global cache if category-specific cache is missing
+        if let categoryID = categoryID {
+            let globalURL = cacheFileURL(for: .recipes, sourceID: source.id, categoryID: nil)
+            guard FileManager.default.fileExists(atPath: globalURL.path) else { return nil }
+            do {
+                let data = try Data(contentsOf: globalURL)
+                let allRecipes = try JSONDecoder().decode([Recipe].self, from: data)
+                let filtered = allRecipes.filter { $0.categoryID == categoryID }
+                return filtered.map { recipe in
+                    var updated = recipe
+                    if let path = recipe.cachedImagePath,
+                       !FileManager.default.fileExists(atPath: path) {
+                        updated.cachedImagePath = nil
+                        if let fallback = cachedImagePath(for: recipe.id) {
+                            updated.cachedImagePath = fallback
+                        }
+                    } else if recipe.cachedImagePath == nil,
+                              let fallback = cachedImagePath(for: recipe.id) {
+                        updated.cachedImagePath = fallback
+                    }
+                    return updated
+                }
+            } catch {
+                printD("Error loading fallback recipes cache: \(error.localizedDescription)")
+            }
+        }
+
+        return nil
+    }
+
+    private struct CachedRecordCount: Codable {
+        let recordName: String
+        let zoneName: String
+        let zoneOwnerName: String
+        let count: Int
+
+        var recordID: CKRecord.ID {
+            let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: zoneOwnerName)
+            return CKRecord.ID(recordName: recordName, zoneID: zoneID)
+        }
+    }
+
+    private func saveRecipeCountsLocalCache(_ counts: [CKRecord.ID: Int], for source: Source) {
+        let url = cacheFileURL(for: .recipeCounts, sourceID: source.id)
+        let entries = counts.map { key, value in
+            CachedRecordCount(
+                recordName: key.recordName,
+                zoneName: key.zoneID.zoneName,
+                zoneOwnerName: key.zoneID.ownerName,
+                count: value
+            )
+        }
+        do {
+            let encoded = try JSONEncoder().encode(entries)
+            try encoded.write(to: url, options: .atomic)
+            printD("Cached recipe counts for \(source.name)")
+        } catch {
+            printD("Error saving recipe counts cache: \(error.localizedDescription)")
+        }
+    }
+
+    private func loadRecipeCountsLocalCache(for source: Source) -> [CKRecord.ID: Int] {
+        let url = cacheFileURL(for: .recipeCounts, sourceID: source.id)
+        guard FileManager.default.fileExists(atPath: url.path) else { return [:] }
+        do {
+            let data = try Data(contentsOf: url)
+            let entries = try JSONDecoder().decode([CachedRecordCount].self, from: data)
+            var counts: [CKRecord.ID: Int] = [:]
+            for entry in entries {
+                counts[entry.recordID] = entry.count
+            }
+            return counts
+        } catch {
+            printD("Error loading recipe counts cache: \(error.localizedDescription)")
+            return [:]
+        }
+    }
+
+    private func markOnlineIfNeeded() {
+        if isOfflineMode {
+            isOfflineMode = false
+        }
+    }
+
+    private func isNetworkRelatedError(_ error: Error) -> Bool {
+        if let ckError = error as? CKError {
+            switch ckError.code {
+            case .networkUnavailable, .networkFailure, .serviceUnavailable, .requestRateLimited, .zoneBusy:
+                return true
+            case .partialFailure:
+                if let partialErrors = ckError.userInfo[CKPartialErrorsByItemIDKey] as? [CKRecord.ID: Error] {
+                    return partialErrors.values.contains { isNetworkRelatedError($0) }
+                }
+            default:
+                break
+            }
+        }
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .notConnectedToInternet,
+                 .timedOut,
+                 .networkConnectionLost,
+                 .cannotFindHost,
+                 .cannotConnectToHost,
+                 .dnsLookupFailed:
+                return true
+            default:
+                break
+            }
+        }
+        return false
+    }
+
+    private func handleOfflineFallback(for error: Error) -> Bool {
+        if isNetworkRelatedError(error) {
+            isOfflineMode = true
+            printD("Network unavailable, falling back to cache: \(error.localizedDescription)")
+            return true
+        }
+        return false
+    }
+
+    private func imageCacheURL(for recipeID: CKRecord.ID) -> URL {
+        let filename = cacheIdentifier(for: recipeID) + ".asset"
+        return imageCacheDirectory.appendingPathComponent(filename)
+    }
+
+    private func cacheImageData(_ data: Data, for recipeID: CKRecord.ID) -> String? {
+        let destination = imageCacheURL(for: recipeID)
+        do {
+            try data.write(to: destination, options: .atomic)
+            return destination.path
+        } catch {
+            printD("Error caching image data: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    private func cacheImageAsset(_ asset: CKAsset, for recipeID: CKRecord.ID) -> String? {
+        guard let sourceURL = asset.fileURL else { return nil }
+        let destination = imageCacheURL(for: recipeID)
+        do {
+            if FileManager.default.fileExists(atPath: destination.path) {
+                try FileManager.default.removeItem(at: destination)
+            }
+            try FileManager.default.copyItem(at: sourceURL, to: destination)
+            return destination.path
+        } catch {
+            printD("Error caching image asset: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    private func cachedImagePath(for recipeID: CKRecord.ID) -> String? {
+        let destination = imageCacheURL(for: recipeID)
+        if FileManager.default.fileExists(atPath: destination.path) {
+            return destination.path
+        }
+        return nil
+    }
+
+    private func removeCachedImage(for recipeID: CKRecord.ID) {
+        let destination = imageCacheURL(for: recipeID)
+        if FileManager.default.fileExists(atPath: destination.path) {
+            try? FileManager.default.removeItem(at: destination)
+        }
+    }
+
+    private func recipeWithCachedImage(_ recipe: Recipe) -> Recipe {
+        var updatedRecipe = recipe
+        if let asset = recipe.imageAsset,
+           let localPath = cacheImageAsset(asset, for: recipe.id) {
+            updatedRecipe.cachedImagePath = localPath
+        } else if let currentPath = recipe.cachedImagePath,
+                  FileManager.default.fileExists(atPath: currentPath) {
+            updatedRecipe.cachedImagePath = currentPath
+        } else if let cachedPath = cachedImagePath(for: recipe.id) {
+            updatedRecipe.cachedImagePath = cachedPath
+        } else {
+            updatedRecipe.cachedImagePath = nil
+        }
+        return updatedRecipe
     }
 
     // MARK: - Source Management
@@ -374,6 +663,18 @@ class CloudKitManager: ObservableObject {
         isLoading = true
         defer { isLoading = false }
 
+        if let cachedCategories = loadCategoriesLocalCache(for: source) {
+            self.categories = cachedCategories
+        }
+        let cachedCounts = loadRecipeCountsLocalCache(for: source)
+        if !cachedCounts.isEmpty {
+            self.recipeCounts = cachedCounts
+        }
+
+        guard isCloudKitAvailable else {
+            return
+        }
+
         do {
             let predicate = NSPredicate(format: "sourceID == %@", CKRecord.Reference(recordID: sourceID, action: .none))
             let query = CKQuery(recordType: "Category", predicate: predicate)
@@ -403,22 +704,39 @@ class CloudKitManager: ObservableObject {
             }
 
             self.categories = allCategories
+            saveCategoriesLocalCache(allCategories, for: source)
             await loadRecipeCounts(for: source)
+            markOnlineIfNeeded()
         } catch {
-            let errorDesc = error.localizedDescription
-            // Silently handle "record type not found" errors - schema is still being created
-            if !errorDesc.contains("Did not find record type") {
-                printD("Error loading categories: \(errorDesc)")
-                self.error = "Failed to load categories"
+            if handleOfflineFallback(for: error) {
+                if let cachedCategories = loadCategoriesLocalCache(for: source) {
+                    self.categories = cachedCategories
+                } else {
+                    self.categories = []
+                }
+                let cachedCounts = loadRecipeCountsLocalCache(for: source)
+                self.recipeCounts = cachedCounts
+            } else {
+                let errorDesc = error.localizedDescription
+                // Silently handle "record type not found" errors - schema is still being created
+                if !errorDesc.contains("Did not find record type") {
+                    printD("Error loading categories: \(errorDesc)")
+                    self.error = "Failed to load categories"
+                }
+                if let cachedCategories = loadCategoriesLocalCache(for: source) {
+                    self.categories = cachedCategories
+                } else {
+                    self.categories = []
+                }
+                let cachedCounts = loadRecipeCountsLocalCache(for: source)
+                self.recipeCounts = cachedCounts
             }
-            self.categories = []
-            self.recipeCounts = [:]
         }
     }
 
     private func loadRecipeCounts(for source: Source) async {
         guard isCloudKitAvailable else {
-            recipeCounts = [:]
+            recipeCounts = loadRecipeCountsLocalCache(for: source)
             return
         }
 
@@ -443,12 +761,18 @@ class CloudKitManager: ObservableObject {
             }
 
             recipeCounts = counts
+            saveRecipeCountsLocalCache(counts, for: source)
+            markOnlineIfNeeded()
         } catch {
-            let errorDesc = error.localizedDescription
-            if !errorDesc.contains("Did not find record type") {
-                printD("Error loading recipe counts: \(errorDesc)")
+            if handleOfflineFallback(for: error) {
+                recipeCounts = loadRecipeCountsLocalCache(for: source)
+            } else {
+                let errorDesc = error.localizedDescription
+                if !errorDesc.contains("Did not find record type") {
+                    printD("Error loading recipe counts: \(errorDesc)")
+                }
+                recipeCounts = loadRecipeCountsLocalCache(for: source)
             }
-            recipeCounts = [:]
         }
     }
 
@@ -471,6 +795,8 @@ class CloudKitManager: ObservableObject {
                 // Add to UI immediately without re-querying CloudKit
                 self.categories = (categories + [savedCategory]).sorted { $0.name < $1.name }
                 self.recipeCounts[savedCategory.id] = self.recipeCounts[savedCategory.id] ?? 0
+                saveCategoriesLocalCache(self.categories, for: source)
+                saveRecipeCountsLocalCache(recipeCounts, for: source)
                 printD("Category created: \(savedCategory.name)")
             }
         } catch {
@@ -489,6 +815,7 @@ class CloudKitManager: ObservableObject {
                 categoryCache[savedCategory.id] = savedCategory
                 // Update in local array without re-querying CloudKit
                 self.categories = categories.map { $0.id == savedCategory.id ? savedCategory : $0 }
+                saveCategoriesLocalCache(self.categories, for: source)
                 printD("Category updated: \(savedCategory.name)")
             }
         } catch {
@@ -505,6 +832,8 @@ class CloudKitManager: ObservableObject {
             // Remove from local array without re-querying CloudKit
             self.categories = categories.filter { $0.id != category.id }
             self.recipeCounts.removeValue(forKey: category.id)
+            saveCategoriesLocalCache(self.categories, for: source)
+            saveRecipeCountsLocalCache(recipeCounts, for: source)
             printD("Category deleted: \(category.name)")
         } catch {
             printD("Error deleting category: \(error.localizedDescription)")
@@ -516,6 +845,15 @@ class CloudKitManager: ObservableObject {
     func loadRecipes(for source: Source, category: Category? = nil) async {
         isLoading = true
         defer { isLoading = false }
+
+        if let cachedRecipes = loadRecipesLocalCache(for: source, categoryID: category?.id),
+           !cachedRecipes.isEmpty {
+            self.recipes = cachedRecipes
+        }
+
+        guard isCloudKitAvailable else {
+            return
+        }
 
         do {
             var predicate: NSPredicate
@@ -546,8 +884,9 @@ class CloudKitManager: ObservableObject {
                           let recipe = Recipe.from(record) else {
                         return nil
                     }
-                    recipeCache[recipe.id] = recipe
-                    return recipe
+                    let recipeWithImage = recipeWithCachedImage(recipe)
+                    recipeCache[recipeWithImage.id] = recipeWithImage
+                    return recipeWithImage
                 }
                 allRecipes.append(contentsOf: recipes)
             } catch {
@@ -559,20 +898,44 @@ class CloudKitManager: ObservableObject {
             }
 
             self.recipes = allRecipes
+            saveRecipesLocalCache(allRecipes, for: source, categoryID: category?.id)
+            markOnlineIfNeeded()
         } catch {
-            let errorDesc = error.localizedDescription
-            // Silently handle "record type not found" errors - schema is still being created
-            if !errorDesc.contains("Did not find record type") {
-                printD("Error loading recipes: \(errorDesc)")
-                self.error = "Failed to load recipes"
+            if handleOfflineFallback(for: error) {
+                if let cachedRecipes = loadRecipesLocalCache(for: source, categoryID: category?.id) {
+                    self.recipes = cachedRecipes
+                } else {
+                    self.recipes = []
+                }
+            } else {
+                let errorDesc = error.localizedDescription
+                // Silently handle "record type not found" errors - schema is still being created
+                if !errorDesc.contains("Did not find record type") {
+                    printD("Error loading recipes: \(errorDesc)")
+                    self.error = "Failed to load recipes"
+                }
+                if let cachedRecipes = loadRecipesLocalCache(for: source, categoryID: category?.id) {
+                    self.recipes = cachedRecipes
+                } else {
+                    self.recipes = []
+                }
             }
-            self.recipes = []
         }
     }
 
     func loadRandomRecipes(for source: Source, count: Int = 20) async {
         isLoading = true
         defer { isLoading = false }
+
+        if let cachedAllRecipes = loadRecipesLocalCache(for: source, categoryID: nil),
+           !cachedAllRecipes.isEmpty {
+            let shuffled = cachedAllRecipes.shuffled()
+            self.recipes = Array(shuffled.prefix(count))
+        }
+
+        guard isCloudKitAvailable else {
+            return
+        }
 
         do {
             let predicate = NSPredicate(
@@ -592,7 +955,9 @@ class CloudKitManager: ObservableObject {
                           let recipe = Recipe.from(record) else {
                         return nil
                     }
-                    return recipe
+                    let recipeWithImage = recipeWithCachedImage(recipe)
+                    recipeCache[recipeWithImage.id] = recipeWithImage
+                    return recipeWithImage
                 }
                 allRecipes.append(contentsOf: recipes)
             } catch {
@@ -604,21 +969,48 @@ class CloudKitManager: ObservableObject {
             }
 
             allRecipes.shuffle()
+            saveRecipesLocalCache(allRecipes, for: source, categoryID: nil)
             self.recipes = Array(allRecipes.prefix(count))
+            markOnlineIfNeeded()
         } catch {
-            let errorDesc = error.localizedDescription
-            // Silently handle "record type not found" errors - schema is still being created
-            if !errorDesc.contains("Did not find record type") {
-                printD("Error loading random recipes: \(errorDesc)")
-                self.error = "Failed to load recipes"
+            if handleOfflineFallback(for: error) {
+                if let cachedAllRecipes = loadRecipesLocalCache(for: source, categoryID: nil) {
+                    let shuffled = cachedAllRecipes.shuffled()
+                    self.recipes = Array(shuffled.prefix(count))
+                } else {
+                    self.recipes = []
+                }
+            } else {
+                let errorDesc = error.localizedDescription
+                // Silently handle "record type not found" errors - schema is still being created
+                if !errorDesc.contains("Did not find record type") {
+                    printD("Error loading random recipes: \(errorDesc)")
+                    self.error = "Failed to load recipes"
+                }
+                if let cachedAllRecipes = loadRecipesLocalCache(for: source, categoryID: nil) {
+                    let shuffled = cachedAllRecipes.shuffled()
+                    self.recipes = Array(shuffled.prefix(count))
+                } else {
+                    self.recipes = []
+                }
             }
-            self.recipes = []
         }
     }
 
     func searchRecipes(in source: Source, query: String) async {
         isLoading = true
         defer { isLoading = false }
+
+        if let cachedAllRecipes = loadRecipesLocalCache(for: source, categoryID: nil) {
+            let filtered = cachedAllRecipes.filter { recipe in
+                recipe.name.range(of: query, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+            }
+            self.recipes = filtered
+        }
+
+        guard isCloudKitAvailable else {
+            return
+        }
 
         do {
             let predicate = NSPredicate(
@@ -642,8 +1034,9 @@ class CloudKitManager: ObservableObject {
                           let recipe = Recipe.from(record) else {
                         return nil
                     }
-                    recipeCache[recipe.id] = recipe
-                    return recipe
+                    let recipeWithImage = recipeWithCachedImage(recipe)
+                    recipeCache[recipeWithImage.id] = recipeWithImage
+                    return recipeWithImage
                 }
 
                 allRecipes.append(contentsOf: recipes)
@@ -656,14 +1049,33 @@ class CloudKitManager: ObservableObject {
             }
 
             self.recipes = allRecipes
+            markOnlineIfNeeded()
         } catch {
-            let errorDesc = error.localizedDescription
-            // Silently handle "record type not found" errors - schema is still being created
-            if !errorDesc.contains("Did not find record type") {
-                printD("Error searching recipes: \(errorDesc)")
-                self.error = "Failed to search recipes"
+            if handleOfflineFallback(for: error) {
+                if let cachedAllRecipes = loadRecipesLocalCache(for: source, categoryID: nil) {
+                    let filtered = cachedAllRecipes.filter { recipe in
+                        recipe.name.range(of: query, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+                    }
+                    self.recipes = filtered
+                } else {
+                    self.recipes = []
+                }
+            } else {
+                let errorDesc = error.localizedDescription
+                // Silently handle "record type not found" errors - schema is still being created
+                if !errorDesc.contains("Did not find record type") {
+                    printD("Error searching recipes: \(errorDesc)")
+                    self.error = "Failed to search recipes"
+                }
+                if let cachedAllRecipes = loadRecipesLocalCache(for: source, categoryID: nil) {
+                    let filtered = cachedAllRecipes.filter { recipe in
+                        recipe.name.range(of: query, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+                    }
+                    self.recipes = filtered
+                } else {
+                    self.recipes = []
+                }
             }
-            self.recipes = []
         }
     }
 
@@ -674,8 +1086,9 @@ class CloudKitManager: ObservableObject {
             let savedRecord = try await database.save(record)
 
             if let savedRecipe = Recipe.from(savedRecord) {
-                recipeCache[savedRecipe.id] = savedRecipe
-                printD("Recipe created: \(savedRecipe.name)")
+                let recipeWithImage = recipeWithCachedImage(savedRecipe)
+                recipeCache[recipeWithImage.id] = recipeWithImage
+                printD("Recipe created: \(recipeWithImage.name)")
             }
             await loadRecipeCounts(for: source)
         } catch {
@@ -691,8 +1104,9 @@ class CloudKitManager: ObservableObject {
             let savedRecord = try await database.save(record)
 
             if let savedRecipe = Recipe.from(savedRecord) {
-                recipeCache[savedRecipe.id] = savedRecipe
-                printD("Recipe updated: \(savedRecipe.name)")
+                let recipeWithImage = recipeWithCachedImage(savedRecipe)
+                recipeCache[recipeWithImage.id] = recipeWithImage
+                printD("Recipe updated: \(recipeWithImage.name)")
             }
             await loadRecipeCounts(for: source)
         } catch {
@@ -706,6 +1120,7 @@ class CloudKitManager: ObservableObject {
             let database = source.isPersonal ? privateDatabase : sharedDatabase
             try await database.deleteRecord(withID: recipe.id)
             recipeCache.removeValue(forKey: recipe.id)
+            removeCachedImage(for: recipe.id)
             printD("Recipe deleted: \(recipe.name)")
             await loadRecipeCounts(for: source)
         } catch {
@@ -715,14 +1130,15 @@ class CloudKitManager: ObservableObject {
     }
 
     // MARK: - Image Handling
-    func saveImage(_ imageData: Data, for recipe: Recipe, in source: Source) async -> CKAsset? {
+    func saveImage(_ imageData: Data, for recipe: Recipe, in source: Source) async -> ImageSaveResult? {
         do {
             let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".jpg")
             try imageData.write(to: tempURL)
 
             let asset = CKAsset(fileURL: tempURL)
             printD("Image asset created: \(tempURL)")
-            return asset
+            let cachedPath = cacheImageData(imageData, for: recipe.id)
+            return ImageSaveResult(asset: asset, cachedPath: cachedPath)
         } catch {
             printD("Error saving image: \(error.localizedDescription)")
             self.error = "Failed to save image"

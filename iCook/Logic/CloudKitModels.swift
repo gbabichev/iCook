@@ -134,6 +134,53 @@ struct Category: Identifiable, Hashable {
     }
 }
 
+extension Category: Codable {
+    enum CodingKeys: String, CodingKey {
+        case recordName
+        case zoneName
+        case zoneOwnerName
+        case sourceRecordName
+        case sourceZoneName
+        case sourceZoneOwnerName
+        case name
+        case icon
+        case lastModified
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id.recordName, forKey: .recordName)
+        try container.encode(id.zoneID.zoneName, forKey: .zoneName)
+        try container.encode(id.zoneID.ownerName, forKey: .zoneOwnerName)
+        try container.encode(sourceID.recordName, forKey: .sourceRecordName)
+        try container.encode(sourceID.zoneID.zoneName, forKey: .sourceZoneName)
+        try container.encode(sourceID.zoneID.ownerName, forKey: .sourceZoneOwnerName)
+        try container.encode(name, forKey: .name)
+        try container.encode(icon, forKey: .icon)
+        try container.encode(lastModified, forKey: .lastModified)
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        let recordName = try container.decode(String.self, forKey: .recordName)
+        let zoneName = try container.decode(String.self, forKey: .zoneName)
+        let zoneOwner = try container.decode(String.self, forKey: .zoneOwnerName)
+        let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: zoneOwner)
+        self.id = CKRecord.ID(recordName: recordName, zoneID: zoneID)
+
+        let sourceRecordName = try container.decode(String.self, forKey: .sourceRecordName)
+        let sourceZoneName = try container.decode(String.self, forKey: .sourceZoneName)
+        let sourceZoneOwner = try container.decode(String.self, forKey: .sourceZoneOwnerName)
+        let sourceZoneID = CKRecordZone.ID(zoneName: sourceZoneName, ownerName: sourceZoneOwner)
+        self.sourceID = CKRecord.ID(recordName: sourceRecordName, zoneID: sourceZoneID)
+
+        self.name = try container.decode(String.self, forKey: .name)
+        self.icon = try container.decode(String.self, forKey: .icon)
+        self.lastModified = try container.decode(Date.self, forKey: .lastModified)
+    }
+}
+
 // MARK: - Recipe Step
 struct RecipeStep: Codable, Hashable {
     var stepNumber: Int
@@ -156,6 +203,7 @@ struct Recipe: Identifiable, Hashable {
     var recipeTime: Int // in minutes
     var details: String?
     var imageAsset: CKAsset? // CloudKit asset instead of URL
+    var cachedImagePath: String?
     var recipeSteps: [RecipeStep]
     var lastModified: Date
 
@@ -167,6 +215,7 @@ struct Recipe: Identifiable, Hashable {
         recipeTime: Int,
         details: String? = nil,
         imageAsset: CKAsset? = nil,
+        cachedImagePath: String? = nil,
         recipeSteps: [RecipeStep] = [],
         lastModified: Date = Date()
     ) {
@@ -177,6 +226,7 @@ struct Recipe: Identifiable, Hashable {
         self.recipeTime = recipeTime
         self.details = details
         self.imageAsset = imageAsset
+        self.cachedImagePath = cachedImagePath
         self.recipeSteps = recipeSteps
         self.lastModified = lastModified
     }
@@ -256,6 +306,75 @@ struct Recipe: Identifiable, Hashable {
 
     static func == (lhs: Recipe, rhs: Recipe) -> Bool {
         lhs.id == rhs.id
+    }
+}
+
+extension Recipe: Codable {
+    enum CodingKeys: String, CodingKey {
+        case recordName
+        case zoneName
+        case zoneOwnerName
+        case sourceRecordName
+        case sourceZoneName
+        case sourceZoneOwnerName
+        case categoryRecordName
+        case categoryZoneName
+        case categoryZoneOwnerName
+        case name
+        case recipeTime
+        case details
+        case cachedImagePath
+        case recipeSteps
+        case lastModified
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id.recordName, forKey: .recordName)
+        try container.encode(id.zoneID.zoneName, forKey: .zoneName)
+        try container.encode(id.zoneID.ownerName, forKey: .zoneOwnerName)
+        try container.encode(sourceID.recordName, forKey: .sourceRecordName)
+        try container.encode(sourceID.zoneID.zoneName, forKey: .sourceZoneName)
+        try container.encode(sourceID.zoneID.ownerName, forKey: .sourceZoneOwnerName)
+        try container.encode(categoryID.recordName, forKey: .categoryRecordName)
+        try container.encode(categoryID.zoneID.zoneName, forKey: .categoryZoneName)
+        try container.encode(categoryID.zoneID.ownerName, forKey: .categoryZoneOwnerName)
+        try container.encode(name, forKey: .name)
+        try container.encode(recipeTime, forKey: .recipeTime)
+        try container.encode(details, forKey: .details)
+        try container.encodeIfPresent(cachedImagePath, forKey: .cachedImagePath)
+        try container.encode(recipeSteps, forKey: .recipeSteps)
+        try container.encode(lastModified, forKey: .lastModified)
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        let recordName = try container.decode(String.self, forKey: .recordName)
+        let zoneName = try container.decode(String.self, forKey: .zoneName)
+        let zoneOwner = try container.decode(String.self, forKey: .zoneOwnerName)
+        let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: zoneOwner)
+        self.id = CKRecord.ID(recordName: recordName, zoneID: zoneID)
+
+        let sourceRecordName = try container.decode(String.self, forKey: .sourceRecordName)
+        let sourceZoneName = try container.decode(String.self, forKey: .sourceZoneName)
+        let sourceZoneOwner = try container.decode(String.self, forKey: .sourceZoneOwnerName)
+        let sourceZoneID = CKRecordZone.ID(zoneName: sourceZoneName, ownerName: sourceZoneOwner)
+        self.sourceID = CKRecord.ID(recordName: sourceRecordName, zoneID: sourceZoneID)
+
+        let categoryRecordName = try container.decode(String.self, forKey: .categoryRecordName)
+        let categoryZoneName = try container.decode(String.self, forKey: .categoryZoneName)
+        let categoryZoneOwner = try container.decode(String.self, forKey: .categoryZoneOwnerName)
+        let categoryZoneID = CKRecordZone.ID(zoneName: categoryZoneName, ownerName: categoryZoneOwner)
+        self.categoryID = CKRecord.ID(recordName: categoryRecordName, zoneID: categoryZoneID)
+
+        self.name = try container.decode(String.self, forKey: .name)
+        self.recipeTime = try container.decode(Int.self, forKey: .recipeTime)
+        self.details = try container.decodeIfPresent(String.self, forKey: .details)
+        self.cachedImagePath = try container.decodeIfPresent(String.self, forKey: .cachedImagePath)
+        self.recipeSteps = try container.decode([RecipeStep].self, forKey: .recipeSteps)
+        self.lastModified = try container.decode(Date.self, forKey: .lastModified)
+        self.imageAsset = nil
     }
 }
 

@@ -90,6 +90,12 @@ struct ContentView: View {
 
 extension Recipe {
     var imageURL: URL? {
+        if let cachedImagePath = cachedImagePath {
+            let url = URL(fileURLWithPath: cachedImagePath)
+            if FileManager.default.fileExists(atPath: url.path) {
+                return url
+            }
+        }
         guard let asset = imageAsset else { return nil }
         return asset.fileURL
     }

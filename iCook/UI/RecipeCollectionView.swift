@@ -110,12 +110,21 @@ struct RecipeCollectionView: View {
         if showingSearchResults {
             return searchResults
         }
-        
+
         switch collectionType {
         case .home:
             return model.randomRecipes
         case .category:
             return categoryRecipes
+        }
+    }
+
+    @ViewBuilder
+    private var offlineStatusIndicator: some View {
+        if model.isOfflineMode {
+            Label("Offline Mode", systemImage: "wifi.slash")
+                .font(.caption)
+                .foregroundStyle(.orange)
         }
     }
     
@@ -629,6 +638,15 @@ struct RecipeCollectionView: View {
                 ToolbarItem(placement: .primaryAction) {
                     debugMenu
                 }
+#if os(macOS)
+                ToolbarItem(placement: .status) {
+                    offlineStatusIndicator
+                }
+#else
+                ToolbarItem(placement: .navigationBarLeading) {
+                    offlineStatusIndicator
+                }
+#endif
                 ToolbarSpacer(.flexible)
             }
     }
