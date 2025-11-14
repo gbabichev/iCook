@@ -8,13 +8,18 @@ import AppKit
 
 struct SourceSelector: View {
     @EnvironmentObject private var viewModel: AppViewModel
+    @Environment(\.dismiss) var dismiss
     @State private var showNewSourceSheet = false
     @State private var newSourceName = ""
     @State private var isPreparingShare = false
+    @State private var showShareSuccess = false
+    @State private var shareSuccessMessage = ""
+    @State private var hoveredSourceID: CKRecord.ID?
+    @State private var sourceToDelete: Source?
+    @State private var showDeleteConfirmation = false
 
 #if os(iOS)
     @State private var shareData: ShareData?
-    @State private var showShareSuccess = false
     @State private var sharingController: UICloudSharingController?
     @State private var sharingCoordinator: SharingControllerWrapper.Coordinator?
 
@@ -26,107 +31,68 @@ struct SourceSelector: View {
 #endif
 
     var body: some View {
+#if os(iOS)
+        iOSView
+#elseif os(macOS)
+        macOSView
+#endif
+    }
+
+#if os(iOS)
+    private var iOSView: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                // Show any errors
-                if let error = viewModel.cloudKitManager.error {
-                    HStack {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundColor(.orange)
-                        Text(error)
-                            .font(.caption)
-                    }
-                    .padding()
-                    .background(.orange.opacity(0.1))
-                    .frame(maxWidth: .infinity)
-                }
+            ZStack {
+                sourcesListView
 
-                if viewModel.sources.isEmpty {
-                    VStack(spacing: 12) {
-                        Image(systemName: "fork.knife")
-                            .font(.system(size: 40))
-                            .foregroundColor(.secondary)
-
-                        Text("No Sources")
-                            .font(.headline)
-
-                        Text("Create a new source to get started")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(.gray.opacity(0.05))
-                } else {
-                    ScrollView {
-                        VStack(spacing: 12) {
-                            ForEach(viewModel.sources, id: \.id) { source in
-                                HStack(spacing: 12) {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(source.name)
-                                            .font(.headline)
-                                            .fontWeight(viewModel.currentSource?.id == source.id ? .semibold : .regular)
-
-                                        Text(source.isPersonal ? "Personal" : "Shared")
-                                            .font(.caption)
-                                            .foregroundColor(.secondary)
-                                    }
-
-                                    Spacer()
-
-                                    // Share button for personal sources
-                                    if source.isPersonal {
-                                        Button(action: {
-                                            Task {
-                                                await prepareShare(for: source)
-                                            }
-                                        }) {
-                                            Image(systemName: "square.and.arrow.up")
-                                                .font(.system(size: 16))
-                                                .foregroundColor(.blue)
-                                                .padding(8)
-                                        }
-                                    }
-
-                                    // Selection indicator
-                                    if viewModel.currentSource?.id == source.id {
-                                        Image(systemName: "checkmark.circle.fill")
-                                            .font(.system(size: 18))
-                                            .foregroundColor(.blue)
-                                    }
-                                }
-                                .contentShape(Rectangle())
-                                .onTapGesture {
-                                    Task {
-                                        await viewModel.selectSource(source)
-                                    }
-                                }
-                                .padding()
-                                .background(.gray.opacity(0.05))
-                                .cornerRadius(8)
-                            }
-                            .padding()
+                // Alerts and sheets
+                if showShareSuccess {
+                    Color.clear
+                        .alert("Share Link", isPresented: $showShareSuccess) {
+                            Button("OK") { }
+                        } message: {
+                            Text(shareSuccessMessage)
                         }
-                    }
                 }
 
-                Divider()
-
-                // New source button
-                Button(action: { showNewSourceSheet = true }) {
-                    Label("New Source", systemImage: "plus")
-                        .frame(maxWidth: .infinity)
-                        .foregroundColor(.blue)
+                if showDeleteConfirmation {
+                    Color.clear
+                        .alert("Delete Source", isPresented: $showDeleteConfirmation) {
+                            Button("Cancel", role: .cancel) { }
+                            Button("Delete", role: .destructive) {
+                                if let source = sourceToDelete {
+                                    Task {
+                                        await deleteSource(source)
+                                    }
+                                }
+                            }
+                        } message: {
+                            if let source = sourceToDelete {
+                                Text("Delete '\(source.name)' and all its recipes and categories?")
+                            }
+                        }
                 }
-                .buttonStyle(.bordered)
-                .padding()
             }
             .navigationTitle("Sources")
-#if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
-#endif
-            .task {
-                // Refresh sources when overlay opens
-                await viewModel.loadSources()
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button(action: { dismiss() }) {
+                        Text("Done")
+                    }
+                }
+
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button(action: { showNewSourceSheet = true }) {
+                        Image(systemName: "plus")
+                    }
+                }
+            }
+        }
+        .onAppear {
+            if viewModel.sources.isEmpty {
+                Task {
+                    await viewModel.loadSources()
+                }
             }
         }
         .sheet(isPresented: $showNewSourceSheet) {
@@ -136,49 +102,167 @@ struct SourceSelector: View {
             )
             .environmentObject(viewModel)
         }
-#if os(iOS)
-        // Show success alert when sharing completes
-        .alert("Share Completed!", isPresented: $showShareSuccess) {
-            Button("OK") { }
-        } message: {
-            Text("The share link has been copied to your clipboard. Paste it in Messages, Email, or any other app to share!")
-        }
-#endif
     }
+#elseif os(macOS)
+    private var macOSView: some View {
+        VStack(spacing: 0) {
+            // Title bar
+            HStack {
+                Text("Sources")
+                    .font(.title2)
+                    .fontWeight(.semibold)
 
-    private func prepareShare(for source: Source) async {
-        isPreparingShare = true
-        defer { isPreparingShare = false }
+                Spacer()
 
-        printD("Preparing share for source: \(source.name)")
+                Button(action: { showNewSourceSheet = true }) {
+                    Image(systemName: "plus.circle")
+                        .font(.system(size: 16))
+                }
+                .help("Add new source")
 
-#if os(iOS)
-        // Use the UICloudSharingController on iOS
-        await MainActor.run {
-            viewModel.cloudKitManager.prepareSharingController(for: source) { controller in
-                if let controller = controller {
-                    printD("Sharing controller prepared successfully")
-                    presentUICloudSharingController(controller)
-                } else {
-                    printD("Failed to prepare sharing controller")
-                    printD("Error from CloudKitManager: \(viewModel.cloudKitManager.error ?? "No error message")")
+                Button(action: { dismiss() }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12))
+                }
+                .help("Close")
+            }
+            .padding(12)
+            .background(Color(nsColor: .controlBackgroundColor))
+            .border(Color(nsColor: .separatorColor), width: 1)
+
+            // Content area
+            macOSListContent
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear {
+            if viewModel.sources.isEmpty {
+                Task {
+                    await viewModel.loadSources()
                 }
             }
         }
-#elseif os(macOS)
-        // Get share URL and present NSSharingServicePicker on macOS
+        .sheet(isPresented: $showNewSourceSheet) {
+            NewSourceSheet(
+                isPresented: $showNewSourceSheet,
+                sourceName: $newSourceName
+            )
+            .environmentObject(viewModel)
+        }
+    }
+
+    private var macOSListContent: some View {
+        ZStack {
+            sourcesListView
+
+            // Alerts
+            if showShareSuccess {
+                Color.clear
+                    .alert("Share Link", isPresented: $showShareSuccess) {
+                        Button("OK") { }
+                    } message: {
+                        Text(shareSuccessMessage)
+                    }
+            }
+
+            if showDeleteConfirmation {
+                Color.clear
+                    .alert("Delete Source", isPresented: $showDeleteConfirmation) {
+                        Button("Cancel", role: .cancel) { }
+                        Button("Delete", role: .destructive) {
+                            if let source = sourceToDelete {
+                                Task {
+                                    await deleteSource(source)
+                                }
+                            }
+                        }
+                    } message: {
+                        if let source = sourceToDelete {
+                            Text("Delete '\(source.name)' and all its recipes and categories?")
+                        }
+                    }
+            }
+        }
+    }
+#endif
+
+    private var sourcesListView: some View {
+        VStack(spacing: 0) {
+            if let error = viewModel.cloudKitManager.error {
+                HStack {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(.orange)
+                    Text(error)
+                        .font(.caption)
+                }
+                .padding(8)
+                .background(.orange.opacity(0.1))
+                .frame(maxWidth: .infinity)
+            }
+
+            List {
+                Section {
+                    if viewModel.sources.isEmpty {
+                        Text("No sources yet")
+                            .foregroundColor(.secondary)
+                    } else {
+                        ForEach(viewModel.sources, id: \.id) { source in
+                            SourceRowWrapper(
+                                source: source,
+                                isSelected: viewModel.currentSource?.id == source.id,
+                                hoveredSourceID: $hoveredSourceID,
+                                onSelect: {
+                                    Task {
+                                        await viewModel.selectSource(source)
+                                    }
+                                },
+                                onShare: {
+                                    Task {
+                                        await shareSource(for: source)
+                                    }
+                                },
+                                onDelete: {
+                                    sourceToDelete = source
+                                    showDeleteConfirmation = true
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+            .listStyle(.automatic)
+        }
+    }
+
+
+    private func shareSource(for source: Source) async {
+        isPreparingShare = true
+        defer { isPreparingShare = false }
+
+        printD("Getting share URL for source: \(source.name)")
+
         if let shareURL = await viewModel.cloudKitManager.getShareURL(for: source) {
             printD("Got share URL: \(shareURL.absoluteString)")
+
+            // Copy to clipboard
             await MainActor.run {
-                presentSharingServices(with: shareURL, sourceTitle: source.name)
+#if os(iOS)
+                UIPasteboard.general.url = shareURL
+#elseif os(macOS)
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(shareURL.absoluteString, forType: .string)
+#endif
+                shareSuccessMessage = "Link copied to clipboard"
+                showShareSuccess = true
+                printD("Share URL copied to clipboard")
             }
         } else {
             await MainActor.run {
                 printD("Failed to get share URL")
-                printD("Error: \(viewModel.cloudKitManager.error ?? "No error message")")
+                shareSuccessMessage = "Failed to get share URL: \(viewModel.cloudKitManager.error ?? "Unknown error")"
+                showShareSuccess = true
             }
         }
-#endif
     }
 
 #if os(iOS)
@@ -227,6 +311,34 @@ struct SourceSelector: View {
         }
     }
 #endif
+
+    private func deleteSource(_ source: Source) async {
+        printD("Deleting source: \(source.name)")
+
+        // Delete all categories in this source
+        let categoriesToDelete = viewModel.categories.filter { $0.sourceID == source.id }
+        for category in categoriesToDelete {
+            await viewModel.deleteCategory(id: category.id)
+            printD("Deleted category: \(category.name)")
+        }
+
+        // Delete all recipes in this source
+        let recipesToDelete = viewModel.recipes.filter { $0.sourceID == source.id }
+        for recipe in recipesToDelete {
+            _ = await viewModel.deleteRecipe(id: recipe.id)
+            printD("Deleted recipe: \(recipe.name)")
+        }
+
+        // Delete the source itself
+        _ = await viewModel.deleteSource(source)
+        printD("Deleted source: \(source.name)")
+
+        // Clear the deletion state
+        sourceToDelete = nil
+
+        // Reload sources
+        await viewModel.loadSources()
+    }
 }
 
 struct SourceRow: View {
@@ -445,6 +557,82 @@ struct SharingControllerWrapper: UIViewControllerRepresentable {
     }
 }
 #endif
+
+struct SourceRowWrapper: View {
+    let source: Source
+    let isSelected: Bool
+    @Binding var hoveredSourceID: CKRecord.ID?
+    let onSelect: () -> Void
+    let onShare: () -> Void
+    let onDelete: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(source.name)
+                    .fontWeight(isSelected ? .semibold : .regular)
+
+                Text(source.isPersonal ? "Personal" : "Shared")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            Spacer()
+
+            // Selection checkbox (always takes space)
+            if isSelected {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 16))
+                    .foregroundColor(.blue)
+            } else {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 16))
+                    .foregroundColor(.clear)
+            }
+
+            // Share button
+            if source.isPersonal {
+                Button(action: onShare) {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.system(size: 14))
+                }
+                .buttonStyle(.bordered)
+            } else {
+                Color.clear
+                    .frame(width: 32, height: 32)
+            }
+
+#if os(macOS)
+            // Delete button on hover (macOS)
+            if hoveredSourceID == source.id {
+                Button(action: onDelete) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 14))
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+            } else {
+                Color.clear
+                    .frame(width: 24, height: 24)
+            }
+#endif
+        }
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onSelect)
+#if os(macOS)
+        .onHover { hovering in
+            hoveredSourceID = hovering ? source.id : nil
+        }
+#endif
+#if os(iOS)
+        .swipeActions(edge: .trailing) {
+            Button(role: .destructive, action: onDelete) {
+                Label("Delete", systemImage: "trash")
+            }
+        }
+#endif
+    }
+}
 
 #Preview {
     SourceSelector()

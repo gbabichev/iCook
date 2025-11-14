@@ -109,6 +109,13 @@ struct CategoryList: View {
         .sheet(isPresented: $showSourcesOverlay) {
             SourceSelector()
                 .environmentObject(model)
+#if os(macOS)
+                .frame(minWidth: 400, minHeight: 300)
+#endif
+        }
+        .sheet(isPresented: $showingAddCategory) {
+            AddCategoryView()
+                .environmentObject(model)
         }
     }
 }
