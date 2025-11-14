@@ -7,6 +7,7 @@ final class AppViewModel: ObservableObject {
     @Published var categories: [Category] = []
     @Published var recipes: [Recipe] = []
     @Published var randomRecipes: [Recipe] = []
+    @Published var recipeCounts: [CKRecord.ID: Int] = [:]
     @Published var isLoadingCategories = false
     @Published var isLoadingRecipes = false
     @Published var error: String?
@@ -64,6 +65,7 @@ final class AppViewModel: ObservableObject {
 
         await cloudKitManager.loadCategories(for: source)
         categories = cloudKitManager.categories
+        recipeCounts = cloudKitManager.recipeCounts
         error = cloudKitManager.error
     }
 
@@ -74,6 +76,7 @@ final class AppViewModel: ObservableObject {
         await cloudKitManager.createCategory(name: name, icon: icon, in: source)
         // Copy directly from CloudKitManager without re-querying
         categories = cloudKitManager.categories
+        recipeCounts = cloudKitManager.recipeCounts
         return error == nil
     }
 
@@ -88,6 +91,7 @@ final class AppViewModel: ObservableObject {
         await cloudKitManager.updateCategory(updatedCategory, in: source)
         // Copy directly from CloudKitManager without re-querying
         categories = cloudKitManager.categories
+        recipeCounts = cloudKitManager.recipeCounts
         return error == nil
     }
 
@@ -98,6 +102,7 @@ final class AppViewModel: ObservableObject {
         await cloudKitManager.deleteCategory(category, in: source)
         // Copy directly from CloudKitManager without re-querying
         categories = cloudKitManager.categories
+        recipeCounts = cloudKitManager.recipeCounts
     }
 
     // MARK: - Recipe Management
@@ -153,6 +158,7 @@ final class AppViewModel: ObservableObject {
         // Remove from the local recipes array immediately
         self.recipes = recipes.filter { $0.id != id }
         randomRecipes.removeAll { $0.id == id }
+        recipeCounts = cloudKitManager.recipeCounts
 
         NotificationCenter.default.post(name: .recipeDeleted, object: id as CKRecord.ID)
         return true
@@ -210,6 +216,7 @@ final class AppViewModel: ObservableObject {
             printD("recipes array: \(recipes.map { $0.name })")
             // Also add to random recipes
             self.randomRecipes = (randomRecipes + [recipeWithImage]).sorted { $0.lastModified > $1.lastModified }
+            self.recipeCounts = cloudKitManager.recipeCounts
 
             // Small delay to ensure UI updates before sheet dismisses
             try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 second
@@ -258,6 +265,7 @@ final class AppViewModel: ObservableObject {
             if let index = randomRecipes.firstIndex(where: { $0.id == id }) {
                 randomRecipes[index] = updatedRecipe
             }
+            recipeCounts = cloudKitManager.recipeCounts
         }
 
         return error == nil

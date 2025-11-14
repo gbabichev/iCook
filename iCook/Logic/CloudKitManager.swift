@@ -17,6 +17,7 @@ class CloudKitManager: ObservableObject {
     @Published var sources: [Source] = []
     @Published var categories: [Category] = []
     @Published var recipes: [Recipe] = []
+    @Published var recipeCounts: [CKRecord.ID: Int] = [:]
     @Published var isLoading = false
     @Published var error: String?
     @Published var sharedSourceInvitations: [SharedSourceInvitation] = []
@@ -369,8 +370,7 @@ class CloudKitManager: ObservableObject {
 
     // MARK: - Category Management
     func loadCategories(for source: Source) async {
-        guard let sourceID = currentSource?.id else { return }
-
+        let sourceID = source.id
         isLoading = true
         defer { isLoading = false }
 
@@ -403,6 +403,7 @@ class CloudKitManager: ObservableObject {
             }
 
             self.categories = allCategories
+            await loadRecipeCounts(for: source)
         } catch {
             let errorDesc = error.localizedDescription
             // Silently handle "record type not found" errors - schema is still being created
@@ -411,6 +412,43 @@ class CloudKitManager: ObservableObject {
                 self.error = "Failed to load categories"
             }
             self.categories = []
+            self.recipeCounts = [:]
+        }
+    }
+
+    private func loadRecipeCounts(for source: Source) async {
+        guard isCloudKitAvailable else {
+            recipeCounts = [:]
+            return
+        }
+
+        let predicate = NSPredicate(
+            format: "sourceID == %@",
+            CKRecord.Reference(recordID: source.id, action: .none)
+        )
+        let query = CKQuery(recordType: "Recipe", predicate: predicate)
+        query.sortDescriptors = nil
+
+        let database = source.isPersonal ? privateDatabase : sharedDatabase
+
+        do {
+            let (results, _) = try await database.records(matching: query)
+            var counts: [CKRecord.ID: Int] = [:]
+
+            for (_, result) in results {
+                if case .success(let record) = result,
+                   let categoryRef = record["categoryID"] as? CKRecord.Reference {
+                    counts[categoryRef.recordID, default: 0] += 1
+                }
+            }
+
+            recipeCounts = counts
+        } catch {
+            let errorDesc = error.localizedDescription
+            if !errorDesc.contains("Did not find record type") {
+                printD("Error loading recipe counts: \(errorDesc)")
+            }
+            recipeCounts = [:]
         }
     }
 
@@ -432,6 +470,7 @@ class CloudKitManager: ObservableObject {
                 categoryCache[savedCategory.id] = savedCategory
                 // Add to UI immediately without re-querying CloudKit
                 self.categories = (categories + [savedCategory]).sorted { $0.name < $1.name }
+                self.recipeCounts[savedCategory.id] = self.recipeCounts[savedCategory.id] ?? 0
                 printD("Category created: \(savedCategory.name)")
             }
         } catch {
@@ -465,6 +504,7 @@ class CloudKitManager: ObservableObject {
             categoryCache.removeValue(forKey: category.id)
             // Remove from local array without re-querying CloudKit
             self.categories = categories.filter { $0.id != category.id }
+            self.recipeCounts.removeValue(forKey: category.id)
             printD("Category deleted: \(category.name)")
         } catch {
             printD("Error deleting category: \(error.localizedDescription)")
@@ -637,6 +677,7 @@ class CloudKitManager: ObservableObject {
                 recipeCache[savedRecipe.id] = savedRecipe
                 printD("Recipe created: \(savedRecipe.name)")
             }
+            await loadRecipeCounts(for: source)
         } catch {
             printD("Error creating recipe: \(error.localizedDescription)")
             self.error = "Failed to create recipe"
@@ -653,6 +694,7 @@ class CloudKitManager: ObservableObject {
                 recipeCache[savedRecipe.id] = savedRecipe
                 printD("Recipe updated: \(savedRecipe.name)")
             }
+            await loadRecipeCounts(for: source)
         } catch {
             printD("Error updating recipe: \(error.localizedDescription)")
             self.error = "Failed to update recipe"
@@ -665,6 +707,7 @@ class CloudKitManager: ObservableObject {
             try await database.deleteRecord(withID: recipe.id)
             recipeCache.removeValue(forKey: recipe.id)
             printD("Recipe deleted: \(recipe.name)")
+            await loadRecipeCounts(for: source)
         } catch {
             printD("Error deleting recipe: \(error.localizedDescription)")
             self.error = "Failed to delete recipe"

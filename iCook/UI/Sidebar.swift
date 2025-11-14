@@ -25,15 +25,26 @@ struct CategoryList: View {
         self._showingAddCategory = showingAddCategory
     }
 
+    private var homeRecipeCount: Int {
+        model.recipeCounts.values.reduce(0, +)
+    }
+
+    private func recipeCount(for category: Category) -> Int {
+        model.recipeCounts[category.id] ?? 0
+    }
+
     var body: some View {
         List {
             // Home/Featured section
             NavigationLink(destination: RecipeCollectionView()) {
-                HStack {
+                HStack(spacing: 6) {
                     Image(systemName: "house.fill")
                         .foregroundStyle(.blue)
                         .frame(width: 24)
                     Text("Home")
+                    Text("(\(homeRecipeCount))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                     Spacer()
                     if isShowingHome {
                         Image(systemName: "checkmark")
@@ -46,10 +57,13 @@ struct CategoryList: View {
                 Section("Categories") {
                     ForEach(model.categories) { category in
                         NavigationLink(destination: RecipeCollectionView(category: category)) {
-                            HStack {
+                            HStack(spacing: 6) {
                                 Image(systemName: category.icon)
                                     .frame(width: 24)
                                 Text(category.name)
+                                Text("(\(recipeCount(for: category)))")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
                                 Spacer()
                                 if selection == category.id && !isShowingHome {
                                     Image(systemName: "checkmark")
