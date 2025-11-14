@@ -679,6 +679,7 @@ struct RecipeCollectionView: View {
                         recipesGridSection()
                     }
                 }
+                .ignoresSafeArea(edges: .top)
             }
         }
     }
