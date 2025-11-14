@@ -12,10 +12,10 @@ struct IconButton: View {
     let icon: String
     let isSelected: Bool
     let action: () -> Void
-    
+
     var body: some View {
         Button(action: action) {
-            Image(systemName: icon)
+            Text(icon)
                 .font(.title2)
                 .frame(width: 44, height: 44)
                 .background(
@@ -40,35 +40,16 @@ struct AddCategoryView: View {
     let editingCategory: Category?
 
     @State private var categoryName: String = ""
-    @State private var selectedIcon: String = "fork.knife"
+    @State private var selectedIcon: String = "🍴"
     @State private var isSaving = false
     @State private var showReadOnlyAlert = false
     
-    // Fixed: Removed duplicates from commonIcons array
+    // Emoji icons for categories
     private let commonIcons = [
-        "fork.knife",
-        "cup.and.saucer",
-        "cup.and.saucer.fill",
-        "birthday.cake.fill",
-        "carrot.fill",
-        "leaf.fill",
-        "fish.fill",
-        "popcorn.fill",
-        "wineglass.fill",
-        "mug.fill",
-        "takeoutbag.and.cup.and.straw",
-        "takeoutbag.and.cup.and.straw.fill",
-        "refrigerator.fill",
-        "cooktop.fill",
-        "flame.fill",
-        "drop.fill",
-        "snowflake",
-        "sun.max.fill",
-        "moon.fill",
-        "star.fill",
-        "heart.fill",
-        "house.fill",
-        "waterbottle.fill"
+        "🍴", "☕", "🍰", "🥕", "🌱", "🐟", "🍿", "🍷",
+        "🥐", "🧁", "🍲", "🔥", "🧊", "🧂", "🍝",
+        "🥗", "🍎", "🥘", "🍚", "🍗", "🥩", "🧈",
+        "🧅", "🥔", "🌶️", "⭐", "❤️", "🏠", "💧"
     ]
     var isEditing: Bool { editingCategory != nil }
     
@@ -102,7 +83,7 @@ struct AddCategoryView: View {
                             Button {
                                 selectedIcon = icon
                             } label: {
-                                Image(systemName: icon)
+                                Text(icon)
                                     .font(.title2)
                                     .frame(width: 40, height: 40)
                                     .background(

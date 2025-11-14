@@ -51,7 +51,7 @@ enum RecipeCollectionType: Equatable {
     var emptyStateIcon: String {
         switch self {
         case .home:
-            return "fork.knife"
+            return "🍴"
         case .category(let category):
             return category.icon
         }
@@ -665,7 +665,7 @@ struct RecipeCollectionView: View {
             } else if shouldShowEmptyState {
                 // Centered empty state - replaces the entire scroll view
                 VStack(spacing: 16) {
-                    Image(systemName: collectionType.emptyStateIcon)
+                    Text(collectionType.emptyStateIcon)
                         .font(.system(size: 48))
                         .foregroundStyle(.secondary)
                     Text(collectionType.emptyStateText)

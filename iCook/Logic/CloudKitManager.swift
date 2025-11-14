@@ -808,8 +808,14 @@ class CloudKitManager: ObservableObject {
     func updateCategory(_ category: Category, in source: Source) async {
         do {
             let database = source.isPersonal ? privateDatabase : sharedDatabase
-            let record = category.toCKRecord()
-            let savedRecord = try await database.save(record)
+
+            // Fetch the server record first to preserve metadata
+            let serverRecord = try await database.record(for: category.id)
+            serverRecord["name"] = category.name
+            serverRecord["icon"] = category.icon
+            serverRecord["lastModified"] = Date()
+
+            let savedRecord = try await database.save(serverRecord)
 
             if let savedCategory = Category.from(savedRecord) {
                 categoryCache[savedCategory.id] = savedCategory

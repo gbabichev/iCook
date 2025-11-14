@@ -58,7 +58,7 @@ struct CategoryList: View {
                     ForEach(model.categories) { category in
                         NavigationLink(destination: RecipeCollectionView(category: category)) {
                             HStack(spacing: 6) {
-                                Image(systemName: category.icon)
+                                Text(category.icon)
                                     .frame(width: 24)
                                 Text(category.name)
                                 Text("(\(recipeCount(for: category)))")
@@ -136,11 +136,11 @@ struct CategoryRow: View {
     let category: Category
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: category.icon)
+            Text(category.icon)
                 .font(.title2)
                 .foregroundStyle(.primary)
                 .frame(width: 24, height: 24)
-            
+
             Text(category.name)
                 .font(.body)
         }
