@@ -41,15 +41,13 @@ struct CategoryList: View {
                     Image(systemName: "house.fill")
                         .foregroundStyle(.blue)
                         .frame(width: 24)
-                    Text("Home")
-                    Text("(\(homeRecipeCount))")
+                    Text("All Recipes")
+                    
+                    Spacer()
+                    
+                    Text("\(homeRecipeCount)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Spacer()
-                    if isShowingHome {
-                        Image(systemName: "checkmark")
-                            .foregroundStyle(.blue)
-                    }
                 }
             }
 
@@ -61,14 +59,12 @@ struct CategoryList: View {
                                 Text(category.icon)
                                     .frame(width: 24)
                                 Text(category.name)
-                                Text("(\(recipeCount(for: category)))")
+                                
+                                Spacer()
+                                
+                                Text("\(recipeCount(for: category))")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
-                                Spacer()
-                                if selection == category.id && !isShowingHome {
-                                    Image(systemName: "checkmark")
-                                        .foregroundStyle(.blue)
-                                }
                             }
                         }
                         .contextMenu {
