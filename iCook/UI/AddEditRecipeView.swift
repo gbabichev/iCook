@@ -28,7 +28,8 @@ struct AddEditRecipeView: View {
     @State private var isSaving = false
     @State private var fileImporterTrigger = UUID()
     @State private var isCompressingImage = false
-    
+    @State private var saveErrorMessage: String?
+
     // Recipe Steps
     @State private var recipeSteps: [RecipeStep] = []
     @State private var expandedSteps: Set<Int> = []
@@ -74,6 +75,17 @@ struct AddEditRecipeView: View {
                                 .foregroundColor(.orange)
                             Text("This source is read-only")
                                 .foregroundColor(.orange)
+                        }
+                    }
+                }
+
+                if let errorMessage = saveErrorMessage {
+                    Section {
+                        HStack {
+                            Image(systemName: "exclamationmark.circle.fill")
+                                .foregroundColor(.red)
+                            Text(errorMessage)
+                                .foregroundColor(.red)
                         }
                     }
                 }
@@ -472,6 +484,7 @@ struct AddEditRecipeView: View {
     @MainActor
     private func saveRecipe() async {
         isSaving = true
+        saveErrorMessage = nil // Clear previous error messages
         defer { isSaving = false }
         
         let trimmedName = recipeName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -532,6 +545,7 @@ struct AddEditRecipeView: View {
 
         let success: Bool
         if let recipe = editingRecipe {
+            print("DEBUG: Saving recipe - UPDATE mode. Recipe ID: \(recipe.id.recordName)")
             success = await model.updateRecipeWithSteps(
                 id: recipe.id,
                 categoryId: selectedCategoryId != recipe.categoryID ? selectedCategoryId : nil,
@@ -541,7 +555,9 @@ struct AddEditRecipeView: View {
                 image: selectedImageData,
                 recipeSteps: finalSteps
             )
+            print("DEBUG: Update result: \(success)")
         } else {
+            print("DEBUG: Saving recipe - CREATE mode")
             success = await model.createRecipeWithSteps(
                 categoryId: categoryId,
                 name: trimmedName,
@@ -550,10 +566,20 @@ struct AddEditRecipeView: View {
                 image: selectedImageData,
                 recipeSteps: finalSteps
             )
+            print("DEBUG: Create result: \(success)")
         }
-        
+
         if success {
             dismiss()
+        } else {
+            print("DEBUG: Save failed - not dismissing. Model error: \(model.error ?? "nil")")
+            if let modelError = model.error {
+                saveErrorMessage = "Failed to save recipe: \(modelError)"
+            } else if isEditing {
+                saveErrorMessage = "Failed to update recipe. Please try again or check the console for details."
+            } else {
+                saveErrorMessage = "Failed to create recipe. Please try again or check the console for details."
+            }
         }
     }
     

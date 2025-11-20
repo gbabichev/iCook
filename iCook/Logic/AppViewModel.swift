@@ -253,8 +253,24 @@ final class AppViewModel: ObservableObject {
         image: Data?,
         recipeSteps: [RecipeStep]?
     ) async -> Bool {
-        guard let source = currentSource else { return false }
-        guard let recipe = recipes.first(where: { $0.id == id }) else { return false }
+        guard let source = currentSource else {
+            printD("DEBUG: updateRecipeWithSteps failed - no currentSource")
+            return false
+        }
+
+        // If recipes array is empty, reload them
+        if recipes.isEmpty {
+            printD("DEBUG: Recipes array is empty, reloading for source: \(source.name)")
+            await cloudKitManager.loadRecipes(for: source, category: nil)
+            recipes = cloudKitManager.recipes
+        }
+
+        guard let recipe = recipes.first(where: { $0.id == id }) else {
+            printD("DEBUG: updateRecipeWithSteps failed - recipe not found. ID: \(id.recordName), recipes count: \(recipes.count)")
+            printD("DEBUG: Available recipe IDs: \(recipes.map { $0.id.recordName })")
+            printD("DEBUG: currentSource: \(source.name), isPersonal: \(source.isPersonal)")
+            return false
+        }
 
         isLoadingRecipes = true
         defer { isLoadingRecipes = false }

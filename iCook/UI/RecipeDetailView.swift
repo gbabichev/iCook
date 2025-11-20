@@ -4,7 +4,7 @@ struct RecipeDetailView: View {
     let recipe: Recipe
     @EnvironmentObject private var model: AppViewModel
     @Environment(\.dismiss) private var dismiss
-    
+
     @State private var editingRecipe: Recipe?
     @State private var showingDeleteAlert = false
     @State private var isDeleting = false
@@ -12,11 +12,17 @@ struct RecipeDetailView: View {
     @State private var checkedSteps: Set<Int> = []
     @State private var checkedStepIngredients: Set<String> = [] // Format: "stepNumber-ingredientIndex"
     @State private var showCopiedHUD = false
+    @State private var displayedRecipe: Recipe
+
+    init(recipe: Recipe) {
+        self.recipe = recipe
+        _displayedRecipe = State(initialValue: recipe)
+    }
     
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                AsyncImage(url: recipe.imageURL) { phase in
+                AsyncImage(url: displayedRecipe.imageURL) { phase in
                     switch phase {
                     case .empty:
                         Image(systemName: "fork.knife.circle")
@@ -48,21 +54,21 @@ struct RecipeDetailView: View {
                 VStack(alignment: .leading, spacing: 20) {
                     // Recipe Title and Time
                     VStack(alignment: .leading, spacing: 8) {
-                        Text(recipe.name)
+                        Text(displayedRecipe.name)
                             .font(.largeTitle)
                             .bold()
-                        
+
                         HStack {
                             Image(systemName: "clock")
                                 .foregroundStyle(.secondary)
-                            Text("\(recipe.recipeTime) minutes")
+                            Text("\(displayedRecipe.recipeTime) minutes")
                                 .font(.headline)
                                 .foregroundStyle(.secondary)
                         }
                     }
                     
                     // Recipe Steps Section (NEW)
-                    if !recipe.recipeSteps.isEmpty {
+                    if !displayedRecipe.recipeSteps.isEmpty {
                         VStack(alignment: .leading, spacing: 12) {
                             HStack {
                                 Image(systemName: "list.number")
@@ -73,7 +79,7 @@ struct RecipeDetailView: View {
                             }
 
                             LazyVStack(alignment: .leading, spacing: 16) {
-                                ForEach(recipe.recipeSteps, id: \.stepNumber) { step in
+                                ForEach(displayedRecipe.recipeSteps, id: \.stepNumber) { step in
                                     VStack(alignment: .leading, spacing: 12) {
                                         // Step header with checkbox
                                         HStack(alignment: .top, spacing: 12) {
@@ -150,7 +156,7 @@ struct RecipeDetailView: View {
                                     }
                                     .padding(.vertical, 8)
                                     
-                                    if step.stepNumber < recipe.recipeSteps.count {
+                                    if step.stepNumber < displayedRecipe.recipeSteps.count {
                                         Divider()
                                             .padding(.horizontal)
                                     }
@@ -162,7 +168,7 @@ struct RecipeDetailView: View {
                     }
                     
                     // Ingredients Section (UNCHANGED - keeping existing functionality)
-                    if let ingredients = recipe.ingredients, !ingredients.isEmpty {
+                    if let ingredients = displayedRecipe.ingredients, !ingredients.isEmpty {
                         VStack(alignment: .leading, spacing: 12) {
                             HStack {
                                 Image(systemName: "list.bullet")
@@ -224,7 +230,7 @@ struct RecipeDetailView: View {
                     }
                     
                     // Instructions Section (kept for backward compatibility)
-                    if let details = recipe.details, !details.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    if let details = displayedRecipe.details, !details.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         VStack(alignment: .leading, spacing: 12) {
                             HStack {
                                 Image(systemName: "text.alignleft")
@@ -247,7 +253,7 @@ struct RecipeDetailView: View {
                 Spacer()
             }
         }
-        .navigationTitle(recipe.name)
+        .navigationTitle(displayedRecipe.name)
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
@@ -256,7 +262,7 @@ struct RecipeDetailView: View {
             ToolbarItem(placement: .primaryAction) {
                 Menu {
                     Button {
-                        editingRecipe = recipe
+                        editingRecipe = displayedRecipe
                     } label: {
                         Label("Edit Recipe", systemImage: "pencil")
                     }
@@ -275,6 +281,15 @@ struct RecipeDetailView: View {
             AddEditRecipeView(editingRecipe: recipe)
                 .environmentObject(model)
         }
+        .onChange(of: editingRecipe) { oldValue, newValue in
+            // When the edit sheet closes (newValue becomes nil), refresh the displayed recipe
+            if newValue == nil, oldValue != nil {
+                // Find the updated recipe from the model's recipes array
+                if let updatedRecipe = model.recipes.first(where: { $0.id == recipe.id }) {
+                    displayedRecipe = updatedRecipe
+                }
+            }
+        }
         .alert("Delete Recipe", isPresented: $showingDeleteAlert) {
             Button("Delete", role: .destructive) {
                 Task {
@@ -283,7 +298,7 @@ struct RecipeDetailView: View {
             }
             Button("Cancel", role: .cancel) { }
         } message: {
-            Text("Are you sure you want to delete '\(recipe.name)'? This action cannot be undone.")
+            Text("Are you sure you want to delete '\(displayedRecipe.name)'? This action cannot be undone.")
         }
         .overlay(alignment: .top) {
             if showCopiedHUD {

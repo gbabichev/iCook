@@ -1106,8 +1106,37 @@ class CloudKitManager: ObservableObject {
     func updateRecipe(_ recipe: Recipe, in source: Source) async {
         do {
             let database = source.isPersonal ? privateDatabase : sharedDatabase
-            let record = recipe.toCKRecord()
-            let savedRecord = try await database.save(record)
+
+            // Fetch the existing record first to properly update it
+            let existingRecord = try await database.record(for: recipe.id)
+
+            // Update the fields from the recipe
+            existingRecord["name"] = recipe.name
+            existingRecord["recipeTime"] = recipe.recipeTime
+            existingRecord["details"] = recipe.details
+            existingRecord["sourceID"] = CKRecord.Reference(recordID: recipe.sourceID, action: .deleteSelf)
+            existingRecord["categoryID"] = CKRecord.Reference(recordID: recipe.categoryID, action: .none)
+            existingRecord["lastModified"] = recipe.lastModified
+
+            // Handle image asset
+            if let imageAsset = recipe.imageAsset {
+                existingRecord["imageAsset"] = imageAsset
+            } else {
+                existingRecord["imageAsset"] = nil
+            }
+
+            // Handle recipe steps
+            do {
+                let stepsData = try JSONEncoder().encode(recipe.recipeSteps)
+                if let stepsJSON = String(data: stepsData, encoding: .utf8) {
+                    existingRecord["recipeSteps"] = stepsJSON
+                }
+            } catch {
+                printD("Error encoding recipe steps: \(error.localizedDescription)")
+            }
+
+            // Save the updated record
+            let savedRecord = try await database.save(existingRecord)
 
             if let savedRecipe = Recipe.from(savedRecord) {
                 let recipeWithImage = recipeWithCachedImage(savedRecipe)
