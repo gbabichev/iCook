@@ -632,12 +632,12 @@ struct RecipeCollectionView: View {
                     }
                     .accessibilityLabel("Add Recipe")
                 }
-                ToolbarItem(placement: .primaryAction) {
-                    sourceMenu
-                }
-                ToolbarItem(placement: .primaryAction) {
-                    debugMenu
-                }
+//                ToolbarItem(placement: .primaryAction) {
+//                    sourceMenu
+//                }
+//                ToolbarItem(placement: .primaryAction) {
+//                    debugMenu
+//                }
 #if os(macOS)
                 ToolbarItem(placement: .status) {
                     offlineStatusIndicator

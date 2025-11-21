@@ -1,4 +1,5 @@
 import SwiftUI
+import CloudKit
 
 struct RecipeDetailView: View {
     let recipe: Recipe
@@ -327,12 +328,17 @@ struct RecipeDetailView: View {
     
     @MainActor
     private func deleteRecipe() async {
+        printD("deleteRecipe: Starting deletion for recipe '\(recipe.name)' with ID: \(recipe.id.recordName)")
         isDeleting = true
         let success = await model.deleteRecipeWithUIFeedback(id: recipe.id)
         isDeleting = false
-        
+        printD("deleteRecipe: Deletion completed. Success: \(success)")
+
         if success {
+            printD("deleteRecipe: Dismissing view after successful deletion")
             dismiss()
+        } else {
+            printD("deleteRecipe: Deletion failed, not dismissing view")
         }
     }
     

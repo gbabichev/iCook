@@ -166,23 +166,53 @@ final class AppViewModel: ObservableObject {
     }
 
     func deleteRecipe(id: CKRecord.ID) async -> Bool {
-        guard let source = currentSource else { return false }
-        guard let recipe = recipes.first(where: { $0.id == id }) else { return false }
+        printD("deleteRecipe: Called with recipe ID: \(id.recordName)")
 
+        guard let source = currentSource else {
+            printD("deleteRecipe: FAILED - No currentSource available")
+            return false
+        }
+        printD("deleteRecipe: Found source: \(source.name)")
+
+        // Try to find recipe in recipes array first, then in randomRecipes
+        var recipe = recipes.first(where: { $0.id == id })
+        if recipe == nil {
+            printD("deleteRecipe: Recipe not in recipes array, checking randomRecipes...")
+            recipe = randomRecipes.first(where: { $0.id == id })
+        }
+
+        guard let recipe = recipe else {
+            printD("deleteRecipe: FAILED - Recipe not found in either recipes or randomRecipes array")
+            printD("deleteRecipe: Looking for ID: \(id.recordName)")
+            printD("deleteRecipe: Available recipe IDs in recipes: \(recipes.map { $0.id.recordName })")
+            printD("deleteRecipe: Available recipe IDs in randomRecipes: \(randomRecipes.map { $0.id.recordName })")
+            return false
+        }
+        printD("deleteRecipe: Found recipe: \(recipe.name)")
+
+        printD("deleteRecipe: Calling cloudKitManager.deleteRecipe...")
         await cloudKitManager.deleteRecipe(recipe, in: source)
+        printD("deleteRecipe: CloudKit deletion completed")
 
         // Remove from the local recipes array immediately
+        printD("deleteRecipe: Removing recipe from local arrays. Before: recipes=\(self.recipes.count), randomRecipes=\(self.randomRecipes.count)")
         self.recipes = recipes.filter { $0.id != id }
         randomRecipes.removeAll { $0.id == id }
         recipeCounts = cloudKitManager.recipeCounts
+        printD("deleteRecipe: After removal: recipes=\(self.recipes.count), randomRecipes=\(self.randomRecipes.count)")
+
         refreshOfflineState()
 
+        printD("deleteRecipe: Posting recipeDeleted notification")
         NotificationCenter.default.post(name: .recipeDeleted, object: id as CKRecord.ID)
+        printD("deleteRecipe: Successfully deleted recipe")
         return true
     }
 
     func deleteRecipeWithUIFeedback(id: CKRecord.ID) async -> Bool {
+        printD("deleteRecipeWithUIFeedback: Called with recipe ID: \(id.recordName)")
         let success = await deleteRecipe(id: id)
+        printD("deleteRecipeWithUIFeedback: Result - Success: \(success)")
         return success
     }
 
