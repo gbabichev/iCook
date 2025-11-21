@@ -430,6 +430,7 @@ struct NewSourceSheet: View {
                         .foregroundColor(.secondary)
                 }
             }
+            .formStyle(.grouped)
             .navigationTitle("New Source")
 #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)

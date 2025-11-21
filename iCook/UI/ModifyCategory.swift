@@ -60,7 +60,16 @@ struct AddCategoryView: View {
     var body: some View {
         NavigationStack {
             Form {
-                if let source = model.currentSource, !model.canEditSource(source) {
+                if model.currentSource == nil {
+                    Section {
+                        HStack {
+                            Image(systemName: "exclamationmark.circle.fill")
+                                .foregroundColor(.red)
+                            Text("Please add a Source first, by clicking the Cloud icon in the toolbar.")
+                                .foregroundColor(.red)
+                        }
+                    }
+                } else if let source = model.currentSource, !model.canEditSource(source) {
                     Section {
                         HStack {
                             Image(systemName: "lock.fill")

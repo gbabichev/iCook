@@ -527,6 +527,10 @@ struct RecipeCollectionView: View {
     
     // MARK: - UI View
 
+    private var shouldShowNoSourceState: Bool {
+        isHome && model.currentSource == nil && !showingSearchResults
+    }
+
     private var shouldShowEmptyState: Bool {
         !isLoading && recipes.isEmpty && !(isHome && model.randomRecipes.isEmpty) && !showingSearchResults
     }
@@ -660,6 +664,22 @@ struct RecipeCollectionView: View {
                     Text(collectionType.loadingText)
                         .font(.headline)
                         .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if shouldShowNoSourceState {
+                // Show message when no source is available
+                VStack(spacing: 16) {
+                    Text("☁️")
+                        .font(.system(size: 48))
+                        .foregroundStyle(.secondary)
+                    Text("Please add a source to continue")
+                        .font(.headline)
+                        .foregroundStyle(.secondary)
+                    Text("Tap the cloud icon in the toolbar to create or select a source")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .padding(.horizontal)
+                        .multilineTextAlignment(.center)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if shouldShowEmptyState {
