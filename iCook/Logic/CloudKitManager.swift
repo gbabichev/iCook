@@ -734,7 +734,7 @@ class CloudKitManager: ObservableObject {
         }
     }
 
-    private func loadRecipeCounts(for source: Source) async {
+    func loadRecipeCounts(for source: Source) async {
         guard isCloudKitAvailable else {
             recipeCounts = loadRecipeCountsLocalCache(for: source)
             return

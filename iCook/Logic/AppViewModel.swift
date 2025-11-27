@@ -74,6 +74,7 @@ final class AppViewModel: ObservableObject {
 
         await cloudKitManager.loadCategories(for: source)
         categories = cloudKitManager.categories
+        await cloudKitManager.loadRecipeCounts(for: source)
         recipeCounts = cloudKitManager.recipeCounts
         error = cloudKitManager.error
         refreshOfflineState()
@@ -198,7 +199,8 @@ final class AppViewModel: ObservableObject {
         printD("deleteRecipe: Removing recipe from local arrays. Before: recipes=\(self.recipes.count), randomRecipes=\(self.randomRecipes.count)")
         self.recipes = recipes.filter { $0.id != id }
         randomRecipes.removeAll { $0.id == id }
-        recipeCounts = cloudKitManager.recipeCounts
+        let oldCount = recipeCounts[recipe.categoryID, default: 1]
+        recipeCounts[recipe.categoryID] = max(oldCount - 1, 0)
         printD("deleteRecipe: After removal: recipes=\(self.recipes.count), randomRecipes=\(self.randomRecipes.count)")
 
         refreshOfflineState()
@@ -264,7 +266,7 @@ final class AppViewModel: ObservableObject {
             printD("recipes array: \(recipes.map { $0.name })")
             // Also add to random recipes
             self.randomRecipes = (randomRecipes + [recipeWithImage]).sorted { $0.lastModified > $1.lastModified }
-            self.recipeCounts = cloudKitManager.recipeCounts
+            recipeCounts[categoryId, default: 0] += 1
 
             // Small delay to ensure UI updates before sheet dismisses
             try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 second
@@ -325,18 +327,155 @@ final class AppViewModel: ObservableObject {
 
         // Update the recipe in the local array immediately
         if error == nil {
+            if let categoryId = categoryId, categoryId != recipe.categoryID {
+                let oldID = recipe.categoryID
+                let newID = categoryId
+                let oldCount = recipeCounts[oldID, default: 1]
+                recipeCounts[oldID] = max(oldCount - 1, 0)
+                recipeCounts[newID, default: 0] += 1
+            }
             if let index = recipes.firstIndex(where: { $0.id == id }) {
                 recipes[index] = updatedRecipe
             }
             if let index = randomRecipes.firstIndex(where: { $0.id == id }) {
                 randomRecipes[index] = updatedRecipe
             }
-            recipeCounts = cloudKitManager.recipeCounts
         }
 
         refreshOfflineState()
         return error == nil
     }
+
+#if os(macOS)
+    // MARK: - Import/Export (macOS)
+    func exportCurrentSourceData() async -> Data? {
+        error = nil
+        guard let source = currentSource else {
+            error = "Select a source before exporting."
+            return nil
+        }
+
+        await loadCategories()
+        await cloudKitManager.loadRecipes(for: source, category: nil)
+        recipes = cloudKitManager.recipes
+
+        let categoryLookup = Dictionary(uniqueKeysWithValues: categories.map { ($0.id, $0.name) })
+
+        let exportedCategories = categories
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            .map { ExportedCategory(name: $0.name, icon: $0.icon) }
+
+        let exportedRecipes = cloudKitManager.recipes
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            .map { recipe in
+                let categoryName = categoryLookup[recipe.categoryID] ?? "Uncategorized"
+                return ExportedRecipe(
+                    name: recipe.name,
+                    recipeTime: recipe.recipeTime,
+                    details: recipe.details,
+                    categoryName: categoryName,
+                    recipeSteps: recipe.recipeSteps,
+                    lastModified: recipe.lastModified
+                )
+            }
+
+        let package = RecipeExportPackage(
+            sourceName: source.name,
+            exportedAt: Date(),
+            categories: exportedCategories,
+            recipes: exportedRecipes
+        )
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+
+        do {
+            return try encoder.encode(package)
+        } catch {
+            self.error = "Failed to export recipes: \(error.localizedDescription)"
+            return nil
+        }
+    }
+
+    func exportCurrentSource(to url: URL) async -> Bool {
+        guard let data = await exportCurrentSourceData() else {
+            return false
+        }
+
+        do {
+            try data.write(to: url, options: .atomic)
+            return true
+        } catch {
+            self.error = "Failed to export recipes: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    func importRecipes(from url: URL) async -> Bool {
+        error = nil
+        guard let source = currentSource else {
+            error = "Select a source before importing."
+            return false
+        }
+
+        do {
+            let data = try Data(contentsOf: url)
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            let package = try decoder.decode(RecipeExportPackage.self, from: data)
+
+            await loadCategories()
+
+            var categoryIDsByName: [String: CKRecord.ID] = [:]
+            for category in categories {
+                categoryIDsByName[category.name.lowercased()] = category.id
+            }
+
+            for exportedCategory in package.categories {
+                let key = exportedCategory.name.lowercased()
+                if categoryIDsByName[key] == nil {
+                    let created = await createCategory(name: exportedCategory.name, icon: exportedCategory.icon)
+                    if created,
+                       let newCategory = categories.first(where: { $0.name.caseInsensitiveCompare(exportedCategory.name) == .orderedSame }) {
+                        categoryIDsByName[key] = newCategory.id
+                    }
+                }
+            }
+
+            var importedCount = 0
+            for recipe in package.recipes {
+                guard let categoryID = categoryIDsByName[recipe.categoryName.lowercased()] else {
+                    continue
+                }
+                let created = await createRecipeWithSteps(
+                    categoryId: categoryID,
+                    name: recipe.name,
+                    recipeTime: recipe.recipeTime,
+                    details: recipe.details,
+                    image: nil,
+                    recipeSteps: recipe.recipeSteps
+                )
+                if created {
+                    importedCount += 1
+                    recipeCounts[categoryID, default: 0] += 1
+                }
+            }
+
+            if importedCount == 0 {
+                error = "No recipes were imported."
+                return false
+            }
+
+            await loadRandomRecipes()
+            refreshOfflineState()
+            return true
+        } catch {
+            self.error = "Failed to import recipes: \(error.localizedDescription)"
+            return false
+        }
+    }
+#endif
 
     // MARK: - Sharing
     func isSourceShared(_ source: Source) -> Bool {
