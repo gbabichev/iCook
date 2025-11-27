@@ -38,8 +38,8 @@ struct ContentView: View {
                     isShowingHome: $isShowingHome,
                     showingAddCategory: $showingAddCategory
                 )
-                .navigationSplitViewColumnWidth(min: 200, ideal: 250, max: 400)
             }
+            .navigationSplitViewColumnWidth(min: 250, ideal: 250, max: 400)
         } detail: {
             // Single NavigationStack for the detail view
             NavigationStack {

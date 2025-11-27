@@ -118,7 +118,7 @@ struct CategoryList: View {
                 Button {
                     showSourcesOverlay = true
                 } label: {
-                    Image(systemName: "cloud")
+                    Image(systemName: "book")
                 }
                 .accessibilityLabel("Collections")
             }
