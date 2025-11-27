@@ -1361,7 +1361,7 @@ class CloudKitManager: ObservableObject {
                     // Create the share with a unique ID
                     // IMPORTANT: Use the same zone ID as the root record!
                     let shareID = CKRecord.ID(recordName: UUID().uuidString, zoneID: rootRecord.recordID.zoneID)
-                    var share = CKShare(rootRecord: rootRecord, shareID: shareID)
+                    let share = CKShare(rootRecord: rootRecord, shareID: shareID)
                     share[CKShare.SystemFieldKey.title] = source.name as CKRecordValue
                     share.publicPermission = .readOnly
 

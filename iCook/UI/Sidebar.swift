@@ -94,6 +94,21 @@ struct CategoryList: View {
                         .foregroundStyle(.secondary)
                 }
                 .padding(.vertical, 8)
+            } else if model.currentSource != nil && model.categories.isEmpty {
+                Section {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Image(systemName: "plus.circle.fill")
+                                .foregroundColor(.blue)
+                            Text("Welcome!")
+                                .font(.headline)
+                        }
+                        Text("Create your first category to get started")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 8)
+                }
             }
         }
         .navigationTitle("iCook")
@@ -105,7 +120,7 @@ struct CategoryList: View {
                 } label: {
                     Image(systemName: "cloud")
                 }
-                .accessibilityLabel("Sources")
+                .accessibilityLabel("Collections")
             }
             ToolbarItem(placement: .primaryAction) {
                 Button {

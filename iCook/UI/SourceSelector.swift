@@ -90,7 +90,7 @@ private struct MacToolbarIconButton: View {
                         }
                 }
             }
-            .navigationTitle("Sources")
+            .navigationTitle("Collections")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
@@ -126,7 +126,7 @@ private struct MacToolbarIconButton: View {
         VStack(spacing: 0) {
             // Title bar
             HStack(spacing: 8) {
-                Text("Sources")
+                Text("Collections")
                     .font(.title2)
                     .fontWeight(.semibold)
 
@@ -141,8 +141,7 @@ private struct MacToolbarIconButton: View {
                 }
             }
             .padding(12)
-            .background(Color(nsColor: .controlBackgroundColor))
-            .border(Color(nsColor: .separatorColor), width: 1)
+
 
             // Content area
             macOSListContent
@@ -215,6 +214,12 @@ private struct MacToolbarIconButton: View {
             }
 
             List {
+                Section {
+                    Text("Create recipe collections for different themes or occasions. Share any collection with friends and w.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
                 Section {
                     if viewModel.sources.isEmpty {
                         Text("No sources yet")

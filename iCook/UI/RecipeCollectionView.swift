@@ -219,7 +219,7 @@ struct RecipeCollectionView: View {
         } label: {
             Image(systemName: "cloud")
         }
-        .accessibilityLabel("Sources")
+        .accessibilityLabel("Collections")
     }
 
     private var debugMenu: some View {
@@ -531,6 +531,10 @@ struct RecipeCollectionView: View {
         isHome && model.currentSource == nil && !showingSearchResults
     }
 
+    private var shouldShowWelcomeState: Bool {
+        isHome && model.currentSource != nil && model.randomRecipes.isEmpty && !isLoading && !showingSearchResults
+    }
+
     private var shouldShowEmptyState: Bool {
         !isLoading && recipes.isEmpty && !(isHome && model.randomRecipes.isEmpty) && !showingSearchResults
     }
@@ -678,6 +682,21 @@ struct RecipeCollectionView: View {
                     Text("Tap the cloud icon in the toolbar to create or select a source")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
+                        .padding(.horizontal)
+                        .multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if shouldShowWelcomeState {
+                // Show welcome message when source exists but no recipes yet
+                VStack(spacing: 16) {
+                    Text("👋")
+                        .font(.system(size: 48))
+                    Text("Welcome to iCook!")
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                    Text("Start by adding categories and recipes to get going")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                         .padding(.horizontal)
                         .multilineTextAlignment(.center)
                 }
