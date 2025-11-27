@@ -17,5 +17,43 @@
 	<array>
 		<string>remote-notification</string>
 	</array>
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>iCook Export</string>
+			<key>LSHandlerRank</key>
+			<string>Owner</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.georgebabichev.icook.export</string>
+			</array>
+			<key>LSTypeIsPackage</key>
+			<true/>
+		</dict>
+	</array>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeDescription</key>
+			<string>iCook Recipe Export</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.georgebabichev.icook.export</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>com.apple.package</string>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>icookexport</string>
+				</array>
+				<key>public.mime-type</key>
+				<string>application/x-icookexport</string>
+			</dict>
+		</dict>
+	</array>
 </dict>
 </plist>

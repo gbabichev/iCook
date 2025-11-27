@@ -34,8 +34,8 @@ struct iCookApp: App {
                 .fileExporter(
                     isPresented: $isExporting,
                     document: exportDocument,
-                    contentType: .json,
-                    defaultFilename: "RecipesExport"
+                    contentType: RecipeExportConstants.contentType,
+                    defaultFilename: "RecipesExport.icookexport"
                 ) { result in
                     switch result {
                     case .success(let url):
@@ -46,7 +46,7 @@ struct iCookApp: App {
                 }
                 .fileImporter(
                     isPresented: $isImporting,
-                    allowedContentTypes: [.json],
+                    allowedContentTypes: [RecipeExportConstants.contentType, .json],
                     allowsMultipleSelection: false
                 ) { result in
                     switch result {
@@ -129,9 +129,9 @@ struct iCookApp: App {
             await MainActor.run {
                 model.error = nil
             }
-            if let data = await model.exportCurrentSourceData() {
+            if let document = await model.exportCurrentSourceDocument() {
                 await MainActor.run {
-                    exportDocument = RecipeExportDocument(data: data)
+                    exportDocument = document
                     isExporting = true
                 }
             } else if let message = await MainActor.run(body: { model.error }) {

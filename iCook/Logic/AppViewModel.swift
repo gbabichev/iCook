@@ -1,6 +1,9 @@
 import Foundation
 import Combine
 import CloudKit
+#if os(macOS)
+import UniformTypeIdentifiers
+#endif
 
 @MainActor
 final class AppViewModel: ObservableObject {
@@ -348,7 +351,7 @@ final class AppViewModel: ObservableObject {
 
 #if os(macOS)
     // MARK: - Import/Export (macOS)
-    func exportCurrentSourceData() async -> Data? {
+    func exportCurrentSourceDocument() async -> RecipeExportDocument? {
         error = nil
         guard let source = currentSource else {
             error = "Select a source before exporting."
@@ -367,23 +370,38 @@ final class AppViewModel: ObservableObject {
 
         let exportedRecipes = cloudKitManager.recipes
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-            .map { recipe in
+            .compactMap { recipe -> (ExportedRecipe, String?, Data?)? in
+                let imageInfo = loadImageData(for: recipe)
+                let imageFilename = imageInfo?.filename
+                let imageData = imageInfo?.data
+
                 let categoryName = categoryLookup[recipe.categoryID] ?? "Uncategorized"
-                return ExportedRecipe(
+                let exported = ExportedRecipe(
                     name: recipe.name,
                     recipeTime: recipe.recipeTime,
                     details: recipe.details,
                     categoryName: categoryName,
                     recipeSteps: recipe.recipeSteps,
-                    lastModified: recipe.lastModified
+                    lastModified: recipe.lastModified,
+                    imageFilename: imageFilename
                 )
+                return (exported, imageFilename, imageData)
             }
+
+        var images: [String: Data] = [:]
+        let recipes = exportedRecipes.map { tuple in
+            if let filename = tuple.1, let data = tuple.2 {
+                images[filename] = data
+            }
+            return tuple.0
+        }
 
         let package = RecipeExportPackage(
             sourceName: source.name,
             exportedAt: Date(),
             categories: exportedCategories,
-            recipes: exportedRecipes
+            recipes: recipes,
+            formatVersion: 1
         )
 
         let encoder = JSONEncoder()
@@ -391,36 +409,23 @@ final class AppViewModel: ObservableObject {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
 
         do {
-            return try encoder.encode(package)
+            let data = try encoder.encode(package)
+            return RecipeExportDocument(data: data, images: images)
         } catch {
             self.error = "Failed to export recipes: \(error.localizedDescription)"
             return nil
         }
     }
 
-    func exportCurrentSource(to url: URL) async -> Bool {
-        guard let data = await exportCurrentSourceData() else {
-            return false
-        }
-
-        do {
-            try data.write(to: url, options: .atomic)
-            return true
-        } catch {
-            self.error = "Failed to export recipes: \(error.localizedDescription)"
-            return false
-        }
-    }
-
     func importRecipes(from url: URL) async -> Bool {
         error = nil
-        guard let source = currentSource else {
+        guard currentSource != nil else {
             error = "Select a source before importing."
             return false
         }
 
         do {
-            let data = try Data(contentsOf: url)
+            let (data, images) = try loadPackageOrJSON(at: url)
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
             let package = try decoder.decode(RecipeExportPackage.self, from: data)
@@ -453,7 +458,7 @@ final class AppViewModel: ObservableObject {
                     name: recipe.name,
                     recipeTime: recipe.recipeTime,
                     details: recipe.details,
-                    image: nil,
+                    image: recipe.imageFilename.flatMap { images[$0] },
                     recipeSteps: recipe.recipeSteps
                 )
                 if created {
@@ -474,6 +479,57 @@ final class AppViewModel: ObservableObject {
             self.error = "Failed to import recipes: \(error.localizedDescription)"
             return false
         }
+    }
+
+    private func loadImageData(for recipe: Recipe) -> (filename: String, data: Data)? {
+        let fm = FileManager.default
+
+        if let cachedPath = recipe.cachedImagePath, fm.fileExists(atPath: cachedPath),
+           let data = try? Data(contentsOf: URL(fileURLWithPath: cachedPath)) {
+            let ext = URL(fileURLWithPath: cachedPath).pathExtension.isEmpty ? "jpg" : URL(fileURLWithPath: cachedPath).pathExtension
+            let filename = sanitizedFileComponent("\(recipe.id.recordName).\(ext)")
+            return (filename, data)
+        }
+
+        if let assetURL = recipe.imageAsset?.fileURL,
+           let data = try? Data(contentsOf: assetURL) {
+            let ext = assetURL.pathExtension.isEmpty ? "jpg" : assetURL.pathExtension
+            let filename = sanitizedFileComponent("\(recipe.id.recordName).\(ext)")
+            return (filename, data)
+        }
+
+        return nil
+    }
+
+    private func sanitizedFileComponent(_ value: String) -> String {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
+        let scalars = value.unicodeScalars.map { allowed.contains($0) ? Character($0) : "-" }
+        return String(scalars)
+    }
+
+    private func loadPackageOrJSON(at url: URL) throws -> (Data, [String: Data]) {
+        let values = try? url.resourceValues(forKeys: [.contentTypeKey])
+        let isPackage = values?.contentType?.conforms(to: RecipeExportConstants.contentType) == true || url.pathExtension.lowercased() == "icookexport"
+
+        if !isPackage {
+            return (try Data(contentsOf: url), [:])
+        }
+
+        let recipesURL = url.appendingPathComponent(RecipeExportConstants.recipesFileName)
+        let data = try Data(contentsOf: recipesURL)
+
+        let imagesURL = url.appendingPathComponent(RecipeExportConstants.imagesFolderName)
+        var images: [String: Data] = [:]
+        if FileManager.default.fileExists(atPath: imagesURL.path),
+           let fileURLs = try? FileManager.default.contentsOfDirectory(at: imagesURL, includingPropertiesForKeys: nil) {
+            for fileURL in fileURLs {
+                if let data = try? Data(contentsOf: fileURL) {
+                    images[fileURL.lastPathComponent] = data
+                }
+            }
+        }
+
+        return (data, images)
     }
 #endif
 
