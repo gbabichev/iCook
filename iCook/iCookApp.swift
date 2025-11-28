@@ -90,22 +90,36 @@ struct iCookApp: App {
         }
 #if os(macOS)
         .commands {
-            CommandGroup(after: .newItem) {
-                Button("Refresh") {
+            CommandGroup(replacing: .newItem) {
+                Button {
+                    NSApp.sendAction(#selector(NSApplication.newWindowForTab(_:)), to: nil, from: nil)
+                } label: {
+                    Label("New Window", systemImage: "plus.square.on.square")
+                }
+                .keyboardShortcut("n", modifiers: .command)
+
+                Button {
                     Task {
                         await refreshCurrentView()
                     }
+                }
+                label: {
+                    Label("Refresh", systemImage: "arrow.clockwise")
                 }
                 .keyboardShortcut("r", modifiers: .command)
 
                 Divider()
 
-                Button("Export Recipes…") {
+                Button {
                     exportRecipes()
+                } label: {
+                    Label("Export Recipes…", systemImage: "square.and.arrow.up")
                 }
 
-                Button("Import Recipes…") {
+                Button {
                     importRecipes()
+                } label: {
+                    Label("Import Recipes…", systemImage: "square.and.arrow.down")
                 }
             }
         }
