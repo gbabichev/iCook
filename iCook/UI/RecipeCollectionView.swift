@@ -90,6 +90,7 @@ struct RecipeCollectionView: View {
     @State private var editingRecipe: Recipe?
     @State private var deletingRecipe: Recipe?
     @State private var showingDeleteAlert = false
+    @State private var showingOfflineNotice = false
     @State private var isDeleting = false
     @State private var selectedFeaturedRecipe: Recipe?
     @State private var hasLoadedInitially = false
@@ -119,12 +120,25 @@ struct RecipeCollectionView: View {
         }
     }
 
+//    @ViewBuilder
+//    private var offlineStatusIndicator: some View {
+//        if model.isOfflineMode {
+//            Label("Offline Mode", systemImage: "wifi.slash")
+//                .font(.caption)
+//                .foregroundStyle(.orange)
+//        }
+//    }
+    
     @ViewBuilder
     private var offlineStatusIndicator: some View {
         if model.isOfflineMode {
-            Label("Offline Mode", systemImage: "wifi.slash")
-                .font(.caption)
-                .foregroundStyle(.orange)
+            Button {
+                showingOfflineNotice = true
+            } label: {
+                Image(systemName: "wifi.slash")
+            }
+            .foregroundStyle(.red)
+            .accessibilityLabel("Offline mode")
         }
     }
     
@@ -385,6 +399,7 @@ struct RecipeCollectionView: View {
                             } label: {
                                 Label("Edit Recipe", systemImage: "pencil")
                             }
+                            .disabled(model.isOfflineMode)
                             
                             Button(role: .destructive) {
                                 deletingRecipe = recipe
@@ -539,6 +554,26 @@ struct RecipeCollectionView: View {
         !isLoading && recipes.isEmpty && !(isHome && model.randomRecipes.isEmpty) && !showingSearchResults
     }
 
+    private var offlineNoticeSheet: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "wifi.slash")
+                .font(.system(size: 48))
+                .foregroundStyle(.red)
+            Text("You are offline")
+                .font(.headline)
+            Text("Connect to the internet to sync recipes with iCloud and enable recipe editing.")
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal)
+            Button("Got it") {
+                showingOfflineNotice = false
+            }
+            .keyboardShortcut(.defaultAction)
+        }
+        .padding(24)
+        .frame(minWidth: 280)
+    }
+
     var body: some View {
         mainContent
             .applySearchModifiers(searchText: $searchText, searchTask: $searchTask, showingSearchResults: $showingSearchResults, searchResults: $searchResults)
@@ -607,6 +642,9 @@ struct RecipeCollectionView: View {
                     await loadRecipes()
                 }
             }
+            .sheet(isPresented: $showingOfflineNotice) {
+                offlineNoticeSheet
+            }
             .overlay {
                 if isDeleting {
                     ZStack {
@@ -646,6 +684,8 @@ struct RecipeCollectionView: View {
                     } label: {
                         Image(systemName: "plus.circle.fill")
                     }
+                    .disabled(model.isOfflineMode)
+                    .help(model.isOfflineMode ? "Connect to iCloud to add recipes" : "Add Recipe")
                     .accessibilityLabel("Add Recipe")
                 }
 //                ToolbarItem(placement: .primaryAction) {
@@ -663,7 +703,7 @@ struct RecipeCollectionView: View {
                     offlineStatusIndicator
                 }
 #endif
-                ToolbarSpacer(.flexible)
+                //ToolbarSpacer(.flexible)
             }
     }
 

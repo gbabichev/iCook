@@ -267,6 +267,7 @@ struct RecipeDetailView: View {
                     } label: {
                         Label("Edit Recipe", systemImage: "pencil")
                     }
+                    .disabled(model.isOfflineMode)
                     
                     Button(role: .destructive) {
                         showingDeleteAlert = true
@@ -276,6 +277,7 @@ struct RecipeDetailView: View {
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
+                .disabled(model.isOfflineMode)
             }
         }
         .sheet(item: $editingRecipe) { recipe in

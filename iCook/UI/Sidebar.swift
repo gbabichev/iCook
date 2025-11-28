@@ -120,6 +120,7 @@ struct CategoryList: View {
                 } label: {
                     Image(systemName: "book")
                 }
+                .disabled(model.isOfflineMode)
                 .accessibilityLabel("Collections")
             }
             ToolbarItem(placement: .primaryAction) {
@@ -128,6 +129,7 @@ struct CategoryList: View {
                 } label: {
                     Image(systemName: "plus")
                 }
+                .disabled(model.isOfflineMode)
                 .accessibilityLabel("Add Category")
             }
         }
