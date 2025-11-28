@@ -132,7 +132,7 @@ private struct MacToolbarIconButton: View {
 
                 Spacer()
 
-                MacToolbarIconButton(systemImage: "plus", help: "Add new source") {
+                MacToolbarIconButton(systemImage: "plus", help: "Add new collection") {
                     showNewSourceSheet = true
                 }
 
@@ -215,14 +215,14 @@ private struct MacToolbarIconButton: View {
 
             List {
                 Section {
-                    Text("Create recipe collections for different themes or occasions. Share any collection with friends and w.")
+                    Text("Create recipe collections for different themes or occasions. Share any collection with friends!")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
 
                 Section {
                     if viewModel.sources.isEmpty {
-                        Text("No sources yet")
+                        Text("No Collections yet")
                             .foregroundColor(.secondary)
                     } else {
                         ForEach(viewModel.sources, id: \.id) { source in
@@ -425,18 +425,18 @@ struct NewSourceSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Source Name") {
+                Section("Collection Name") {
                     TextField("e.g., Family Recipes", text: $sourceName)
                 }
 
                 Section {
-                    Text("Personal sources are stored in your private iCloud space and can be shared with others.")
+                    Text("Collections are stored in iCloud, and can be shared with others.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
             }
             .formStyle(.grouped)
-            .navigationTitle("New Source")
+            .navigationTitle("New Collection")
 #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
 #endif
@@ -640,9 +640,4 @@ struct SourceRowWrapper: View {
         }
 #endif
     }
-}
-
-#Preview {
-    SourceSelector()
-        .environmentObject(AppViewModel())
 }

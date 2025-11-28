@@ -128,7 +128,7 @@ struct CategoryList: View {
                 } label: {
                     Image(systemName: "plus")
                 }
-                .disabled(model.isOfflineMode)
+                .disabled(model.isOfflineMode || model.currentSource == nil)
                 .accessibilityLabel("Add Category")
             }
         }

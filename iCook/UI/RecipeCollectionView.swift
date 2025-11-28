@@ -202,6 +202,10 @@ struct RecipeCollectionView: View {
         return nil
     }
 
+    private var hasActiveCollection: Bool {
+        model.currentSource != nil
+    }
+
     // MARK: - Toolbar Views
 
     private var sourceMenu: some View {
@@ -226,7 +230,7 @@ struct RecipeCollectionView: View {
                     Divider()
 
                     Button(action: { showNewSourceSheet = true }) {
-                        Label("New Source", systemImage: "plus")
+                        Label("New Collection", systemImage: "plus")
                     }
                 }
             }
@@ -684,16 +688,18 @@ struct RecipeCollectionView: View {
                     } label: {
                         Image(systemName: "plus.circle.fill")
                     }
-                    .disabled(model.isOfflineMode)
-                    .help(model.isOfflineMode ? "Connect to iCloud to add recipes" : "Add Recipe")
+                    .disabled(model.isOfflineMode || !hasActiveCollection)
+                    .help(model.isOfflineMode ? "Connect to iCloud to add recipes" : (!hasActiveCollection ? "Create a collection first" : "Add Recipe"))
                     .accessibilityLabel("Add Recipe")
                 }
 //                ToolbarItem(placement: .primaryAction) {
 //                    sourceMenu
 //                }
+                #if DEBUG
                 ToolbarItem(placement: .primaryAction) {
                     debugMenu
                 }
+                #endif
 #if os(macOS)
                 ToolbarItem(placement: .status) {
                     offlineStatusIndicator
@@ -721,13 +727,13 @@ struct RecipeCollectionView: View {
             } else if shouldShowNoSourceState {
                 // Show message when no source is available
                 VStack(spacing: 16) {
-                    Text("☁️")
+                    Image(systemName:"book")
                         .font(.system(size: 48))
                         .foregroundStyle(.secondary)
-                    Text("Please add a source to continue")
+                    Text("Please add a Recipe Collection to continue")
                         .font(.headline)
                         .foregroundStyle(.secondary)
-                    Text("Tap the cloud icon in the toolbar to create or select a source")
+                    Text("Tap the book icon in the toolbar to create or select a source.")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                         .padding(.horizontal)
