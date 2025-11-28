@@ -473,6 +473,15 @@ class CloudKitManager: ObservableObject {
                 }
             }
 
+            // Normalize shared flag based on zone ownership
+            allSources = allSources.map { source in
+                var updated = source
+                if shouldBeSharedBasedOnZone(source) {
+                    updated.isPersonal = false
+                }
+                return updated
+            }
+
             allSources.sort { $0.lastModified > $1.lastModified }
 
             self.sources = allSources
@@ -637,6 +646,28 @@ class CloudKitManager: ObservableObject {
             printD("Error deleting source: \(error.localizedDescription)")
             self.error = "Failed to delete source"
         }
+    }
+
+    func isSharedSource(_ source: Source) -> Bool {
+        // Treat anything outside the personal zone or marked non-personal as shared
+        if !source.isPersonal {
+            printD("Shared check: \(source.name) is marked non-personal")
+            return true
+        }
+        let zoneID = source.id.zoneID
+        if shouldBeSharedBasedOnZone(source) {
+            printD("Shared check: \(source.name) has shared-like zone (\(zoneID.zoneName), owner: \(zoneID.ownerName)) vs personal (\(personalZoneID.zoneName), owner: \(CKCurrentUserDefaultName))")
+            return true
+        }
+        printD("Shared check: \(source.name) treated as personal")
+        return false
+    }
+
+    private func shouldBeSharedBasedOnZone(_ source: Source) -> Bool {
+        let zoneID = source.id.zoneID
+        if zoneID.zoneName != personalZoneID.zoneName { return true }
+        if zoneID.ownerName != CKCurrentUserDefaultName { return true }
+        return false
     }
 
     func removeSharedSourceLocally(_ source: Source) async {

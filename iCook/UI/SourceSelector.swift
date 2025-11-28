@@ -329,17 +329,15 @@ private struct MacToolbarIconButton: View {
         if let shareURL = await viewModel.cloudKitManager.getShareURL(for: source) {
             printD("Got share URL: \(shareURL.absoluteString)")
 
-            // Copy to clipboard
             await MainActor.run {
 #if os(iOS)
-                UIPasteboard.general.url = shareURL
+                presentShareSheet(with: shareURL)
 #elseif os(macOS)
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(shareURL.absoluteString, forType: .string)
-#endif
                 shareSuccessMessage = "Link copied to clipboard"
-                showShareSuccess = true
-                printD("Share URL copied to clipboard")
+#endif
+                printD("Share URL ready for sharing")
             }
         } else {
             await MainActor.run {
@@ -349,6 +347,31 @@ private struct MacToolbarIconButton: View {
             }
         }
     }
+
+#if os(iOS)
+    @MainActor
+    private func presentShareSheet(with url: URL) {
+        let activityVC = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+
+        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let window = windowScene.windows.first(where: { $0.isKeyWindow }),
+              var topController = window.rootViewController else {
+            printD("Cannot find window to present share sheet")
+            return
+        }
+
+        while let presented = topController.presentedViewController {
+            topController = presented
+        }
+
+        if let popover = activityVC.popoverPresentationController {
+            popover.sourceView = topController.view
+            popover.sourceRect = CGRect(x: topController.view.bounds.midX, y: topController.view.bounds.midY, width: 0, height: 0)
+        }
+
+        topController.present(activityVC, animated: true)
+    }
+#endif
 
 #if os(iOS)
     /// Present UICloudSharingController directly via UIKit
@@ -432,6 +455,7 @@ struct SourceRow: View {
     let onShare: () -> Void
 
     @State private var showDeleteConfirmation = false
+    @EnvironmentObject private var viewModel: AppViewModel
 
     var body: some View {
         HStack(spacing: 12) {
@@ -441,9 +465,16 @@ struct SourceRow: View {
                     .font(.headline)
                     .fontWeight(isSelected ? .semibold : .regular)
 
-                Text(source.isPersonal ? "Personal" : "Shared")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                HStack(spacing: 6) {
+                    if viewModel.isSourceShared(source) {
+                        Label("Shared", systemImage: "person.2.fill")
+                    }
+                    if source.isPersonal {
+                        Label("Personal", systemImage: "person.fill")
+                    }
+                }
+                .font(.caption)
+                .foregroundColor(.secondary)
             }
 
             Spacer()
@@ -649,6 +680,7 @@ struct SourceRowWrapper: View {
     let onShare: () -> Void
     let onDelete: () -> Void
     let onRemoveShare: () -> Void
+    @EnvironmentObject private var viewModel: AppViewModel
 
     var body: some View {
         HStack(spacing: 12) {
@@ -656,9 +688,16 @@ struct SourceRowWrapper: View {
                 Text(source.name)
                     .fontWeight(isSelected ? .semibold : .regular)
 
-                Text(source.isPersonal ? "Personal" : "Shared")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                HStack(spacing: 6) {
+                    if viewModel.isSourceShared(source) {
+                        Label("Shared", systemImage: "person.2.fill")
+                    }
+                    if source.isPersonal {
+                        Label("Personal", systemImage: "person.fill")
+                    }
+                }
+                .font(.caption)
+                .foregroundColor(.secondary)
             }
 
             Spacer()

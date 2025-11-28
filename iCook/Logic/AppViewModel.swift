@@ -563,7 +563,7 @@ final class AppViewModel: ObservableObject {
 
     // MARK: - Sharing
     func isSourceShared(_ source: Source) -> Bool {
-        return !source.isPersonal
+        return cloudKitManager.isSharedSource(source)
     }
 
     func canEditSource(_ source: Source) -> Bool {
