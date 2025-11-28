@@ -545,7 +545,15 @@ struct RecipeCollectionView: View {
             .applyNavigationModifiers(collectionType: collectionType, showingSearchResults: showingSearchResults)
             .applyLifecycleModifiers(collectionType: collectionType, hasLoadedInitially: $hasLoadedInitially, selectedFeaturedRecipe: $selectedFeaturedRecipe, showingSearchResults: $showingSearchResults, searchResults: $searchResults, searchText: $searchText, searchTask: $searchTask)
             .applyDataModifiers(categoryRecipes: $categoryRecipes, selectedFeaturedRecipe: $selectedFeaturedRecipe, model: model, collectionType: collectionType)
-            .applyAlertModifiers(error: $error, deletingRecipe: $deletingRecipe, showingDeleteAlert: $showingDeleteAlert)
+            .applyAlertModifiers(
+                error: $error,
+                deletingRecipe: $deletingRecipe,
+                showingDeleteAlert: $showingDeleteAlert
+            ) { recipe in
+                Task {
+                    await deleteRecipe(recipe)
+                }
+            }
             .applySheetModifiers(editingRecipe: $editingRecipe, showingAddRecipe: $showingAddRecipe, showNewSourceSheet: $showNewSourceSheet, newSourceName: $newSourceName, categoryIdIfApplicable: categoryIdIfApplicable, model: model)
             .onReceive(NotificationCenter.default.publisher(for: .recipeDeleted)) { notification in
                 if let deletedRecipeId = notification.object as? CKRecord.ID {
@@ -643,9 +651,9 @@ struct RecipeCollectionView: View {
 //                ToolbarItem(placement: .primaryAction) {
 //                    sourceMenu
 //                }
-//                ToolbarItem(placement: .primaryAction) {
-//                    debugMenu
-//                }
+                ToolbarItem(placement: .primaryAction) {
+                    debugMenu
+                }
 #if os(macOS)
                 ToolbarItem(placement: .status) {
                     offlineStatusIndicator
@@ -801,7 +809,8 @@ extension View {
     func applyAlertModifiers(
         error: Binding<String?>,
         deletingRecipe: Binding<Recipe?>,
-        showingDeleteAlert: Binding<Bool>
+        showingDeleteAlert: Binding<Bool>,
+        onConfirmDelete: @escaping (Recipe) -> Void
     ) -> some View {
         self
             .alert("Error", isPresented: .init(
@@ -814,7 +823,9 @@ extension View {
             }
             .alert("Delete Recipe", isPresented: showingDeleteAlert) {
                 Button("Delete", role: .destructive) {
-                    // Deletion handled by parent
+                    if let recipe = deletingRecipe.wrappedValue {
+                        onConfirmDelete(recipe)
+                    }
                 }
                 Button("Cancel", role: .cancel) {
                     deletingRecipe.wrappedValue = nil

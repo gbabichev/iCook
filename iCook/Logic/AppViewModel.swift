@@ -13,6 +13,7 @@ final class AppViewModel: ObservableObject {
     @Published var recipeCounts: [CKRecord.ID: Int] = [:]
     @Published var isLoadingCategories = false
     @Published var isLoadingRecipes = false
+    @Published var isImporting = false
     @Published var error: String?
     @Published var isOfflineMode = false
 
@@ -419,10 +420,13 @@ final class AppViewModel: ObservableObject {
 
     func importRecipes(from url: URL) async -> Bool {
         error = nil
-        guard currentSource != nil else {
+        guard let source = currentSource else {
             error = "Select a source before importing."
             return false
         }
+
+        isImporting = true
+        defer { isImporting = false }
 
         do {
             let (data, images) = try loadPackageOrJSON(at: url)
@@ -463,7 +467,6 @@ final class AppViewModel: ObservableObject {
                 )
                 if created {
                     importedCount += 1
-                    recipeCounts[categoryID, default: 0] += 1
                 }
             }
 
@@ -472,6 +475,8 @@ final class AppViewModel: ObservableObject {
                 return false
             }
 
+            await cloudKitManager.loadRecipeCounts(for: source)
+            recipeCounts = cloudKitManager.recipeCounts
             await loadRandomRecipes()
             refreshOfflineState()
             return true

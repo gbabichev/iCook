@@ -24,12 +24,28 @@ struct iCookApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
-                .environmentObject(model)
-                .onOpenURL { url in
-                    // Handle CloudKit share links
-                    handleCloudKitShareLink(url)
+            ZStack {
+                ContentView()
+                    .environmentObject(model)
+                    .onOpenURL { url in
+                        // Handle CloudKit share links
+                        handleCloudKitShareLink(url)
+                    }
+
+#if os(macOS)
+                if model.isImporting {
+                    Color.black.opacity(0.25)
+                        .ignoresSafeArea()
+                    VStack(spacing: 12) {
+                        ProgressView()
+                        Text("Importing recipes…")
+                            .font(.headline)
+                    }
+                    .padding(16)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
                 }
+#endif
+            }
 #if os(macOS)
                 .fileExporter(
                     isPresented: $isExporting,
