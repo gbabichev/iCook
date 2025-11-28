@@ -33,6 +33,16 @@ struct CategoryList: View {
         model.recipeCounts[category.id] ?? 0
     }
 
+    private func refreshCategoriesSmooth() async {
+        guard model.currentSource != nil else { return }
+        let start = Date()
+        await model.loadCategories()
+        let elapsed = Date().timeIntervalSince(start)
+        if elapsed < 1.0 {
+            try? await Task.sleep(nanoseconds: UInt64((1.0 - elapsed) * 1_000_000_000))
+        }
+    }
+
     var body: some View {
         List {
             // Home/Featured section
@@ -112,6 +122,9 @@ struct CategoryList: View {
             }
         }
         .listStyle(.sidebar)
+        .refreshable {
+            await refreshCategoriesSmooth()
+        }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {

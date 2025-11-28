@@ -101,6 +101,7 @@ struct RecipeCollectionView: View {
     @State private var searchResults: [Recipe] = []
     @State private var isSearching = false
     @State private var showingSearchResults = false
+    @State private var isRefreshing = false
 
     
     // Adaptive columns with consistent spacing - account for spacing in minimum width
@@ -436,16 +437,16 @@ struct RecipeCollectionView: View {
     // MARK: - Loading Logic
     
     @MainActor
-    private func loadRecipes() async {
+    private func loadRecipes(skipCache: Bool = false) async {
         // Cancel any existing task first
         currentLoadTask?.cancel()
         
         currentLoadTask = Task {
             switch collectionType {
             case .home:
-                await loadHomeRecipes()
+                await loadHomeRecipes(skipCache: skipCache)
             case .category(let category):
-                await loadCategoryRecipes(category)
+                await loadCategoryRecipes(category, skipCache: skipCache)
             }
         }
         
@@ -453,11 +454,11 @@ struct RecipeCollectionView: View {
     }
     
     @MainActor
-    private func loadHomeRecipes() async {
+    private func loadHomeRecipes(skipCache: Bool = false) async {
         currentLoadTask?.cancel()
         
         currentLoadTask = Task {
-            await model.loadRandomRecipes()
+            await model.loadRandomRecipes(skipCache: skipCache)
             try? await Task.sleep(nanoseconds: 800_000_000) // 800ms minimum refresh time
         }
         
@@ -465,14 +466,14 @@ struct RecipeCollectionView: View {
     }
     
     @MainActor
-    private func loadCategoryRecipes(_ category: Category) async {
+    private func loadCategoryRecipes(_ category: Category, skipCache: Bool = false) async {
         guard !Task.isCancelled else { return }
         
         isLoading = true
         error = nil
         defer { isLoading = false }
 
-        await model.loadRecipesForCategory(category.id)
+        await model.loadRecipesForCategory(category.id, skipCache: skipCache)
         categoryRecipes = model.recipes
 
         // Select featured recipe AFTER setting categoryRecipes
@@ -487,9 +488,9 @@ struct RecipeCollectionView: View {
     }
     
     @MainActor
-    private func refreshCategoryRecipes() async {
+    private func refreshCategoryRecipes(skipCache: Bool = false) async {
         guard case .category(let category) = collectionType else { return }
-        await loadCategoryRecipes(category)
+        await loadCategoryRecipes(category, skipCache: skipCache)
         refreshTrigger = UUID() // Force view refresh
     }
     
@@ -608,7 +609,9 @@ struct RecipeCollectionView: View {
                 if notification.object is CKRecord.ID {
                     Task {
                         if case .category = collectionType {
-                            await refreshCategoryRecipes()
+                            await refreshCategoryRecipes(skipCache: true)
+                        } else if case .home = collectionType {
+                            await loadRecipes(skipCache: true)
                         }
                     }
                 }
@@ -640,11 +643,18 @@ struct RecipeCollectionView: View {
                 }
             }
             .refreshable {
+                isRefreshing = true
+                let start = Date()
                 if showingSearchResults {
                     performSearch()
                 } else {
-                    await loadRecipes()
+                    await loadRecipes(skipCache: true)
                 }
+                let elapsed = Date().timeIntervalSince(start)
+                if elapsed < 0.8 {
+                    try? await Task.sleep(nanoseconds: UInt64((0.8 - elapsed) * 1_000_000_000))
+                }
+                isRefreshing = false
             }
             .sheet(isPresented: $showingOfflineNotice) {
                 offlineNoticeSheet
@@ -779,6 +789,11 @@ struct RecipeCollectionView: View {
                         }
                         // Recipes grid section
                         recipesGridSection()
+                    }
+                }
+                .safeAreaInset(edge: .top) {
+                    if isRefreshing {
+                        Color.clear.frame(height: 50)
                     }
                 }
                 .ignoresSafeArea(edges: .top)

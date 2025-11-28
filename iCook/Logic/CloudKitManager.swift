@@ -1026,13 +1026,15 @@ class CloudKitManager: ObservableObject {
     }
 
     // MARK: - Recipe Management
-    func loadRecipes(for source: Source, category: Category? = nil) async {
+    func loadRecipes(for source: Source, category: Category? = nil, skipCache: Bool = false) async {
         isLoading = true
         defer { isLoading = false }
 
-        if let cachedRecipes = loadRecipesLocalCache(for: source, categoryID: category?.id),
-           !cachedRecipes.isEmpty {
-            self.recipes = cachedRecipes
+        if !skipCache {
+            if let cachedRecipes = loadRecipesLocalCache(for: source, categoryID: category?.id),
+               !cachedRecipes.isEmpty {
+                self.recipes = cachedRecipes
+            }
         }
 
         guard isCloudKitAvailable else {
@@ -1109,14 +1111,16 @@ class CloudKitManager: ObservableObject {
         }
     }
 
-    func loadRandomRecipes(for source: Source, count: Int = 20) async {
+    func loadRandomRecipes(for source: Source, count: Int = 20, skipCache: Bool = false) async {
         isLoading = true
         defer { isLoading = false }
 
-        if let cachedAllRecipes = loadRecipesLocalCache(for: source, categoryID: nil),
-           !cachedAllRecipes.isEmpty {
-            let shuffled = cachedAllRecipes.shuffled()
-            self.recipes = Array(shuffled.prefix(count))
+        if !skipCache {
+            if let cachedAllRecipes = loadRecipesLocalCache(for: source, categoryID: nil),
+               !cachedAllRecipes.isEmpty {
+                let shuffled = cachedAllRecipes.shuffled()
+                self.recipes = Array(shuffled.prefix(count))
+            }
         }
 
         guard isCloudKitAvailable else {
@@ -1294,7 +1298,7 @@ class CloudKitManager: ObservableObject {
 
     func updateRecipe(_ recipe: Recipe, in source: Source) async {
         do {
-            let database = source.isPersonal ? privateDatabase : sharedDatabase
+            let database = isSharedOwner(source) || source.isPersonal ? privateDatabase : sharedDatabase
 
             // Fetch the existing record first to properly update it
             let existingRecord = try await database.record(for: recipe.id)

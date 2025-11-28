@@ -147,7 +147,7 @@ final class AppViewModel: ObservableObject {
     }
 
     // MARK: - Recipe Management
-    func loadRecipesForCategory(_ categoryID: CKRecord.ID) async {
+    func loadRecipesForCategory(_ categoryID: CKRecord.ID, skipCache: Bool = false) async {
         guard let source = currentSource else {
             printD("loadRecipesForCategory: No current source")
             return
@@ -161,21 +161,21 @@ final class AppViewModel: ObservableObject {
         isLoadingRecipes = true
         defer { isLoadingRecipes = false }
 
-        await cloudKitManager.loadRecipes(for: source, category: category)
+        await cloudKitManager.loadRecipes(for: source, category: category, skipCache: skipCache)
         recipes = cloudKitManager.recipes
         error = cloudKitManager.error
         printD("loadRecipesForCategory: Loaded \(recipes.count) recipes for \(category.name)")
         refreshOfflineState()
     }
 
-    func loadRandomRecipes(count: Int = 20) async {
+    func loadRandomRecipes(count: Int = 20, skipCache: Bool = false) async {
         guard let source = currentSource else { return }
         guard !isLoadingRecipes else { return }
 
         isLoadingRecipes = true
         defer { isLoadingRecipes = false }
 
-        await cloudKitManager.loadRandomRecipes(for: source, count: count)
+        await cloudKitManager.loadRandomRecipes(for: source, count: count, skipCache: skipCache)
         randomRecipes = cloudKitManager.recipes
         error = cloudKitManager.error
         refreshOfflineState()
@@ -368,6 +368,9 @@ final class AppViewModel: ObservableObject {
             if let index = randomRecipes.firstIndex(where: { $0.id == id }) {
                 randomRecipes[index] = updatedRecipe
             }
+            // Force refresh from CloudKit to pull latest fields and bust stale cache
+            await loadCategories()
+            await loadRecipesForCategory(updatedRecipe.categoryID, skipCache: true)
         }
 
         refreshOfflineState()
