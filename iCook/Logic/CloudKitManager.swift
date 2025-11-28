@@ -72,6 +72,7 @@ class CloudKitManager: ObservableObject {
         }
         return directory
     }()
+    private var participantIdentityCache: [CKRecord.ID: CKUserIdentity] = [:]
 
     init() {
         self.container = CKContainer(identifier: "iCloud.com.georgebabichev.iCook")
@@ -108,6 +109,7 @@ class CloudKitManager: ObservableObject {
             }
         }
     }
+
 
     // MARK: - Local Cache (UserDefaults backup)
     private func saveSourcesLocalCache() {
@@ -733,6 +735,20 @@ class CloudKitManager: ObservableObject {
     private func isOwnedByCurrentUser(_ source: Source) -> Bool {
         guard let userIdentifier else { return false }
         return source.owner == userIdentifier || source.id.zoneID.ownerName == CKCurrentUserDefaultName
+    }
+
+    private func resolveParticipantIdentities(in share: CKShare) async {
+        let participants = share.participants
+        guard !participants.isEmpty else { return }
+        for participant in participants {
+            if let recordID = participant.userIdentity.userRecordID {
+                participantIdentityCache[recordID] = participant.userIdentity
+                let displayName = participant.userIdentity.nameComponents?.formatted()
+                    ?? participant.userIdentity.lookupInfo?.emailAddress
+                    ?? "Unknown"
+                printD("Resolved participant identity: \(displayName) for \(recordID.recordName)")
+            }
+        }
     }
 
     private func shouldBeSharedBasedOnZone(_ source: Source) -> Bool {
@@ -1376,15 +1392,16 @@ class CloudKitManager: ObservableObject {
 
                 do {
                     let share = try await privateDatabase.record(for: shareRecordID) as? CKShare
-                    if let share {
-                        await ensureShareIsWritable(share, rootRecord: rootRecord)
-                        if let url = share.url {
-                            printD("Using existing share URL: \(url.absoluteString)")
-                            await attachChildRecordsToShare(share, rootRecord: rootRecord)
-                            return url
-                        }
+                if let share {
+                    await ensureShareIsWritable(share, rootRecord: rootRecord)
+                    if let url = share.url {
+                        printD("Using existing share URL: \(url.absoluteString)")
+                        await resolveParticipantIdentities(in: share)
+                        await attachChildRecordsToShare(share, rootRecord: rootRecord)
+                        return url
                     }
-                } catch {
+                }
+            } catch {
                     printD("Error fetching existing share: \(error.localizedDescription)")
                 }
             }
@@ -1427,6 +1444,7 @@ class CloudKitManager: ObservableObject {
                         markSharedSource(id: rootRecord.recordID)
                         saveSourcesLocalCache()
                         await ensureShareIsWritable(fetchedShare, rootRecord: rootRecord)
+                        await resolveParticipantIdentities(in: fetchedShare)
                         await attachChildRecordsToShare(fetchedShare, rootRecord: rootRecord)
                         return url
                     } else {
@@ -1439,6 +1457,7 @@ class CloudKitManager: ObservableObject {
                         markSharedSource(id: rootRecord.recordID)
                         saveSourcesLocalCache()
                         await ensureShareIsWritable(retryShare, rootRecord: rootRecord)
+                        await resolveParticipantIdentities(in: retryShare)
                         await attachChildRecordsToShare(retryShare, rootRecord: rootRecord)
                         return url
                         }
@@ -1497,23 +1516,24 @@ class CloudKitManager: ObservableObject {
                 }
 
                 // Check if already shared
-                if let existingShare = rootRecord.share {
-                    printD("Record is already shared, fetching existing share...")
-                    // Already shared, fetch and use existing share
-                    let shareRecordID = existingShare.recordID
-                    let fetchOp = CKFetchRecordsOperation(recordIDs: [shareRecordID])
+            if let existingShare = rootRecord.share {
+                printD("Record is already shared, fetching existing share...")
+                // Already shared, fetch and use existing share
+                let shareRecordID = existingShare.recordID
+                let fetchOp = CKFetchRecordsOperation(recordIDs: [shareRecordID])
 
-                    fetchOp.perRecordResultBlock = { recordID, result in
-                        do {
-                            let record = try result.get()
-                            if let share = record as? CKShare {
-                                Task {
-                                    await self.ensureShareIsWritable(share, rootRecord: rootRecord)
-                                    await self.attachChildRecordsToShare(share, rootRecord: rootRecord)
-                                }
-                                DispatchQueue.main.async {
-                                    let controller = UICloudSharingController(share: share, container: self.container)
-                                    printD("UICloudSharingController created for existing share with URL: \(share.url?.absoluteString ?? "pending")")
+                fetchOp.perRecordResultBlock = { recordID, result in
+                    do {
+                        let record = try result.get()
+                        if let share = record as? CKShare {
+                            Task {
+                                await self.ensureShareIsWritable(share, rootRecord: rootRecord)
+                                await self.resolveParticipantIdentities(in: share)
+                                await self.attachChildRecordsToShare(share, rootRecord: rootRecord)
+                            }
+                            DispatchQueue.main.async {
+                                let controller = UICloudSharingController(share: share, container: self.container)
+                                printD("UICloudSharingController created for existing share with URL: \(share.url?.absoluteString ?? "pending")")
                                     completionHandler(controller)
                                 }
                             }
@@ -1539,6 +1559,7 @@ class CloudKitManager: ObservableObject {
                         let savedShare = try await self.saveShare(for: rootRecord, share: share)
                         printD("Share saved successfully prior to presenting controller with ID: \(savedShare.recordID.recordName)")
                         await ensureShareIsWritable(savedShare, rootRecord: rootRecord)
+                        await resolveParticipantIdentities(in: savedShare)
                         await attachChildRecordsToShare(savedShare, rootRecord: rootRecord)
 
                         let controller = UICloudSharingController(share: savedShare, container: self.container)
@@ -1575,6 +1596,30 @@ class CloudKitManager: ObservableObject {
                     completionHandler(nil)
                 }
             }
+        }
+    }
+
+    /// Return a UICloudSharingController for an existing shared source (owner only)
+    @available(iOS 17.0, *)
+    func existingSharingController(for source: Source) async -> UICloudSharingController? {
+        guard isSharedOwner(source) else { return nil }
+
+        do {
+            let rootRecord = try await privateDatabase.record(for: source.id)
+            guard let shareRef = rootRecord.share else { return nil }
+
+            let shareRecord = try await privateDatabase.record(for: shareRef.recordID)
+            guard let share = shareRecord as? CKShare else { return nil }
+
+            await ensureShareIsWritable(share, rootRecord: rootRecord)
+            await attachChildRecordsToShare(share, rootRecord: rootRecord)
+
+            let controller = UICloudSharingController(share: share, container: self.container)
+            controller.availablePermissions = [.allowReadOnly, .allowReadWrite]
+            return controller
+        } catch {
+            printD("existingSharingController error: \(error.localizedDescription)")
+            return nil
         }
     }
 #endif

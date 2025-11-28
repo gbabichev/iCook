@@ -326,6 +326,16 @@ private struct MacToolbarIconButton: View {
 
         printD("Getting share URL for source: \(source.name)")
 
+#if os(iOS)
+        // If the source is owned and already shared, present UICloudSharingController to edit participants
+        if viewModel.isSharedOwner(source), let shareController = await viewModel.cloudKitManager.existingSharingController(for: source) {
+            await MainActor.run {
+                presentUICloudSharingController(shareController)
+            }
+            return
+        }
+#endif
+
         if let shareURL = await viewModel.cloudKitManager.getShareURL(for: source) {
             printD("Got share URL: \(shareURL.absoluteString)")
 
