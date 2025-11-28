@@ -258,8 +258,9 @@ final class AppViewModel: ObservableObject {
         isLoadingRecipes = true
         defer { isLoadingRecipes = false }
 
+        let recordID = cloudKitManager.makeRecordID(for: source)
         let recipe = Recipe(
-            id: source.isPersonal ? cloudKitManager.makePersonalRecordID() : CKRecord.ID(),
+            id: recordID,
             sourceID: source.id,
             categoryID: categoryId,
             name: name,

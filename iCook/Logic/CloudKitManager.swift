@@ -526,6 +526,7 @@ class CloudKitManager: ObservableObject {
                 currentSource = refreshed
             }
             saveSourcesLocalCache()
+            await upgradeOwnedSharedPermissions()
 
             // Set default source if none selected
             if currentSource == nil, !allSources.isEmpty {
@@ -570,6 +571,22 @@ class CloudKitManager: ObservableObject {
                 printD("Detected shared source via record.share: \(source.name) (owner=\(source.owner)) ownerMatch=\(owner)")
             }
             return source
+        }
+    }
+
+    private func upgradeOwnedSharedPermissions() async {
+        let ownedShared = sources.filter { isSharedOwner($0) && sharedSourceIDs.contains(cacheIdentifier(for: $0.id)) }
+        guard !ownedShared.isEmpty else { return }
+
+        for source in ownedShared {
+            do {
+                let rootRecord = try await privateDatabase.record(for: source.id)
+                guard let shareRef = rootRecord.share else { continue }
+                guard let shareRecord = try await privateDatabase.record(for: shareRef.recordID) as? CKShare else { continue }
+                await ensureShareIsWritable(shareRecord, rootRecord: rootRecord)
+            } catch {
+                printD("upgradeOwnedSharedPermissions failed for \(source.name): \(error.localizedDescription)")
+            }
         }
     }
 
@@ -937,14 +954,14 @@ class CloudKitManager: ObservableObject {
             if source.isPersonal {
                 await ensurePersonalZoneExists()
             }
-            let recordID = source.isPersonal
-                ? CKRecord.ID(recordName: UUID().uuidString, zoneID: personalZoneID)
-                : CKRecord.ID()
+            let recordID = makeRecordID(for: source)
             let category = Category(id: recordID, sourceID: source.id, name: name, icon: icon)
 
-            let database = source.isPersonal ? privateDatabase : sharedDatabase
+            let owner = isSharedOwner(source)
+            let shared = isSharedSource(source)
+            let database = owner || !shared ? privateDatabase : sharedDatabase
             let record = category.toCKRecord()
-            if await hasShareForSource(source), record.parent == nil {
+            if shared, record.parent == nil {
                 record.parent = CKRecord.Reference(recordID: source.id, action: .none)
             }
             let savedRecord = try await database.save(record)
@@ -966,7 +983,9 @@ class CloudKitManager: ObservableObject {
 
     func updateCategory(_ category: Category, in source: Source) async {
         do {
-            let database = source.isPersonal ? privateDatabase : sharedDatabase
+            let owner = isSharedOwner(source)
+            let shared = isSharedSource(source)
+            let database = owner || !shared ? privateDatabase : sharedDatabase
 
             // Fetch the server record first to preserve metadata
             let serverRecord = try await database.record(for: category.id)
@@ -1252,9 +1271,11 @@ class CloudKitManager: ObservableObject {
 
     func createRecipe(_ recipe: Recipe, in source: Source) async {
         do {
-            let database = source.isPersonal ? privateDatabase : sharedDatabase
+            let owner = isSharedOwner(source)
+            let shared = isSharedSource(source)
+            let database = owner || !shared ? privateDatabase : sharedDatabase
             let record = recipe.toCKRecord()
-            if await hasShareForSource(source), record.parent == nil {
+            if shared, record.parent == nil {
                 record.parent = CKRecord.Reference(recordID: source.id, action: .none)
             }
             let savedRecord = try await database.save(record)
@@ -1864,9 +1885,15 @@ class CloudKitManager: ObservableObject {
     }
 
     private func ensureShareIsWritable(_ share: CKShare, rootRecord: CKRecord) async {
-        guard share.publicPermission != .readWrite else { return }
         do {
             share.publicPermission = .readWrite
+            // Update participants in place; CKShareParticipant is a CKRecordValue
+            for participant in share.participants {
+                if participant.permission != .readWrite {
+                    participant.permission = .readWrite
+                }
+            }
+
             let (results, _) = try await privateDatabase.modifyRecords(
                 saving: [share, rootRecord],
                 deleting: []
@@ -1875,7 +1902,7 @@ class CloudKitManager: ObservableObject {
                 if case .success = result { return true }
                 return false
             }
-            printD("Updated share permission to readWrite: \(success)")
+            printD("Updated share permission to readWrite (public + participants): \(success)")
         } catch {
             printD("Failed to update share permission to readWrite: \(error.localizedDescription)")
         }
@@ -2065,6 +2092,14 @@ class CloudKitManager: ObservableObject {
     /// Generate a new CKRecord.ID for content in the personal zone.
     func makePersonalRecordID() -> CKRecord.ID {
         CKRecord.ID(recordName: UUID().uuidString, zoneID: personalZoneID)
+    }
+
+    /// Generate a new CKRecord.ID for the appropriate zone based on the source.
+    func makeRecordID(for source: Source) -> CKRecord.ID {
+        let owner = isSharedOwner(source)
+        let shared = isSharedSource(source)
+        let zone: CKRecordZone.ID = owner || !shared ? personalZoneID : source.id.zoneID
+        return CKRecord.ID(recordName: UUID().uuidString, zoneID: zone)
     }
 
 }
