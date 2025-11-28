@@ -12,10 +12,10 @@ enum RecipeCollectionType: Equatable {
     case home
     case category(Category)
     
-    var title: String {
+    var navigationTitle: String {
         switch self {
         case .home:
-            return "iCook"
+            return ""
         case .category(let category):
             return category.name
         }
@@ -808,7 +808,7 @@ extension View {
 
     func applyNavigationModifiers(collectionType: RecipeCollectionType, showingSearchResults: Bool) -> some View {
         self
-            .navigationTitle(showingSearchResults ? "Search Results" : collectionType.title)
+            .navigationTitle(showingSearchResults ? "Search Results" : collectionType.navigationTitle)
     }
 
     func applyLifecycleModifiers(

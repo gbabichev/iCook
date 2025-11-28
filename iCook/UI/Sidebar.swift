@@ -111,7 +111,6 @@ struct CategoryList: View {
                 }
             }
         }
-        .navigationTitle("iCook")
         .listStyle(.sidebar)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
