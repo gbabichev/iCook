@@ -466,11 +466,19 @@ struct SourceRow: View {
                     .fontWeight(isSelected ? .semibold : .regular)
 
                 HStack(spacing: 6) {
-                    if viewModel.isSourceShared(source) {
+                    let isShared = viewModel.isSourceShared(source)
+                    let isOwner = viewModel.isSharedOwner(source)
+                    if isShared {
                         Label("Shared", systemImage: "person.2.fill")
                     }
-                    if source.isPersonal {
-                        Label("Personal", systemImage: "person.fill")
+                    if source.isPersonal || isOwner {
+                        if isShared && isOwner {
+                            Label("Personal, Shared (Owner)", systemImage: "crown.fill")
+                        } else if isOwner {
+                            Label("Personal (Owner)", systemImage: "person.fill.checkmark")
+                        } else {
+                            Label("Personal", systemImage: "person.fill")
+                        }
                     }
                 }
                 .font(.caption)

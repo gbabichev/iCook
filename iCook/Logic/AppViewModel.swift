@@ -566,6 +566,10 @@ final class AppViewModel: ObservableObject {
         return cloudKitManager.isSharedSource(source)
     }
 
+    func isSharedOwner(_ source: Source) -> Bool {
+        return cloudKitManager.isSharedOwner(source)
+    }
+
     func canEditSource(_ source: Source) -> Bool {
         // Allow edits on shared sources once the share is read-write
         return source.isPersonal || cloudKitManager.canEditSharedSources

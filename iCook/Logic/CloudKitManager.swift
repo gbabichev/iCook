@@ -75,6 +75,7 @@ class CloudKitManager: ObservableObject {
 
     init() {
         self.container = CKContainer(identifier: "iCloud.com.georgebabichev.iCook")
+        loadSharedSourceIDs()
         // Load from local cache immediately
         loadSourcesLocalCache()
         Task {
@@ -179,6 +180,33 @@ class CloudKitManager: ObservableObject {
             filename += "_\(cacheIdentifier(for: categoryID))"
         }
         return cacheDirectoryURL.appendingPathComponent(filename + ".json")
+    }
+
+    // Track shared source IDs locally so we can mark them as shared even if the CloudKit flag is missing
+    private var sharedSourceIDs: Set<String> = []
+    private let sharedSourceIDsKey = "SharedSourceIDs"
+
+    private func loadSharedSourceIDs() {
+        if let ids = UserDefaults.standard.array(forKey: sharedSourceIDsKey) as? [String] {
+            sharedSourceIDs = Set(ids)
+            printD("Loaded sharedSourceIDs: \(sharedSourceIDs.count)")
+        }
+    }
+
+    private func saveSharedSourceIDs() {
+        UserDefaults.standard.set(Array(sharedSourceIDs), forKey: sharedSourceIDsKey)
+    }
+
+    private func markSharedSource(id: CKRecord.ID) {
+        let key = cacheIdentifier(for: id)
+        sharedSourceIDs.insert(key)
+        saveSharedSourceIDs()
+    }
+
+    private func unmarkSharedSource(id: CKRecord.ID) {
+        let key = cacheIdentifier(for: id)
+        sharedSourceIDs.remove(key)
+        saveSharedSourceIDs()
     }
 
     private func saveCategoriesLocalCache(_ categories: [Category], for source: Source) {
@@ -473,18 +501,28 @@ class CloudKitManager: ObservableObject {
                 }
             }
 
-            // Normalize shared flag based on zone ownership
-            allSources = allSources.map { source in
-                var updated = source
-                if shouldBeSharedBasedOnZone(source) {
-                    updated.isPersonal = false
-                }
-                return updated
+        // Normalize shared flag based on zone ownership
+        allSources = allSources.map { source in
+            var updated = source
+            let owner = isSharedOwner(source)
+            let cachedShared = sharedSourceIDs.contains(cacheIdentifier(for: source.id))
+            if shouldBeSharedBasedOnZone(source) || cachedShared {
+                updated.isPersonal = owner
+                markSharedSource(id: updated.id)
+            } else if let userIdentifier, !userIdentifier.isEmpty, source.owner != userIdentifier {
+                updated.isPersonal = false
+                markSharedSource(id: updated.id)
             }
+            return updated
+        }
 
             allSources.sort { $0.lastModified > $1.lastModified }
 
             self.sources = allSources
+            if let currentID = currentSource?.id,
+               let refreshed = allSources.first(where: { $0.id == currentID }) {
+                currentSource = refreshed
+            }
             saveSourcesLocalCache()
 
             // Set default source if none selected
@@ -521,6 +559,14 @@ class CloudKitManager: ObservableObject {
                 return nil
             }
             source.isPersonal = isPersonal
+            // If the record is shared (owner side), mark and normalize
+            if record.share != nil {
+                markSharedSource(id: source.id)
+                let owner = isOwnedByCurrentUser(source)
+                // Owner keeps personal permissions; participants are marked shared
+                source.isPersonal = owner ? true : false
+                printD("Detected shared source via record.share: \(source.name) (owner=\(source.owner)) ownerMatch=\(owner)")
+            }
             return source
         }
     }
@@ -649,6 +695,12 @@ class CloudKitManager: ObservableObject {
     }
 
     func isSharedSource(_ source: Source) -> Bool {
+        let key = cacheIdentifier(for: source.id)
+        printD("Shared check key: \(key); cached IDs count: \(sharedSourceIDs.count)")
+        if sharedSourceIDs.contains(key) {
+            printD("Shared check: \(source.name) is marked shared via local cache")
+            return true
+        }
         // Treat anything outside the personal zone or marked non-personal as shared
         if !source.isPersonal {
             printD("Shared check: \(source.name) is marked non-personal")
@@ -659,8 +711,28 @@ class CloudKitManager: ObservableObject {
             printD("Shared check: \(source.name) has shared-like zone (\(zoneID.zoneName), owner: \(zoneID.ownerName)) vs personal (\(personalZoneID.zoneName), owner: \(CKCurrentUserDefaultName))")
             return true
         }
+        if let userIdentifier, !userIdentifier.isEmpty, source.owner != userIdentifier {
+            printD("Shared check: \(source.name) owner mismatch (record: \(source.owner), current: \(userIdentifier))")
+            return true
+        }
+        let currentUserDesc = userIdentifier ?? "nil"
+        printD("Shared check details: name=\(source.name), isPersonal flag=\(source.isPersonal), zoneName=\(zoneID.zoneName), zoneOwner=\(zoneID.ownerName), recordedOwner=\(source.owner), currentUser=\(currentUserDesc)")
         printD("Shared check: \(source.name) treated as personal")
         return false
+    }
+
+    func isSharedOwner(_ source: Source) -> Bool {
+        guard let userIdentifier else { return false }
+        let ownsByRecord = source.owner == userIdentifier
+        let ownsByZone = source.id.zoneID.ownerName == CKCurrentUserDefaultName
+        let result = ownsByRecord || ownsByZone
+        printD("Shared owner check for \(source.name): ownsByRecord=\(ownsByRecord), ownsByZone=\(ownsByZone)")
+        return result
+    }
+
+    private func isOwnedByCurrentUser(_ source: Source) -> Bool {
+        guard let userIdentifier else { return false }
+        return source.owner == userIdentifier || source.id.zoneID.ownerName == CKCurrentUserDefaultName
     }
 
     private func shouldBeSharedBasedOnZone(_ source: Source) -> Bool {
@@ -675,6 +747,7 @@ class CloudKitManager: ObservableObject {
         // Remove from local state without touching CloudKit so other participants keep access
         sources = sources.filter { $0.id != source.id }
         sourceCache.removeValue(forKey: source.id)
+        unmarkSharedSource(id: source.id)
         saveSourcesLocalCache()
         if currentSource?.id == source.id {
             currentSource = sources.first
@@ -724,6 +797,8 @@ class CloudKitManager: ObservableObject {
         let sourceID = source.id
         isLoading = true
         defer { isLoading = false }
+        let isOwner = isSharedOwner(source)
+        printD("loadCategories: source=\(source.name), isPersonal=\(source.isPersonal), isOwner=\(isOwner), zoneOwner=\(source.id.zoneID.ownerName), zoneName=\(source.id.zoneID.zoneName)")
 
         if let cachedCategories = loadCategoriesLocalCache(for: source) {
             self.categories = cachedCategories
@@ -745,8 +820,8 @@ class CloudKitManager: ObservableObject {
             var allCategories: [Category] = []
 
             // Try loading from the appropriate database
-            let database = source.isPersonal ? privateDatabase : sharedDatabase
-            let zoneID = source.isPersonal ? personalZoneID : source.id.zoneID
+            let database = isOwner || source.isPersonal ? privateDatabase : sharedDatabase
+            let zoneID = isOwner || source.isPersonal ? personalZoneID : source.id.zoneID
             do {
                 let (results, _) = try await database.records(matching: query, inZoneWith: zoneID)
                 let categories = results.compactMap { _, result -> Category? in
@@ -810,8 +885,9 @@ class CloudKitManager: ObservableObject {
         let query = CKQuery(recordType: "Recipe", predicate: predicate)
         query.sortDescriptors = nil
 
-        let database = source.isPersonal ? privateDatabase : sharedDatabase
-        let zoneID = source.isPersonal ? personalZoneID : source.id.zoneID
+        let isOwner = isSharedOwner(source)
+        let database = isOwner || source.isPersonal ? privateDatabase : sharedDatabase
+        let zoneID = isOwner || source.isPersonal ? personalZoneID : source.id.zoneID
 
         do {
             let (results, _) = try await database.records(matching: query, inZoneWith: zoneID)
@@ -949,8 +1025,9 @@ class CloudKitManager: ObservableObject {
             var allRecipes: [Recipe] = []
 
             // Try loading from the appropriate database
-            let database = source.isPersonal ? privateDatabase : sharedDatabase
-            let zoneID = source.isPersonal ? personalZoneID : source.id.zoneID
+            let isOwner = isSharedOwner(source)
+            let database = isOwner || source.isPersonal ? privateDatabase : sharedDatabase
+            let zoneID = isOwner || source.isPersonal ? personalZoneID : source.id.zoneID
             do {
                 let (results, _) = try await database.records(matching: query, inZoneWith: zoneID)
                 let recipes = results.compactMap { _, result -> Recipe? in
@@ -1021,8 +1098,9 @@ class CloudKitManager: ObservableObject {
             var allRecipes: [Recipe] = []
 
             // Try loading from the appropriate database
-            let database = source.isPersonal ? privateDatabase : sharedDatabase
-            let zoneID = source.isPersonal ? personalZoneID : source.id.zoneID
+            let isOwner = isSharedOwner(source)
+            let database = isOwner || source.isPersonal ? privateDatabase : sharedDatabase
+            let zoneID = isOwner || source.isPersonal ? personalZoneID : source.id.zoneID
             do {
                 let (results, _) = try await database.records(matching: query, inZoneWith: zoneID)
                 let recipes = results.compactMap { _, result -> Recipe? in
@@ -1100,8 +1178,9 @@ class CloudKitManager: ObservableObject {
             var allRecipes: [Recipe] = []
 
             // Try loading from the appropriate database
-            let database = source.isPersonal ? privateDatabase : sharedDatabase
-            let zoneID = source.isPersonal ? personalZoneID : source.id.zoneID
+            let isOwner = isSharedOwner(source)
+            let database = isOwner || source.isPersonal ? privateDatabase : sharedDatabase
+            let zoneID = isOwner || source.isPersonal ? personalZoneID : source.id.zoneID
             do {
                 let (results, _) = try await database.records(matching: cloudQuery, inZoneWith: zoneID)
 
@@ -1345,19 +1424,23 @@ class CloudKitManager: ObservableObject {
                     if let fetchedShare = try await privateDatabase.record(for: savedShare.recordID) as? CKShare,
                        let url = fetchedShare.url {
                         printD("Share URL obtained: \(url.absoluteString)")
+                        markSharedSource(id: rootRecord.recordID)
+                        saveSourcesLocalCache()
                         await ensureShareIsWritable(fetchedShare, rootRecord: rootRecord)
                         await attachChildRecordsToShare(fetchedShare, rootRecord: rootRecord)
                         return url
                     } else {
                         printD("Warning: Fetched share doesn't have URL yet")
                         // Try one more time after a brief delay
-                        try await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
-                        if let retryShare = try await privateDatabase.record(for: savedShare.recordID) as? CKShare,
-                           let url = retryShare.url {
-                            printD("Share URL obtained on retry: \(url.absoluteString)")
-                            await ensureShareIsWritable(retryShare, rootRecord: rootRecord)
-                            await attachChildRecordsToShare(retryShare, rootRecord: rootRecord)
-                            return url
+                    try await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+                    if let retryShare = try await privateDatabase.record(for: savedShare.recordID) as? CKShare,
+                       let url = retryShare.url {
+                        printD("Share URL obtained on retry: \(url.absoluteString)")
+                        markSharedSource(id: rootRecord.recordID)
+                        saveSourcesLocalCache()
+                        await ensureShareIsWritable(retryShare, rootRecord: rootRecord)
+                        await attachChildRecordsToShare(retryShare, rootRecord: rootRecord)
+                        return url
                         }
                         return nil
                     }
@@ -1650,6 +1733,7 @@ class CloudKitManager: ObservableObject {
             if let sharedSource {
                 currentSource = sharedSource
                 saveCurrentSourceID()
+                markSharedSource(id: sharedSource.id)
             }
             updateSharedEditabilityFlag()
 
