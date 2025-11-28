@@ -252,6 +252,11 @@ private struct MacToolbarIconButton: View {
                                 onDelete: {
                                     sourceToDelete = source
                                     showDeleteConfirmation = true
+                                },
+                                onRemoveShare: {
+                                    Task {
+                                        await viewModel.removeSharedSourceLocally(source)
+                                    }
                                 }
                             )
                         }
@@ -643,6 +648,7 @@ struct SourceRowWrapper: View {
     let onSelect: () -> Void
     let onShare: () -> Void
     let onDelete: () -> Void
+    let onRemoveShare: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
@@ -696,8 +702,14 @@ struct SourceRowWrapper: View {
         .onTapGesture(perform: onSelect)
 #if os(iOS)
         .swipeActions(edge: .trailing) {
-            Button(role: .destructive, action: onDelete) {
-                Label("Delete", systemImage: "trash")
+            if source.isPersonal {
+                Button(role: .destructive, action: onDelete) {
+                    Label("Delete", systemImage: "trash")
+                }
+            } else {
+                Button(role: .destructive, action: onRemoveShare) {
+                    Label("Remove", systemImage: "xmark.circle")
+                }
             }
         }
 #endif

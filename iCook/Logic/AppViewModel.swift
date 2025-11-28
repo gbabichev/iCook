@@ -70,6 +70,16 @@ final class AppViewModel: ObservableObject {
         return true
     }
 
+    func removeSharedSourceLocally(_ source: Source) async {
+        await cloudKitManager.removeSharedSourceLocally(source)
+        sources = cloudKitManager.sources
+        if currentSource?.id == source.id {
+            currentSource = sources.first
+            cloudKitManager.saveCurrentSourceID()
+        }
+        refreshOfflineState()
+    }
+
     func acceptShareURL(_ url: URL) async -> Bool {
         let success = await cloudKitManager.acceptShare(from: url)
         sources = cloudKitManager.sources
@@ -557,9 +567,8 @@ final class AppViewModel: ObservableObject {
     }
 
     func canEditSource(_ source: Source) -> Bool {
-        // Users can edit personal sources they own
-        // Users cannot edit shared sources (read-only)
-        return source.isPersonal
+        // Allow edits on shared sources once the share is read-write
+        return source.isPersonal || cloudKitManager.canEditSharedSources
     }
 
     func acceptShareInvitation(_ metadata: CKShare.Metadata) async {
