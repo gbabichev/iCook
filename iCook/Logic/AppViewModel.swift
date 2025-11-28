@@ -28,6 +28,19 @@ final class AppViewModel: ObservableObject {
         isLoadingCategories || isLoadingRecipes
     }
 
+    init() {
+        // Prime from cached manager state so UI doesn't start empty when offline/online
+        sources = cloudKitManager.sources
+        currentSource = cloudKitManager.currentSource
+        if let source = currentSource {
+            cloudKitManager.loadCachedData(for: source)
+            categories = cloudKitManager.categories
+            recipeCounts = cloudKitManager.recipeCounts
+            recipes = cloudKitManager.recipes
+            randomRecipes = recipes
+        }
+    }
+
     private func refreshOfflineState() {
         isOfflineMode = !cloudKitManager.isCloudKitAvailable || cloudKitManager.isOfflineMode
     }
@@ -97,14 +110,15 @@ final class AppViewModel: ObservableObject {
     func loadCategories(search: String? = nil) async {
         guard let source = currentSource else { return }
         isLoadingCategories = true
-        defer { isLoadingCategories = false }
 
+        // Keep cached categories visible; just fetch latest and then swap in
         await cloudKitManager.loadCategories(for: source)
         categories = cloudKitManager.categories
         await cloudKitManager.loadRecipeCounts(for: source)
         recipeCounts = cloudKitManager.recipeCounts
         error = cloudKitManager.error
         refreshOfflineState()
+        isLoadingCategories = false
     }
 
     func createCategory(name: String, icon: String) async -> Bool {
@@ -159,13 +173,13 @@ final class AppViewModel: ObservableObject {
 
         printD("loadRecipesForCategory: Loading recipes for \(category.name)")
         isLoadingRecipes = true
-        defer { isLoadingRecipes = false }
 
         await cloudKitManager.loadRecipes(for: source, category: category, skipCache: skipCache)
         recipes = cloudKitManager.recipes
         error = cloudKitManager.error
         printD("loadRecipesForCategory: Loaded \(recipes.count) recipes for \(category.name)")
         refreshOfflineState()
+        isLoadingRecipes = false
     }
 
     func loadRandomRecipes(count: Int = 20, skipCache: Bool = false) async {
@@ -173,24 +187,24 @@ final class AppViewModel: ObservableObject {
         guard !isLoadingRecipes else { return }
 
         isLoadingRecipes = true
-        defer { isLoadingRecipes = false }
 
         await cloudKitManager.loadRandomRecipes(for: source, count: count, skipCache: skipCache)
         randomRecipes = cloudKitManager.recipes
         error = cloudKitManager.error
         refreshOfflineState()
+        isLoadingRecipes = false
     }
 
     func searchRecipes(query: String) async {
         guard let source = currentSource else { return }
 
         isLoadingRecipes = true
-        defer { isLoadingRecipes = false }
 
         await cloudKitManager.searchRecipes(in: source, query: query)
         recipes = cloudKitManager.recipes
         error = cloudKitManager.error
         refreshOfflineState()
+        isLoadingRecipes = false
     }
 
     func deleteRecipe(id: CKRecord.ID) async -> Bool {

@@ -301,6 +301,20 @@ class CloudKitManager: ObservableObject {
         return nil
     }
 
+    /// Load cached categories, recipe counts, and recipes for a source without network.
+    func loadCachedData(for source: Source) {
+        if let cachedCategories = loadCategoriesLocalCache(for: source) {
+            categories = cachedCategories
+        }
+        let cachedCounts = loadRecipeCountsLocalCache(for: source)
+        if !cachedCounts.isEmpty {
+            recipeCounts = cachedCounts
+        }
+        if let cachedRecipes = loadRecipesLocalCache(for: source, categoryID: nil) {
+            recipes = cachedRecipes
+        }
+    }
+
     private struct CachedRecordCount: Codable {
         let recordName: String
         let zoneName: String
@@ -458,7 +472,6 @@ class CloudKitManager: ObservableObject {
     // MARK: - Source Management
     func loadSources() async {
         isLoading = true
-        defer { isLoading = false }
 
         // Keep any locally cached shared sources so we don't drop them if SharedDB queries fail
         let cachedSharedSources = sources.filter { !$0.isPersonal }
@@ -546,6 +559,7 @@ class CloudKitManager: ObservableObject {
                 isCreatingDefaultSource = false
             }
         }
+        isLoading = false
     }
 
     private func fetchSourcesFromDatabase(_ database: CKDatabase, isPersonal: Bool) async throws -> [Source] {
@@ -1115,11 +1129,12 @@ class CloudKitManager: ObservableObject {
         isLoading = true
         defer { isLoading = false }
 
-        if !skipCache {
-            if let cachedAllRecipes = loadRecipesLocalCache(for: source, categoryID: nil),
-               !cachedAllRecipes.isEmpty {
-                let shuffled = cachedAllRecipes.shuffled()
-                self.recipes = Array(shuffled.prefix(count))
+        if !skipCache,
+           let cachedAllRecipes = loadRecipesLocalCache(for: source, categoryID: nil),
+           !cachedAllRecipes.isEmpty {
+            // Keep existing order to avoid jarring reorders; just seed from cache if we have none
+            if recipes.isEmpty {
+                self.recipes = Array(cachedAllRecipes.prefix(count))
             }
         }
 
@@ -1160,9 +1175,21 @@ class CloudKitManager: ObservableObject {
                 }
             }
 
-            allRecipes.shuffle()
-            saveRecipesLocalCache(allRecipes, for: source, categoryID: nil)
-            self.recipes = Array(allRecipes.prefix(count))
+            // Only randomize on first load; otherwise keep a stable order by lastModified/name
+            if recipes.isEmpty {
+                let randomized = allRecipes.shuffled()
+                saveRecipesLocalCache(randomized, for: source, categoryID: nil)
+                self.recipes = Array(randomized.prefix(count))
+            } else {
+                let stable = allRecipes.sorted { lhs, rhs in
+                    if lhs.lastModified == rhs.lastModified {
+                        return lhs.name < rhs.name
+                    }
+                    return lhs.lastModified > rhs.lastModified
+                }
+                saveRecipesLocalCache(stable, for: source, categoryID: nil)
+                self.recipes = Array(stable.prefix(count))
+            }
             markOnlineIfNeeded()
         } catch {
             if handleOfflineFallback(for: error) {
