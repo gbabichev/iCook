@@ -129,13 +129,12 @@ struct iCookApp: App {
     private func handleCloudKitShareLink(_ url: URL) {
         Task {
             printD("Processing CloudKit share link: \(url)")
-
-            // CKShareURL can be used to create a CKShare object
-            // CloudKit handles this automatically when the user accepts
-            // We just need to reload sources to show any newly shared sources
-            await model.loadSources()
-
-            printD("Share link processed successfully")
+            let success = await model.acceptShareURL(url)
+            if success {
+                printD("Share link processed successfully via manual accept flow")
+            } else if let message = await MainActor.run(body: { model.cloudKitManager.error }) {
+                printD("Failed to process share link: \(message)")
+            }
         }
     }
     

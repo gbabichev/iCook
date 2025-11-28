@@ -70,6 +70,19 @@ final class AppViewModel: ObservableObject {
         return true
     }
 
+    func acceptShareURL(_ url: URL) async -> Bool {
+        let success = await cloudKitManager.acceptShare(from: url)
+        sources = cloudKitManager.sources
+        currentSource = cloudKitManager.currentSource
+        refreshOfflineState()
+        if success, let source = currentSource {
+            await loadCategories()
+            await loadRandomRecipes()
+            printD("DEBUG: Loaded categories and random recipes for shared source \(source.name)")
+        }
+        return success
+    }
+
     // MARK: - Category Management
     func loadCategories(search: String? = nil) async {
         guard let source = currentSource else { return }

@@ -9,6 +9,9 @@ import AppKit
 struct SourceSelector: View {
     @EnvironmentObject private var viewModel: AppViewModel
     @Environment(\.dismiss) var dismiss
+#if DEBUG
+    @Environment(\.openURL) private var openURL
+#endif
     @State private var showNewSourceSheet = false
     @State private var newSourceName = ""
     @State private var isPreparingShare = false
@@ -27,6 +30,13 @@ struct SourceSelector: View {
         let controller: UICloudSharingController
         let source: Source
     }
+#endif
+
+#if DEBUG
+    @State private var debugShareURLString = ""
+    @State private var showDebugShareAlert = false
+    @State private var debugShareAlertMessage = ""
+    @State private var isProcessingDebugShare = false
 #endif
 
 #if os(macOS)
@@ -247,10 +257,62 @@ private struct MacToolbarIconButton: View {
                         }
                     }
                 }
+
+#if DEBUG
+                Section("Debug: Accept Shared Link") {
+                    TextField("Paste shared iCloud URL", text: $debugShareURLString)
+#if os(iOS)
+                        .textInputAutocapitalization(.never)
+#endif
+                        .autocorrectionDisabled()
+
+                    Button("Open Shared URL") {
+                        openDebugShareURL()
+                    }
+                    .disabled(debugShareURLString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isProcessingDebugShare)
+                }
+#endif
             }
             .listStyle(.automatic)
+#if DEBUG
+            .alert("Debug Share URL", isPresented: $showDebugShareAlert) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(debugShareAlertMessage)
+            }
+#endif
         }
     }
+
+#if DEBUG
+    private func openDebugShareURL() {
+        let trimmed = debugShareURLString.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: trimmed), !trimmed.isEmpty else {
+            debugShareAlertMessage = "Please enter a valid iCloud share URL."
+            showDebugShareAlert = true
+            return
+        }
+
+        debugShareAlertMessage = "Processing shared link…"
+        showDebugShareAlert = true
+        isProcessingDebugShare = true
+
+        Task {
+            let success = await viewModel.acceptShareURL(url)
+            await MainActor.run {
+                isProcessingDebugShare = false
+                if success {
+                    debugShareAlertMessage = "Share accepted. If the collection does not appear, pull to refresh or reopen Collections."
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                        showDebugShareAlert = false
+                    }
+                } else {
+                    debugShareAlertMessage = viewModel.cloudKitManager.error ?? "Failed to accept the share."
+                }
+            }
+        }
+    }
+#endif
 
 
     private func shareSource(for source: Source) async {

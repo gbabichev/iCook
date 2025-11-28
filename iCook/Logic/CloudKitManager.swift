@@ -429,6 +429,9 @@ class CloudKitManager: ObservableObject {
         isLoading = true
         defer { isLoading = false }
 
+        // Keep any locally cached shared sources so we don't drop them if SharedDB queries fail
+        let cachedSharedSources = sources.filter { !$0.isPersonal }
+
         // If CloudKit is not available, use local cache only
         guard isCloudKitAvailable else {
             printD("CloudKit not available, using cached sources only")
@@ -455,6 +458,17 @@ class CloudKitManager: ObservableObject {
                 // SharedDB doesn't support zone-wide queries, so this is expected
                 if !errorDesc.contains("SharedDB does not support Zone Wide queries") {
                     printD("Note: Could not load shared sources: \(errorDesc)")
+                }
+            }
+
+            // If shared could not be fetched, keep cached shared sources so they persist across launches
+            if cachedSharedSources.count > 0 {
+                let missingShared = cachedSharedSources.filter { cached in
+                    !allSources.contains(where: { $0.id == cached.id })
+                }
+                if !missingShared.isEmpty {
+                    printD("Keeping \(missingShared.count) cached shared sources due to SharedDB limitations")
+                    allSources.append(contentsOf: missingShared)
                 }
             }
 
@@ -487,13 +501,15 @@ class CloudKitManager: ObservableObject {
         // This predicate matches all records where lastModified is after the distant past (i.e., all records)
         let predicate = NSPredicate(format: "lastModified >= %@", Date.distantPast as NSDate)
         let query = CKQuery(recordType: "Source", predicate: predicate)
-        let (results, _) = try await database.records(matching: query)
+        let zoneID: CKRecordZone.ID? = isPersonal ? personalZoneID : nil
+        let (results, _) = try await database.records(matching: query, inZoneWith: zoneID)
 
         return results.compactMap { _, result in
             guard case .success(let record) = result,
-                  let source = Source.from(record) else {
+                  var source = Source.from(record) else {
                 return nil
             }
+            source.isPersonal = isPersonal
             return source
         }
     }
@@ -684,8 +700,9 @@ class CloudKitManager: ObservableObject {
 
             // Try loading from the appropriate database
             let database = source.isPersonal ? privateDatabase : sharedDatabase
+            let zoneID = source.isPersonal ? personalZoneID : source.id.zoneID
             do {
-                let (results, _) = try await database.records(matching: query)
+                let (results, _) = try await database.records(matching: query, inZoneWith: zoneID)
                 let categories = results.compactMap { _, result -> Category? in
                     guard case .success(let record) = result,
                           let category = Category.from(record) else {
@@ -748,9 +765,10 @@ class CloudKitManager: ObservableObject {
         query.sortDescriptors = nil
 
         let database = source.isPersonal ? privateDatabase : sharedDatabase
+        let zoneID = source.isPersonal ? personalZoneID : source.id.zoneID
 
         do {
-            let (results, _) = try await database.records(matching: query)
+            let (results, _) = try await database.records(matching: query, inZoneWith: zoneID)
             var counts: [CKRecord.ID: Int] = [:]
 
             for (_, result) in results {
@@ -788,6 +806,9 @@ class CloudKitManager: ObservableObject {
 
             let database = source.isPersonal ? privateDatabase : sharedDatabase
             let record = category.toCKRecord()
+            if await hasShareForSource(source), record.parent == nil {
+                record.parent = CKRecord.Reference(recordID: source.id, action: .none)
+            }
             let savedRecord = try await database.save(record)
 
             if let savedCategory = Category.from(savedRecord) {
@@ -883,8 +904,9 @@ class CloudKitManager: ObservableObject {
 
             // Try loading from the appropriate database
             let database = source.isPersonal ? privateDatabase : sharedDatabase
+            let zoneID = source.isPersonal ? personalZoneID : source.id.zoneID
             do {
-                let (results, _) = try await database.records(matching: query)
+                let (results, _) = try await database.records(matching: query, inZoneWith: zoneID)
                 let recipes = results.compactMap { _, result -> Recipe? in
                     guard case .success(let record) = result,
                           let recipe = Recipe.from(record) else {
@@ -954,8 +976,9 @@ class CloudKitManager: ObservableObject {
 
             // Try loading from the appropriate database
             let database = source.isPersonal ? privateDatabase : sharedDatabase
+            let zoneID = source.isPersonal ? personalZoneID : source.id.zoneID
             do {
-                let (results, _) = try await database.records(matching: query)
+                let (results, _) = try await database.records(matching: query, inZoneWith: zoneID)
                 let recipes = results.compactMap { _, result -> Recipe? in
                     guard case .success(let record) = result,
                           let recipe = Recipe.from(record) else {
@@ -1032,8 +1055,9 @@ class CloudKitManager: ObservableObject {
 
             // Try loading from the appropriate database
             let database = source.isPersonal ? privateDatabase : sharedDatabase
+            let zoneID = source.isPersonal ? personalZoneID : source.id.zoneID
             do {
-                let (results, _) = try await database.records(matching: cloudQuery)
+                let (results, _) = try await database.records(matching: cloudQuery, inZoneWith: zoneID)
 
                 let recipes = results.compactMap { _, result -> Recipe? in
                     guard case .success(let record) = result,
@@ -1089,6 +1113,9 @@ class CloudKitManager: ObservableObject {
         do {
             let database = source.isPersonal ? privateDatabase : sharedDatabase
             let record = recipe.toCKRecord()
+            if await hasShareForSource(source), record.parent == nil {
+                record.parent = CKRecord.Reference(recordID: source.id, action: .none)
+            }
             let savedRecord = try await database.save(record)
 
             if let savedRecipe = Recipe.from(savedRecord) {
@@ -1226,6 +1253,7 @@ class CloudKitManager: ObservableObject {
                     let share = try await privateDatabase.record(for: shareRecordID) as? CKShare
                     if let url = share?.url {
                         printD("Using existing share URL: \(url.absoluteString)")
+                        if let share { await attachChildRecordsToShare(share, rootRecord: rootRecord) }
                         return url
                     }
                 } catch {
@@ -1276,6 +1304,7 @@ class CloudKitManager: ObservableObject {
                         if let retryShare = try await privateDatabase.record(for: savedShare.recordID) as? CKShare,
                            let url = retryShare.url {
                             printD("Share URL obtained on retry: \(url.absoluteString)")
+                            await attachChildRecordsToShare(retryShare, rootRecord: rootRecord)
                             return url
                         }
                         return nil
@@ -1343,6 +1372,9 @@ class CloudKitManager: ObservableObject {
                         do {
                             let record = try result.get()
                             if let share = record as? CKShare {
+                                Task {
+                                    await self.attachChildRecordsToShare(share, rootRecord: rootRecord)
+                                }
                                 DispatchQueue.main.async {
                                     let controller = UICloudSharingController(share: share, container: self.container)
                                     printD("UICloudSharingController created for existing share with URL: \(share.url?.absoluteString ?? "pending")")
@@ -1370,6 +1402,7 @@ class CloudKitManager: ObservableObject {
                     do {
                         let savedShare = try await self.saveShare(for: rootRecord, share: share)
                         printD("Share saved successfully prior to presenting controller with ID: \(savedShare.recordID.recordName)")
+                        await attachChildRecordsToShare(savedShare, rootRecord: rootRecord)
 
                         let controller = UICloudSharingController(share: savedShare, container: self.container)
                         printD("UICloudSharingController created with saved share")
@@ -1541,6 +1574,199 @@ class CloudKitManager: ObservableObject {
         await loadSources()
 
         printD("Shared source accepted and loaded")
+    }
+
+    /// Accept a CloudKit share link directly (useful for debug flows where the system does not handle it)
+    /// - Returns: `true` on success, `false` otherwise and sets `error`
+    func acceptShare(from url: URL) async -> Bool {
+        printD("Attempting to accept share from URL: \(url.absoluteString)")
+        do {
+            let metadata = try await fetchShareMetadata(for: url)
+            try await acceptShare(with: metadata)
+            let sharedSource = await fetchSharedSource(using: metadata)
+            await loadSources()
+
+            // Fallback: if shared sources didn't appear via loadSources, inject the fetched one
+            if let sharedSource, !sources.contains(where: { $0.id == sharedSource.id }) {
+                sources.append(sharedSource)
+                sources.sort { $0.lastModified > $1.lastModified }
+                saveSourcesLocalCache()
+                printD("Injected shared source manually after accept: \(sharedSource.name)")
+            }
+            if let sharedSource {
+                currentSource = sharedSource
+                saveCurrentSourceID()
+            }
+
+            printD("Share accepted successfully via manual flow")
+            return true
+        } catch {
+            let message = error.localizedDescription
+            printD("Failed to accept share: \(message)")
+            await MainActor.run {
+                self.error = "Failed to accept share: \(message)"
+            }
+            return false
+        }
+    }
+
+    private func attachChildRecordsToShare(_ share: CKShare, rootRecord: CKRecord) async {
+        do {
+            _ = share // share object kept for clarity; parent links share the hierarchy
+            var recordsToSave: [CKRecord] = []
+
+            // Fetch categories in the personal zone for this source
+            let catPredicate = NSPredicate(format: "sourceID == %@", CKRecord.Reference(recordID: rootRecord.recordID, action: .none))
+            let catQuery = CKQuery(recordType: "Category", predicate: catPredicate)
+            let (catResults, _) = try await privateDatabase.records(matching: catQuery, inZoneWith: personalZoneID)
+            for (_, result) in catResults {
+                if case .success(let record) = result, record.parent == nil {
+                    record.parent = CKRecord.Reference(recordID: rootRecord.recordID, action: .none)
+                    recordsToSave.append(record)
+                }
+            }
+
+            // Fetch recipes in the personal zone for this source
+            let recipePredicate = NSPredicate(format: "sourceID == %@", CKRecord.Reference(recordID: rootRecord.recordID, action: .none))
+            let recipeQuery = CKQuery(recordType: "Recipe", predicate: recipePredicate)
+            let (recipeResults, _) = try await privateDatabase.records(matching: recipeQuery, inZoneWith: personalZoneID)
+            for (_, result) in recipeResults {
+                if case .success(let record) = result, record.parent == nil {
+                    record.parent = CKRecord.Reference(recordID: rootRecord.recordID, action: .none)
+                    recordsToSave.append(record)
+                }
+            }
+
+            guard !recordsToSave.isEmpty else {
+                printD("No child records needed attaching to share")
+                return
+            }
+
+            try await saveSharedChildren(recordsToSave, in: privateDatabase)
+            printD("Attached \(recordsToSave.count) child records to share")
+        } catch {
+            printD("Failed to attach child records to share: \(error.localizedDescription)")
+        }
+    }
+
+    private func saveSharedChildren(_ records: [CKRecord], in database: CKDatabase) async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            let operation = CKModifyRecordsOperation(recordsToSave: records, recordIDsToDelete: nil)
+            operation.savePolicy = .ifServerRecordUnchanged
+            operation.modifyRecordsResultBlock = { result in
+                switch result {
+                case .success:
+                    continuation.resume()
+                case .failure(let error):
+                    continuation.resume(throwing: error)
+                }
+            }
+            database.add(operation)
+        }
+    }
+    private func hasShareForSource(_ source: Source) async -> Bool {
+        guard source.isPersonal else { return false }
+        do {
+            let rootRecord = try await privateDatabase.record(for: source.id)
+            return rootRecord.share != nil
+        } catch {
+            return false
+        }
+    }
+
+    private func fetchShareMetadata(for url: URL) async throws -> CKShare.Metadata {
+        try await withCheckedThrowingContinuation { continuation in
+            var resumed = false
+            let operation = CKFetchShareMetadataOperation(shareURLs: [url])
+
+            operation.perShareMetadataResultBlock = { _, result in
+                switch result {
+                case .success(let metadata):
+                    if !resumed {
+                        resumed = true
+                        continuation.resume(returning: metadata)
+                    }
+                case .failure(let error):
+                    if !resumed {
+                        resumed = true
+                        continuation.resume(throwing: error)
+                    }
+                }
+            }
+
+            operation.fetchShareMetadataResultBlock = { result in
+                if case .failure(let error) = result, !resumed {
+                    resumed = true
+                    continuation.resume(throwing: error)
+                }
+            }
+
+            self.container.add(operation)
+        }
+    }
+
+    private func acceptShare(with metadata: CKShare.Metadata) async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            var resumed = false
+            let operation = CKAcceptSharesOperation(shareMetadatas: [metadata])
+
+            operation.perShareResultBlock = { _, result in
+                switch result {
+                case .success:
+                    if !resumed {
+                        resumed = true
+                        continuation.resume()
+                    }
+                case .failure(let error):
+                    if !resumed {
+                        resumed = true
+                        continuation.resume(throwing: error)
+                    }
+                }
+            }
+
+            operation.acceptSharesResultBlock = { result in
+                if case .failure(let error) = result, !resumed {
+                    resumed = true
+                    continuation.resume(throwing: error)
+                }
+            }
+
+            self.container.add(operation)
+        }
+    }
+
+    private func fetchSharedSource(using metadata: CKShare.Metadata) async -> Source? {
+        do {
+            // rootRecordID is deprecated but still necessary on some shares; use KVC to avoid warnings
+            let rootRecordID = metadata.rootRecord?.recordID
+                ?? (metadata.value(forKey: "rootRecordID") as? CKRecord.ID)
+
+            guard let rootRecordID else {
+                printD("Share metadata missing rootRecord; cannot fetch shared source")
+                return nil
+            }
+            let record = try await sharedDatabase.record(for: rootRecordID)
+            if var source = Source.from(record) {
+                // Ensure shared sources are marked correctly
+                source.isPersonal = false
+                // If the owner is missing or incorrect, stamp from share metadata
+                if source.owner.isEmpty {
+                    let ownerName = metadata.ownerIdentity.lookupInfo?.emailAddress
+                        ?? metadata.ownerIdentity.nameComponents?.formatted()
+                        ?? "Shared"
+                    source.owner = ownerName
+                }
+                printD("Fetched shared source after accept: \(source.name)")
+                return source
+            } else {
+                printD("Fetched root record but could not decode Source")
+                return nil
+            }
+        } catch {
+            printD("Could not fetch shared source after accept: \(error.localizedDescription)")
+            return nil
+        }
     }
 
     /// Check for incoming share invitations
