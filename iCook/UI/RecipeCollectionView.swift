@@ -195,6 +195,14 @@ struct RecipeCollectionView: View {
         return false
     }
 
+    private var isSearchActive: Bool {
+        showingSearchResults || !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func logSearchState(_ context: String) {
+        printD("SearchState [\(context)]: text='\(searchText)', showingSearchResults=\(showingSearchResults), isSearchActive=\(isSearchActive), collectionType=\(collectionType.navigationTitle)")
+    }
+
     // Get category ID if viewing a category, nil if viewing home
     private var categoryIdIfApplicable: CKRecord.ID? {
         if case .category(let category) = collectionType {
@@ -536,18 +544,21 @@ struct RecipeCollectionView: View {
     private func performSearch(with query: String) async {
         guard !query.isEmpty else { return }
 
-        isSearching = true
         showingSearchResults = true
 
-        defer { isSearching = false }
-
-        await model.searchRecipes(query: query)
-        // Apply client-side filter to avoid predicate errors on CloudKit when using case/diacritic options
+        // Purely local filter for speed and stability
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        let filtered = model.recipes.filter { recipe in
+        let base: [Recipe]
+        if case .category = collectionType {
+            base = categoryRecipes
+        } else {
+            base = model.recipes.isEmpty ? model.randomRecipes : model.recipes
+        }
+        let filtered = base.filter { recipe in
             recipe.name.range(of: trimmed, options: [.caseInsensitive, .diacriticInsensitive]) != nil
         }
-        searchResults = filtered.isEmpty ? model.recipes : filtered
+        searchResults = filtered
+        isSearching = false
 
         if let modelError = model.error {
             print("Search error: \(modelError)")
@@ -604,6 +615,8 @@ struct RecipeCollectionView: View {
                 }
             }
             .applySheetModifiers(editingRecipe: $editingRecipe, showingAddRecipe: $showingAddRecipe, showNewSourceSheet: $showNewSourceSheet, newSourceName: $newSourceName, categoryIdIfApplicable: categoryIdIfApplicable, model: model)
+            .padding(.top, isSearchActive ? 32 : 0)
+            .ignoresSafeArea(edges: isSearchActive ? [] : .top)
             .onReceive(NotificationCenter.default.publisher(for: .recipeDeleted)) { notification in
                 if let deletedRecipeId = notification.object as? CKRecord.ID {
                     categoryRecipes.removeAll { $0.id == deletedRecipeId }
@@ -664,6 +677,7 @@ struct RecipeCollectionView: View {
             .searchable(text: $searchText, placement: .toolbar, prompt: "Search recipes")
             .onSubmit(of: .search) {
                 performSearch()
+                logSearchState("onSubmit")
             }
             .onChange(of: searchText) { _, newValue in
                 let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -671,13 +685,16 @@ struct RecipeCollectionView: View {
                     showingSearchResults = false
                     searchResults = []
                     searchTask?.cancel()
+                    logSearchState("onChange cleared")
                 } else {
+                    showingSearchResults = true
                     searchTask?.cancel()
                     searchTask = Task {
                         try? await Task.sleep(nanoseconds: 250_000_000) // 250ms debounce
                         guard !Task.isCancelled else { return }
                         await performSearch(with: trimmed)
                     }
+                    logSearchState("onChange typing")
                 }
             }
             .refreshable {
@@ -763,7 +780,7 @@ struct RecipeCollectionView: View {
 
     private var mainContent: some View {
         Group {
-            if isLoading || (isCategory && featuredRecipe == nil && !categoryRecipes.isEmpty) {
+            if isLoading || (isCategory && featuredRecipe == nil && !categoryRecipes.isEmpty && !showingSearchResults) {
                 // Show loading spinner while data is loading OR while featured recipe is being selected (for categories)
                 VStack(spacing: 16) {
                     ProgressView()
@@ -816,25 +833,33 @@ struct RecipeCollectionView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 // Normal scroll content
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 16) {
-                        // Featured header image
-                        if let featuredRecipe = featuredRecipe {
-                            featuredRecipeHeader(featuredRecipe)
-                        } else if showingSearchResults {
-                            Spacer()
-                                .frame(height: 20)
+                if isSearchActive {
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 16) {
+                            recipesGridSection()
                         }
-                        // Recipes grid section
-                        recipesGridSection()
+                    }
+                    .padding(.top, 16)
+#if os(macOS)
+                    .safeAreaInset(edge: .top) { Color.clear.frame(height: 16) }
+#endif
+                } else {
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 16) {
+                            // Featured header image
+                            if let featuredRecipe = featuredRecipe {
+                                featuredRecipeHeader(featuredRecipe)
+                            }
+                            // Recipes grid section
+                            recipesGridSection()
+                        }
+                    }
+                    .safeAreaInset(edge: .top) {
+                        if isRefreshing {
+                            Color.clear.frame(height: 50)
+                        }
                     }
                 }
-                .safeAreaInset(edge: .top) {
-                    if isRefreshing {
-                        Color.clear.frame(height: 50)
-                    }
-                }
-                .ignoresSafeArea(edges: .top)
             }
         }
     }
@@ -868,6 +893,9 @@ extension View {
     func applyNavigationModifiers(collectionType: RecipeCollectionType, showingSearchResults: Bool) -> some View {
         self
             .navigationTitle(showingSearchResults ? "Search Results" : collectionType.navigationTitle)
+#if os(iOS)
+            .navigationBarTitleDisplayMode(showingSearchResults ? .inline : .automatic)
+#endif
     }
 
     func applyLifecycleModifiers(

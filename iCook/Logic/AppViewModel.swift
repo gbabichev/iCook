@@ -198,13 +198,10 @@ final class AppViewModel: ObservableObject {
     func searchRecipes(query: String) async {
         guard let source = currentSource else { return }
 
-        isLoadingRecipes = true
-
         await cloudKitManager.searchRecipes(in: source, query: query)
         recipes = cloudKitManager.recipes
         error = cloudKitManager.error
         refreshOfflineState()
-        isLoadingRecipes = false
     }
 
     func deleteRecipe(id: CKRecord.ID) async -> Bool {
