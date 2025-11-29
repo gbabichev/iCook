@@ -294,8 +294,6 @@ struct RecipeCollectionView: View {
                         .font(.headline)
                         .opacity(0.8)
                     
-
-                    
                     // Clickable button within the non-clickable header
                     NavigationLink(destination: RecipeDetailView(recipe: recipe)) {
                         HStack {
@@ -313,17 +311,17 @@ struct RecipeCollectionView: View {
                 .padding(.bottom, 32)
                 .padding(.horizontal, 20)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-                .frame(height: 200)
+                .frame(height: 300)
                 
             case .success(let image):
                 image
                     .resizable()
                     .aspectRatio(contentMode: .fill)
-                    .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: 350)
+                    .frame(minWidth: 0, maxWidth: .infinity, minHeight: 100, maxHeight: 350)
                     .clipped()
                     .ignoresSafeArea(edges: .top)
                     .backgroundExtensionEffect()
-                    .overlay(alignment: .bottom) {
+                    .overlay(alignment: .center) {
                         VStack(spacing: 8) {
                             Text(recipe.name)
                                 .font(.largeTitle)
