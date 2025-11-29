@@ -1049,17 +1049,29 @@ class CloudKitManager: ObservableObject {
         isLoading = true
         defer { isLoading = false }
 
-        if !skipCache {
-            if let cachedRecipes = loadRecipesLocalCache(for: source, categoryID: category?.id),
-               !cachedRecipes.isEmpty {
-                self.recipes = cachedRecipes
+        // Serve cache immediately and refresh in background for a snappier UI
+        if !skipCache,
+           let cachedRecipes = loadRecipesLocalCache(for: source, categoryID: category?.id),
+           !cachedRecipes.isEmpty {
+            self.recipes = cachedRecipes
+
+            guard isCloudKitAvailable else { return }
+
+            Task { [weak self] in
+                guard let self else { return }
+                await self.fetchRecipesFromCloud(for: source, category: category)
             }
+            return
         }
 
         guard isCloudKitAvailable else {
             return
         }
 
+        await fetchRecipesFromCloud(for: source, category: category)
+    }
+
+    private func fetchRecipesFromCloud(for source: Source, category: Category? = nil) async {
         do {
             var predicate: NSPredicate
             if let category = category {
@@ -1080,7 +1092,6 @@ class CloudKitManager: ObservableObject {
 
             var allRecipes: [Recipe] = []
 
-            // Try loading from the appropriate database
             let isOwner = isSharedOwner(source)
             let database = isOwner || source.isPersonal ? privateDatabase : sharedDatabase
             let zoneID = isOwner || source.isPersonal ? personalZoneID : source.id.zoneID
@@ -1098,7 +1109,6 @@ class CloudKitManager: ObservableObject {
                 allRecipes.append(contentsOf: recipes)
             } catch {
                 let errorDesc = error.localizedDescription
-                // SharedDB doesn't support zone-wide queries, so this is expected
                 if !errorDesc.contains("SharedDB does not support Zone Wide queries") {
                     throw error
                 }
@@ -1116,7 +1126,6 @@ class CloudKitManager: ObservableObject {
                 }
             } else {
                 let errorDesc = error.localizedDescription
-                // Silently handle "record type not found" errors - schema is still being created
                 if !errorDesc.contains("Did not find record type") {
                     printD("Error loading recipes: \(errorDesc)")
                     self.error = "Failed to load recipes"
