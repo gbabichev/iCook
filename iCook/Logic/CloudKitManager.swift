@@ -446,6 +446,11 @@ class CloudKitManager: ObservableObject {
         return nil
     }
 
+    /// Public helper to retrieve a cached image path for a recipe if it exists.
+    func cachedImagePathForRecipe(_ recipeID: CKRecord.ID) -> String? {
+        cachedImagePath(for: recipeID)
+    }
+
     private func removeCachedImage(for recipeID: CKRecord.ID) {
         let destination = imageCacheURL(for: recipeID)
         if FileManager.default.fileExists(atPath: destination.path) {

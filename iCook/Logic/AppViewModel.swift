@@ -360,7 +360,23 @@ final class AppViewModel: ObservableObject {
         if let imageData = image {
             if let result = await cloudKitManager.saveImage(imageData, for: updatedRecipe, in: source) {
                 updatedRecipe.imageAsset = result.asset
-                updatedRecipe.cachedImagePath = result.cachedPath
+                let fm = FileManager.default
+                if let existingPath = recipe.cachedImagePath, fm.fileExists(atPath: existingPath) {
+                    try? fm.removeItem(atPath: existingPath)
+                }
+                let originalURL = URL(fileURLWithPath: result.cachedPath ?? "")
+                let ext = originalURL.pathExtension
+                let base = originalURL.deletingPathExtension().lastPathComponent
+                let version = Int(Date().timeIntervalSince1970)
+                let newName = "\(base)_v\(version).\(ext.isEmpty ? "jpg" : ext)"
+                let newURL = originalURL.deletingLastPathComponent().appendingPathComponent(newName)
+                try? fm.removeItem(at: newURL)
+                do {
+                    try fm.copyItem(at: originalURL, to: newURL)
+                    updatedRecipe.cachedImagePath = newURL.path
+                } catch {
+                    updatedRecipe.cachedImagePath = result.cachedPath
+                }
             }
         }
 

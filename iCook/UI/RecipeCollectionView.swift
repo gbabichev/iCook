@@ -606,8 +606,18 @@ struct RecipeCollectionView: View {
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .recipeUpdated)) { notification in
-                if notification.object is CKRecord.ID {
-                    Task {
+                if let updatedRecipe = notification.object as? Recipe {
+                    Task { @MainActor in
+                        // Update local arrays without refetching
+                        if let idx = categoryRecipes.firstIndex(where: { $0.id == updatedRecipe.id }) {
+                            categoryRecipes[idx] = updatedRecipe
+                        }
+                        if let idx = model.randomRecipes.firstIndex(where: { $0.id == updatedRecipe.id }) {
+                            model.randomRecipes[idx] = updatedRecipe
+                        }
+                    }
+                } else if let _ = notification.object as? CKRecord.ID {
+                    Task { @MainActor in
                         if case .category = collectionType {
                             await refreshCategoryRecipes(skipCache: true)
                         } else if case .home = collectionType {

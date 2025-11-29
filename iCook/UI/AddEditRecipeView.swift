@@ -430,7 +430,9 @@ struct AddEditRecipeView: View {
             recipeName = recipe.name
             recipeTime = String(recipe.recipeTime)
             recipeDetails = recipe.details ?? ""
-            // existingImagePath is no longer used with CloudKit assets
+            if existingImagePath == nil {
+                existingImagePath = model.cloudKitManager.cachedImagePathForRecipe(recipe.id)
+            }
 
             // Load recipe steps
             if !recipe.recipeSteps.isEmpty {
@@ -570,6 +572,17 @@ struct AddEditRecipeView: View {
         }
 
         if success {
+            if let recipe = editingRecipe {
+                var updated = recipe
+                if let cached = model.cloudKitManager.cachedImagePathForRecipe(recipe.id) {
+                    updated.cachedImagePath = cached
+                }
+                updated.name = trimmedName
+                updated.details = detailsToSave
+                updated.recipeTime = timeValue
+                updated.recipeSteps = finalSteps
+                NotificationCenter.default.post(name: .recipeUpdated, object: updated)
+            }
             dismiss()
         } else {
             print("DEBUG: Save failed - not dismissing. Model error: \(model.error ?? "nil")")
@@ -671,7 +684,7 @@ struct AddEditRecipeView: View {
 #endif
                 }
             }else if let imagePath = existingImagePath {
-                AsyncImage(url: imageURL(from: imagePath)) { phase in
+                AsyncImage(url: URL(fileURLWithPath: imagePath)) { phase in
                     switch phase {
                     case .success(let image):
                         image
@@ -727,13 +740,7 @@ struct AddEditRecipeView: View {
             }
     }
     
-    private func imageURL(from path: String) -> URL? {
-        // CloudKit assets don't use URL paths
-        // This is kept for backward compatibility but no longer functional
-        return nil
-    }
-    
-    private func loadImageFromURL(_ url: URL) {
+        private func loadImageFromURL(_ url: URL) {
         Task {
             isUploading = true
             isCompressingImage = true
