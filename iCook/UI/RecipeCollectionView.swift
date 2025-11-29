@@ -321,33 +321,39 @@ struct RecipeCollectionView: View {
                     .clipped()
                     .ignoresSafeArea(edges: .top)
                     .backgroundExtensionEffect()
-                    .overlay(alignment: .center) {
+                    .overlay(alignment: .bottom) {
                         VStack(spacing: 8) {
-                            Text(recipe.name)
-                                .font(.largeTitle)
-                                .fontWeight(.bold)
-                                .foregroundColor(.white)
-                                .multilineTextAlignment(.center)
-                            Text("\(recipe.recipeTime) minutes")
-                                .font(.headline)
-                                .foregroundColor(.white)
-                                .opacity(0.8)
-                            // Clickable button within the non-clickable header
-                            NavigationLink(destination: RecipeDetailView(recipe: recipe)) {
-                                HStack {
-                                    Image(systemName: "eye")
-                                    Text("View Recipe")
+                            VStack(spacing: 8) {
+                                Text(recipe.name)
+                                    .font(.largeTitle)
+                                    .fontWeight(.bold)
+                                    .foregroundColor(.white)
+                                    .multilineTextAlignment(.center)
+                                Text("\(recipe.recipeTime) minutes")
+                                    .font(.headline)
+                                    .foregroundColor(.white)
+                                    .opacity(0.9)
+                                // Clickable button within the non-clickable header
+                                NavigationLink(destination: RecipeDetailView(recipe: recipe)) {
+                                    HStack {
+                                        Image(systemName: "eye")
+                                        Text("View Recipe")
+                                    }
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal, 20)
+                                    .padding(.vertical, 12)
+                                    .background(.ultraThinMaterial.opacity(0.8), in: Capsule())
                                 }
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 20)
-                                .padding(.vertical, 12)
-                                .background(.black.opacity(0.6))
-                                .cornerRadius(25)
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 16)
+                            .background(
+                                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                    .fill(Color.black.opacity(0.35))
+                            )
+                            .padding(.bottom, 24)
                         }
-                        .padding(.bottom, 32)
-                        .padding(.horizontal, 20)
                     }
                 
             case .failure:
