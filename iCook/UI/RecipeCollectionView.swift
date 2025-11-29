@@ -542,7 +542,12 @@ struct RecipeCollectionView: View {
         defer { isSearching = false }
 
         await model.searchRecipes(query: query)
-        searchResults = model.recipes
+        // Apply client-side filter to avoid predicate errors on CloudKit when using case/diacritic options
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let filtered = model.recipes.filter { recipe in
+            recipe.name.range(of: trimmed, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+        }
+        searchResults = filtered.isEmpty ? model.recipes : filtered
 
         if let modelError = model.error {
             print("Search error: \(modelError)")
@@ -654,6 +659,25 @@ struct RecipeCollectionView: View {
             .task(id: model.randomRecipes.count) {
                 if case .home = collectionType {
                     // No need to reload
+                }
+            }
+            .searchable(text: $searchText, placement: .toolbar, prompt: "Search recipes")
+            .onSubmit(of: .search) {
+                performSearch()
+            }
+            .onChange(of: searchText) { _, newValue in
+                let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmed.isEmpty {
+                    showingSearchResults = false
+                    searchResults = []
+                    searchTask?.cancel()
+                } else {
+                    searchTask?.cancel()
+                    searchTask = Task {
+                        try? await Task.sleep(nanoseconds: 250_000_000) // 250ms debounce
+                        guard !Task.isCancelled else { return }
+                        await performSearch(with: trimmed)
+                    }
                 }
             }
             .refreshable {

@@ -1224,86 +1224,15 @@ class CloudKitManager: ObservableObject {
     func searchRecipes(in source: Source, query: String) async {
         isLoading = true
         defer { isLoading = false }
+        self.error = nil
 
-        if let cachedAllRecipes = loadRecipesLocalCache(for: source, categoryID: nil) {
-            let filtered = cachedAllRecipes.filter { recipe in
-                recipe.name.range(of: query, options: [.caseInsensitive, .diacriticInsensitive]) != nil
-            }
-            self.recipes = filtered
+        let cachedAllRecipes = loadRecipesLocalCache(for: source, categoryID: nil) ?? recipes
+        let filtered = cachedAllRecipes.filter { recipe in
+            recipe.name.range(of: query, options: [.caseInsensitive, .diacriticInsensitive]) != nil
         }
-
-        guard isCloudKitAvailable else {
-            return
-        }
-
-        do {
-            let predicate = NSPredicate(
-                format: "sourceID == %@ AND name CONTAINS[cd] %@",
-                CKRecord.Reference(recordID: source.id, action: .none),
-                query
-            )
-
-            let cloudQuery = CKQuery(recordType: "Recipe", predicate: predicate)
-            cloudQuery.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true)]
-
-            var allRecipes: [Recipe] = []
-
-            // Try loading from the appropriate database
-            let isOwner = isSharedOwner(source)
-            let database = isOwner || source.isPersonal ? privateDatabase : sharedDatabase
-            let zoneID = isOwner || source.isPersonal ? personalZoneID : source.id.zoneID
-            do {
-                let (results, _) = try await database.records(matching: cloudQuery, inZoneWith: zoneID)
-
-                let recipes = results.compactMap { _, result -> Recipe? in
-                    guard case .success(let record) = result,
-                          let recipe = Recipe.from(record) else {
-                        return nil
-                    }
-                    let recipeWithImage = recipeWithCachedImage(recipe)
-                    recipeCache[recipeWithImage.id] = recipeWithImage
-                    return recipeWithImage
-                }
-
-                allRecipes.append(contentsOf: recipes)
-            } catch {
-                let errorDesc = error.localizedDescription
-                // SharedDB doesn't support zone-wide queries, so this is expected
-                if !errorDesc.contains("SharedDB does not support Zone Wide queries") {
-                    throw error
-                }
-            }
-
-            self.recipes = allRecipes
-            markOnlineIfNeeded()
-        } catch {
-            if handleOfflineFallback(for: error) {
-                if let cachedAllRecipes = loadRecipesLocalCache(for: source, categoryID: nil) {
-                    let filtered = cachedAllRecipes.filter { recipe in
-                        recipe.name.range(of: query, options: [.caseInsensitive, .diacriticInsensitive]) != nil
-                    }
-                    self.recipes = filtered
-                } else {
-                    self.recipes = []
-                }
-            } else {
-                let errorDesc = error.localizedDescription
-                // Silently handle "record type not found" errors - schema is still being created
-                if !errorDesc.contains("Did not find record type") {
-                    printD("Error searching recipes: \(errorDesc)")
-                    self.error = "Failed to search recipes"
-                }
-                if let cachedAllRecipes = loadRecipesLocalCache(for: source, categoryID: nil) {
-                    let filtered = cachedAllRecipes.filter { recipe in
-                        recipe.name.range(of: query, options: [.caseInsensitive, .diacriticInsensitive]) != nil
-                    }
-                    self.recipes = filtered
-                } else {
-                    self.recipes = []
-                }
-            }
-        }
+        self.recipes = filtered
     }
+
 
     func createRecipe(_ recipe: Recipe, in source: Source) async {
         do {
