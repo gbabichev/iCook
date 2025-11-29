@@ -1120,28 +1120,36 @@ struct CameraInfo: Identifiable, Hashable {
     let device: AVCaptureDevice
     let displayName: String
     let position: AVCaptureDevice.Position
+    let zoomLabel: String
     
     init(device: AVCaptureDevice) {
         self.device = device
         self.position = device.position
         
-        // Create user-friendly names
-        let positionName = position == .front ? "Front" : "Back"
+        // Map device types to zoom-style labels for familiarity
+        let basePosition = position == .front ? "Front" : "Back"
         switch device.deviceType {
-        case .builtInWideAngleCamera:
-            self.displayName = "\(positionName) Wide"
         case .builtInUltraWideCamera:
-            self.displayName = "\(positionName) Ultra Wide"
+            self.zoomLabel = "0.5x"
+            self.displayName = "\(basePosition) 0.5x"
+        case .builtInWideAngleCamera:
+            self.zoomLabel = "1x"
+            self.displayName = "\(basePosition) 1x"
         case .builtInTelephotoCamera:
-            self.displayName = "\(positionName) Telephoto"
+            self.zoomLabel = "2x"
+            self.displayName = "\(basePosition) 2x"
         case .builtInDualCamera:
-            self.displayName = "\(positionName) Dual"
+            self.zoomLabel = "1x"
+            self.displayName = "\(basePosition) 1x (Dual)"
         case .builtInDualWideCamera:
-            self.displayName = "\(positionName) Dual Wide"
+            self.zoomLabel = "0.5/1x"
+            self.displayName = "\(basePosition) 0.5/1x"
         case .builtInTripleCamera:
-            self.displayName = "\(positionName) Triple"
+            self.zoomLabel = "0.5/1/2x"
+            self.displayName = "\(basePosition) 0.5/1/2x"
         default:
-            self.displayName = "\(positionName) Camera"
+            self.zoomLabel = "1x"
+            self.displayName = "\(basePosition) 1x"
         }
     }
 }
@@ -1150,7 +1158,7 @@ struct CameraView: View {
     let onImageCaptured: (UIImage) -> Void
     @Environment(\.dismiss) private var dismiss
     @StateObject private var cameraManager = CameraManager()
-    @State private var showingCameraSelector = false
+    @State private var showingCameraSelector = false // kept for backward compatibility, unused now
     
     var body: some View {
         NavigationStack {
@@ -1162,36 +1170,35 @@ struct CameraView: View {
                 VStack {
                     // Top controls
                     HStack {
-                        Button("Cancel") {
+                        Button {
                             dismiss()
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.headline)
                         }
                         .foregroundColor(.white)
-                        .padding()
-                        
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 8)
+                        .background(
+                            Capsule()
+                                .fill(Color.black.opacity(0.4))
+                        )
+                        .overlay(
+                            Capsule()
+                                .stroke(Color.white.opacity(0.6), lineWidth: 1)
+                        )
+
                         Spacer()
-                        
-                        // Camera selector button
-                        if cameraManager.availableCameras.count > 1 {
-                            Button {
-                                showingCameraSelector = true
-                            } label: {
-                                VStack(spacing: 4) {
-                                    Image(systemName: "camera.circle")
-                                        .font(.title2)
-                                    Text(cameraManager.currentCamera?.displayName ?? "Camera")
-                                        .font(.caption)
-                                }
-                                .foregroundColor(.white)
-                                .padding(.horizontal)
-                            }
-                        }
                     }
-                    .padding(.top, 50)
+                    .padding(.horizontal, 12)
                     
                     Spacer()
                     
+                    cameraLensButtons
+                    
                     // Bottom controls
                     HStack {
+                        
                         // Flash toggle (if supported)
                         if cameraManager.currentCamera?.device.hasFlash == true {
                             Button {
@@ -1259,12 +1266,51 @@ struct CameraView: View {
             }
             .confirmationDialog("Select Camera", isPresented: $showingCameraSelector) {
                 ForEach(cameraManager.availableCameras) { cameraInfo in
-                    Button(cameraInfo.displayName) {
+                    Button {
                         cameraManager.switchToCamera(cameraInfo)
+                    } label: {
+                        HStack {
+                            Text(cameraInfo.zoomLabel)
+                                .fontWeight(.semibold)
+                            Text(cameraInfo.displayName)
+                                .foregroundColor(.secondary)
+                        }
                     }
                 }
                 Button("Cancel", role: .cancel) { }
             }
+        }
+    }
+}
+
+// MARK: - Lens Selector Buttons
+private extension CameraView {
+    @ViewBuilder
+    var cameraLensButtons: some View {
+        let currentPosition = cameraManager.currentCamera?.position
+        let options = cameraManager.availableCameras.filter { $0.position == currentPosition }
+        if options.count > 1 {
+            HStack(spacing: 12) {
+                ForEach(options) { cameraInfo in
+                    Button {
+                        cameraManager.switchToCamera(cameraInfo)
+                    } label: {
+                        Text(cameraInfo.zoomLabel)
+                            .font(.headline)
+                            .frame(width: 44, height: 44)
+                            .background(
+                                Capsule()
+                                    .fill(cameraManager.currentCamera?.id == cameraInfo.id ? Color.black.opacity(0.4) : Color.black.opacity(0.2))
+                            )
+                            .overlay(
+                                Capsule()
+                                    .stroke(Color.white.opacity(0.6), lineWidth: cameraManager.currentCamera?.id == cameraInfo.id ? 2 : 1)
+                            )
+                    }
+                    .foregroundColor(.white)
+                }
+            }
+            .padding(.horizontal, 8)
         }
     }
 }
@@ -1459,7 +1505,11 @@ class CameraManager: NSObject, ObservableObject {
             position: .unspecified
         )
         
-        availableCameras = discoverySession.devices.map { CameraInfo(device: $0) }
+        availableCameras = discoverySession.devices.map { device in
+            let info = CameraInfo(device: device)
+            printD("Camera discovered: type=\(device.deviceType.rawValue), position=\(device.position.rawValue), label=\(info.zoomLabel), name=\(info.displayName)")
+            return info
+        }
         
         // Sort cameras: back cameras first, then by type preference
         availableCameras.sort { camera1, camera2 in
@@ -1492,6 +1542,23 @@ class CameraManager: NSObject, ObservableObject {
             currentCamera = backWide
         } else {
             currentCamera = availableCameras.first
+        }
+
+        // Deduplicate cameras by position + zoom label, and skip combined labels when specifics exist
+        let hasSpecificPerPosition: [AVCaptureDevice.Position: Bool] = [
+            .back: availableCameras.contains { $0.position == .back && !$0.zoomLabel.contains("/") },
+            .front: availableCameras.contains { $0.position == .front && !$0.zoomLabel.contains("/") }
+        ]
+
+        var seen: Set<String> = []
+        availableCameras = availableCameras.filter { cam in
+            if cam.zoomLabel.contains("/"), hasSpecificPerPosition[cam.position] == true {
+                return false
+            }
+            let key = "\(cam.position.rawValue)_\(cam.zoomLabel)"
+            if seen.contains(key) { return false }
+            seen.insert(key)
+            return true
         }
     }
     
