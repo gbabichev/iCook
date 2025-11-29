@@ -12,6 +12,7 @@ struct ContentView: View {
     @State private var isShowingHome = true
     @State private var showingAddCategory = false
     @State private var editingCategory: Category? = nil
+    @State private var collectionType: RecipeCollectionType? = .home
 
     var body: some View {
         NavigationSplitView(preferredCompactColumn: $preferredColumn) {
@@ -36,7 +37,8 @@ struct ContentView: View {
                     selection: $selectedCategoryID,
                     editingCategory: $editingCategory,
                     isShowingHome: $isShowingHome,
-                    showingAddCategory: $showingAddCategory
+                    showingAddCategory: $showingAddCategory,
+                    collectionType: $collectionType
                 )
             }
             .navigationSplitViewColumnWidth(min: 250, ideal: 250, max: 400)
@@ -44,17 +46,7 @@ struct ContentView: View {
         } detail: {
             // Single NavigationStack for the detail view
             NavigationStack {
-                if isShowingHome {
-                    RecipeCollectionView()
-                        .ignoresSafeArea(edges: .top)
-                } else if let id = selectedCategoryID,
-                          let cat = model.categories.first(where: { $0.id == id }) {
-                    RecipeCollectionView(category: cat)
-                        .ignoresSafeArea(edges: .top)
-                } else {
-                    RecipeCollectionView()
-                        .ignoresSafeArea(edges: .top)
-                }
+                RecipeCollectionView(collectionType: collectionType ?? .home)
             }
 #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)

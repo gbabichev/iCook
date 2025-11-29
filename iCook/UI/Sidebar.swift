@@ -16,13 +16,21 @@ struct CategoryList: View {
     @Binding var editingCategory: Category?
     @Binding var isShowingHome: Bool
     @Binding var showingAddCategory: Bool
+    @Binding var collectionType: RecipeCollectionType?
     @State private var showSourcesOverlay = false
 
-    init(selection: Binding<CKRecord.ID?>, editingCategory: Binding<Category?>, isShowingHome: Binding<Bool>, showingAddCategory: Binding<Bool>) {
+    init(
+        selection: Binding<CKRecord.ID?>,
+        editingCategory: Binding<Category?>,
+        isShowingHome: Binding<Bool>,
+        showingAddCategory: Binding<Bool>,
+        collectionType: Binding<RecipeCollectionType?>
+    ) {
         self._selection = selection
         self._editingCategory = editingCategory
         self._isShowingHome = isShowingHome
         self._showingAddCategory = showingAddCategory
+        self._collectionType = collectionType
     }
 
     private var homeRecipeCount: Int {
@@ -44,9 +52,9 @@ struct CategoryList: View {
     }
 
     var body: some View {
-        List {
+        List(selection: $collectionType) {
             // Home/Featured section
-            NavigationLink(destination: RecipeCollectionView()) {
+            NavigationLink(value: RecipeCollectionType.home) {
                 HStack(spacing: 6) {
                     Image(systemName: "house.fill")
                         .foregroundStyle(.blue)
@@ -64,7 +72,7 @@ struct CategoryList: View {
             if !model.categories.isEmpty {
                 Section("Categories") {
                     ForEach(model.categories) { category in
-                        NavigationLink(destination: RecipeCollectionView(category: category)) {
+                        NavigationLink(value: RecipeCollectionType.category(category)) {
                             HStack(spacing: 6) {
                                 Text(category.icon)
                                     .frame(width: 24)
@@ -151,6 +159,18 @@ struct CategoryList: View {
 #if os(macOS)
                 .frame(minWidth: 400, minHeight: 300)
 #endif
+        }
+        .onChange(of: collectionType) { _, newValue in
+            switch newValue {
+            case .home:
+                isShowingHome = true
+                selection = nil
+            case .category(let category):
+                isShowingHome = false
+                selection = category.id
+            case .none:
+                break
+            }
         }
     }
 }

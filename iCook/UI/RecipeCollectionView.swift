@@ -8,7 +8,7 @@
 import SwiftUI
 import CloudKit
 
-enum RecipeCollectionType: Equatable {
+enum RecipeCollectionType: Hashable {
     case home
     case category(Category)
     
@@ -57,7 +57,6 @@ enum RecipeCollectionType: Equatable {
         }
     }
     
-    // Add this for proper comparison
     static func == (lhs: RecipeCollectionType, rhs: RecipeCollectionType) -> Bool {
         switch (lhs, rhs) {
         case (.home, .home):
@@ -66,6 +65,16 @@ enum RecipeCollectionType: Equatable {
             return lhsCat.id == rhsCat.id
         default:
             return false
+        }
+    }
+
+    func hash(into hasher: inout Hasher) {
+        switch self {
+        case .home:
+            hasher.combine("home")
+        case .category(let category):
+            hasher.combine("category")
+            hasher.combine(category.id)
         }
     }
 }
@@ -271,14 +280,13 @@ struct RecipeCollectionView: View {
         }
     }
 
-    // For Home view
-    init() {
-        self.collectionType = .home
+    // Initializers
+    init(collectionType: RecipeCollectionType = .home) {
+        self.collectionType = collectionType
     }
-    
-    // For Category view
+
     init(category: Category) {
-        self.collectionType = .category(category)
+        self.init(collectionType: .category(category))
     }
         
     // MARK: - Header Views
@@ -615,7 +623,7 @@ struct RecipeCollectionView: View {
                 }
             }
             .applySheetModifiers(editingRecipe: $editingRecipe, showingAddRecipe: $showingAddRecipe, showNewSourceSheet: $showNewSourceSheet, newSourceName: $newSourceName, categoryIdIfApplicable: categoryIdIfApplicable, model: model)
-            .padding(.top, isSearchActive ? 32 : 0)
+            .padding(.top, isSearchActive ? 0 : 0)
             .ignoresSafeArea(edges: isSearchActive ? [] : .top)
             .onReceive(NotificationCenter.default.publisher(for: .recipeDeleted)) { notification in
                 if let deletedRecipeId = notification.object as? CKRecord.ID {
@@ -839,10 +847,6 @@ struct RecipeCollectionView: View {
                             recipesGridSection()
                         }
                     }
-                    .padding(.top, 16)
-#if os(macOS)
-                    .safeAreaInset(edge: .top) { Color.clear.frame(height: 16) }
-#endif
                 } else {
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 16) {
