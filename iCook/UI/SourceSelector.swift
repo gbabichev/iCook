@@ -398,6 +398,9 @@ private struct MacToolbarIconButton: View {
                 }
 #endif
                 printD("Share URL ready for sharing")
+                Task {
+                    await viewModel.loadSources()
+                }
             }
         } else {
             await MainActor.run {
