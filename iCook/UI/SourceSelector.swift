@@ -287,6 +287,8 @@ private struct MacToolbarIconButton: View {
                                 onRemoveShare: {
                                     Task {
                                         await viewModel.forceRemoveSource(source)
+                                        // Update list immediately
+                                        viewModel.removeSourceFromList(source)
                                     }
                                 }
                             )

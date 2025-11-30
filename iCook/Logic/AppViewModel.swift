@@ -51,6 +51,24 @@ final class AppViewModel: ObservableObject {
                 self.randomRecipes = self.cloudKitManager.recipes
             }
         }
+
+        NotificationCenter.default.addObserver(
+            forName: .sourcesRefreshed,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            Task { @MainActor in
+                self.sources = self.cloudKitManager.sources
+                if let current = self.cloudKitManager.currentSource {
+                    self.currentSource = current
+                } else if !self.sources.isEmpty {
+                    self.currentSource = self.sources.first
+                } else {
+                    self.currentSource = nil
+                }
+            }
+        }
     }
 
     private func refreshOfflineState() {
@@ -657,6 +675,14 @@ final class AppViewModel: ObservableObject {
     func debugNukeOwnedData() async {
         await cloudKitManager.debugNukeOwnedData()
         await loadSources()
+    }
+
+    func removeSourceFromList(_ source: Source) {
+        sources.removeAll { $0.id == source.id }
+        if currentSource?.id == source.id {
+            currentSource = sources.first
+            cloudKitManager.saveCurrentSourceID()
+        }
     }
 
     func checkForSharedSourceInvitations() async {

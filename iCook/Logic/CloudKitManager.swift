@@ -188,6 +188,18 @@ class CloudKitManager: ObservableObject {
     private var sharedSourceIDs: Set<String> = []
     private let sharedSourceIDsKey = "SharedSourceIDs"
     private let recentlyUnsharedKey = "RecentlyUnsharedIDs"
+    private let revokedNotifiedKey = "RevokedNotifiedIDs"
+    private var revokedNotifiedIDs: Set<String> = [] {
+        didSet {
+            UserDefaults.standard.set(Array(revokedNotifiedIDs), forKey: revokedNotifiedKey)
+        }
+    }
+    private let revokedToastKey = "RevokedToastShown"
+    private var revokedToastShownIDs: Set<String> = [] {
+        didSet {
+            UserDefaults.standard.set(Array(revokedToastShownIDs), forKey: revokedToastKey)
+        }
+    }
 
     private func loadSharedSourceIDs() {
         if let ids = UserDefaults.standard.array(forKey: sharedSourceIDsKey) as? [String] {
@@ -197,6 +209,14 @@ class CloudKitManager: ObservableObject {
         if let unshared = UserDefaults.standard.array(forKey: recentlyUnsharedKey) as? [String] {
             recentlyUnsharedIDs = Set(unshared)
             printD("Loaded recentlyUnsharedIDs: \(recentlyUnsharedIDs.count)")
+        }
+        if let revoked = UserDefaults.standard.array(forKey: revokedNotifiedKey) as? [String] {
+            revokedNotifiedIDs = Set(revoked)
+            printD("Loaded revokedNotifiedIDs: \(revokedNotifiedIDs.count)")
+        }
+        if let toast = UserDefaults.standard.array(forKey: revokedToastKey) as? [String] {
+            revokedToastShownIDs = Set(toast)
+            printD("Loaded revokedToastShownIDs: \(revokedToastShownIDs.count)")
         }
         // Clear any stale shared IDs on app start if user explicitly unshared last session
         if !recentlyUnsharedIDs.isEmpty {
@@ -678,6 +698,22 @@ class CloudKitManager: ObservableObject {
             return updated
         }
 
+        // Drop any recently unshared sources for non-owners so they disappear from the list
+        allSources = allSources.filter { source in
+            let key = cacheIdentifier(for: source.id)
+            let shouldDrop = recentlyUnsharedIDs.contains(key) && !isSharedOwner(source)
+            if shouldDrop {
+                printD("Filtering out revoked source from list: \(source.name)")
+            }
+            return !shouldDrop
+        }
+
+        if let current = currentSource,
+           !allSources.contains(where: { $0.id == current.id }) {
+            currentSource = allSources.first
+            saveCurrentSourceID()
+        }
+
             allSources.sort { $0.lastModified > $1.lastModified }
 
             self.sources = allSources
@@ -963,12 +999,18 @@ class CloudKitManager: ObservableObject {
     }
 
     func removeSharedSourceLocally(_ source: Source) async {
-        guard !source.isPersonal else { return }
-        // Remove from local state without touching CloudKit so other participants keep access
+        // Allow removal for revoked shares even if flagged personal; skip only if owner
+        if isSharedOwner(source) && source.isPersonal {
+            return
+        }
         sources = sources.filter { $0.id != source.id }
         sourceCache.removeValue(forKey: source.id)
         unmarkSharedSource(id: source.id)
+        recentlyUnsharedIDs.insert(cacheIdentifier(for: source.id))
         saveSourcesLocalCache()
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: .sourcesRefreshed, object: nil)
+        }
         if currentSource?.id == source.id {
             currentSource = sources.first
             saveCurrentSourceID()
@@ -1074,6 +1116,12 @@ class CloudKitManager: ObservableObject {
             await loadRecipeCounts(for: source)
             markOnlineIfNeeded()
         } catch {
+            if isSharedSource(source), isShareRevokedError(error) {
+                printD("Share revoked or inaccessible for \(source.name); removing locally")
+                await removeSharedSourceLocally(source)
+                setRevokedErrorOnce(for: source, context: "categories")
+                return
+            }
             if handleOfflineFallback(for: error) {
                 if let cachedCategories = loadCategoriesLocalCache(for: source) {
                     self.categories = cachedCategories
@@ -1097,6 +1145,34 @@ class CloudKitManager: ObservableObject {
                 let cachedCounts = loadRecipeCountsLocalCache(for: source)
                 self.recipeCounts = cachedCounts
             }
+        }
+    }
+
+    private func isShareRevokedError(_ error: Error) -> Bool {
+        if let ck = error as? CKError {
+            return ck.code == .zoneNotFound || ck.code == .unknownItem || ck.code == .permissionFailure
+        }
+        return false
+    }
+
+    private func setRevokedErrorOnce(for source: Source, context: String) {
+        let key = cacheIdentifier(for: source.id)
+        if !revokedNotifiedIDs.contains(key) {
+            revokedNotifiedIDs.insert(key)
+            let message = "Shared collection '\(source.name)' was revoked."
+            printD("Revocation alert (\(context)): \(message)")
+            self.error = message
+            if !revokedToastShownIDs.contains(key) {
+                revokedToastShownIDs.insert(key)
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(
+                        name: .shareRevokedToast,
+                        object: source.name
+                    )
+                }
+            }
+        } else {
+            printD("Revocation alert suppressed (\(context)) for \(source.name)")
         }
     }
 
@@ -1296,6 +1372,12 @@ class CloudKitManager: ObservableObject {
                 NotificationCenter.default.post(name: .recipesRefreshed, object: nil)
             }
         } catch {
+            if isSharedSource(source), isShareRevokedError(error) {
+                printD("Share revoked or inaccessible for \(source.name); removing locally")
+                await removeSharedSourceLocally(source)
+                self.error = "Shared collection '\(source.name)' was revoked."
+                return
+            }
             if handleOfflineFallback(for: error) {
                 if let cachedRecipes = loadRecipesLocalCache(for: source, categoryID: category?.id) {
                     self.recipes = cachedRecipes
@@ -1398,6 +1480,12 @@ class CloudKitManager: ObservableObject {
                     self.recipes = []
                 }
             } else {
+                if isSharedSource(source), isShareRevokedError(error) {
+                    printD("Share revoked or inaccessible for \(source.name); removing locally (random load)")
+                    await removeSharedSourceLocally(source)
+                    setRevokedErrorOnce(for: source, context: "random")
+                    return
+                }
                 let errorDesc = error.localizedDescription
                 // Silently handle "record type not found" errors - schema is still being created
                 if !errorDesc.contains("Did not find record type") {

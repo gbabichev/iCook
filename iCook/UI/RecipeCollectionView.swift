@@ -111,6 +111,8 @@ struct RecipeCollectionView: View {
     @State private var isSearching = false
     @State private var showingSearchResults = false
     @State private var isRefreshing = false
+    @State private var showRevokedToast = false
+    @State private var revokedToastMessage = ""
 
     
     // Adaptive columns with consistent spacing - account for spacing in minimum width
@@ -638,6 +640,7 @@ struct RecipeCollectionView: View {
             .applySheetModifiers(editingRecipe: $editingRecipe, showingAddRecipe: $showingAddRecipe, showNewSourceSheet: $showNewSourceSheet, newSourceName: $newSourceName, categoryIdIfApplicable: categoryIdIfApplicable, model: model)
             .padding(.top, isSearchActive ? 0 : 0)
             .ignoresSafeArea(edges: isSearchActive ? [] : .top)
+            .toast(isPresented: $showRevokedToast, message: revokedToastMessage)
             .onReceive(NotificationCenter.default.publisher(for: .recipeDeleted)) { notification in
                 if let deletedRecipeId = notification.object as? CKRecord.ID {
                     categoryRecipes.removeAll { $0.id == deletedRecipeId }
@@ -721,6 +724,21 @@ struct RecipeCollectionView: View {
                         await performSearch(with: trimmed)
                     }
                     logSearchState("onChange typing")
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .shareRevokedToast)) { notification in
+                if let name = notification.object as? String {
+                    revokedToastMessage = "Collection '\(name)' was revoked"
+                } else {
+                    revokedToastMessage = "A shared collection was revoked"
+                }
+                withAnimation {
+                    showRevokedToast = true
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+                    withAnimation {
+                        showRevokedToast = false
+                    }
                 }
             }
             .refreshable {
@@ -898,6 +916,31 @@ struct RecipeCollectionView: View {
 }
 
 // MARK: - View Modifiers Extension
+private struct ToastModifier: ViewModifier {
+    @Binding var isPresented: Bool
+    let message: String
+
+    func body(content: Content) -> some View {
+        content
+            .overlay(alignment: .bottom) {
+                if isPresented {
+                    Text(message)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .shadow(radius: 6)
+                        .padding(.bottom, 20)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+    }
+}
+
+private extension View {
+    func toast(isPresented: Binding<Bool>, message: String) -> some View {
+        modifier(ToastModifier(isPresented: isPresented, message: message))
+    }
+}
 
 extension View {
     func applySearchModifiers(

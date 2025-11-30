@@ -418,5 +418,7 @@ extension Notification.Name {
     static let refreshRequested = Notification.Name("refreshRequested")
     static let recipesRefreshed = Notification.Name("recipesRefreshed")
     static let shareURLCopied = Notification.Name("shareURLCopied")
+    static let sourcesRefreshed = Notification.Name("sourcesRefreshed")
+    static let shareRevokedToast = Notification.Name("shareRevokedToast")
 
 }
