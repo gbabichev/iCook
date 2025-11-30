@@ -264,15 +264,11 @@ struct RecipeCollectionView: View {
                 Button(role: .destructive) {
                     isDebugOperationInProgress = true
                     Task {
-                        await model.debugDeleteAllSourcesAndReset()
-                        if model.currentSource != nil {
-                            await model.loadCategories()
-                            await model.loadRandomRecipes()
-                        }
+                        await model.debugNukeOwnedData()
                         isDebugOperationInProgress = false
                     }
                 } label: {
-                    Label("Delete all Sources & Restart", systemImage: "trash.fill")
+                    Label("Nuke owned CloudKit data", systemImage: "bolt.horizontal.icloud.fill")
                 }
             }
         } label: {

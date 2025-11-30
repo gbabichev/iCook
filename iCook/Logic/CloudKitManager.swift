@@ -187,11 +187,21 @@ class CloudKitManager: ObservableObject {
     // Track shared source IDs locally so we can mark them as shared even if the CloudKit flag is missing
     private var sharedSourceIDs: Set<String> = []
     private let sharedSourceIDsKey = "SharedSourceIDs"
+    private let recentlyUnsharedKey = "RecentlyUnsharedIDs"
 
     private func loadSharedSourceIDs() {
         if let ids = UserDefaults.standard.array(forKey: sharedSourceIDsKey) as? [String] {
             sharedSourceIDs = Set(ids)
             printD("Loaded sharedSourceIDs: \(sharedSourceIDs.count)")
+        }
+        if let unshared = UserDefaults.standard.array(forKey: recentlyUnsharedKey) as? [String] {
+            recentlyUnsharedIDs = Set(unshared)
+            printD("Loaded recentlyUnsharedIDs: \(recentlyUnsharedIDs.count)")
+        }
+        // Clear any stale shared IDs on app start if user explicitly unshared last session
+        if !recentlyUnsharedIDs.isEmpty {
+            sharedSourceIDs.subtract(recentlyUnsharedIDs)
+            saveSharedSourceIDs()
         }
     }
 
@@ -199,9 +209,17 @@ class CloudKitManager: ObservableObject {
         UserDefaults.standard.set(Array(sharedSourceIDs), forKey: sharedSourceIDsKey)
     }
 
+    // Track sources explicitly unshared locally to avoid re-marking from stale data
+    private var recentlyUnsharedIDs: Set<String> = [] {
+        didSet {
+            UserDefaults.standard.set(Array(recentlyUnsharedIDs), forKey: recentlyUnsharedKey)
+        }
+    }
+
     private func markSharedSource(id: CKRecord.ID) {
         let key = cacheIdentifier(for: id)
         sharedSourceIDs.insert(key)
+        recentlyUnsharedIDs.remove(key)
         saveSharedSourceIDs()
     }
 
@@ -209,6 +227,32 @@ class CloudKitManager: ObservableObject {
         let key = cacheIdentifier(for: id)
         sharedSourceIDs.remove(key)
         saveSharedSourceIDs()
+    }
+
+    /// Remove local shared markers for a source (used when an owner stops sharing).
+    func markSourceUnshared(_ source: Source) {
+        let key = cacheIdentifier(for: source.id)
+        printD("Marking source as unshared: \(source.name) (key=\(key)) before=\(sharedSourceIDs.count)")
+        sharedSourceIDs.remove(key)
+        recentlyUnsharedIDs.insert(key)
+        saveSharedSourceIDs()
+        printD("After unmark: sharedSourceIDs count=\(sharedSourceIDs.count)")
+
+        // Flip local source objects to personal so UI/state stay consistent
+        sources = sources.map { src in
+            if src.id == source.id {
+                var updated = src
+                updated.isPersonal = true
+                return updated
+            }
+            return src
+        }
+        sourceCache[source.id]?.isPersonal = true
+        if let current = currentSource, current.id == source.id {
+            currentSource?.isPersonal = true
+        }
+        saveSourcesLocalCache()
+        saveCurrentSourceID()
     }
 
     private func saveCategoriesLocalCache(_ categories: [Category], for source: Source) {
@@ -609,16 +653,27 @@ class CloudKitManager: ObservableObject {
             }
 
         // Normalize shared flag based on zone ownership
+        // First, ensure recently unshared IDs are removed from shared cache
+        if !recentlyUnsharedIDs.isEmpty {
+            sharedSourceIDs.subtract(recentlyUnsharedIDs)
+            saveSharedSourceIDs()
+        }
+
         allSources = allSources.map { source in
             var updated = source
             let owner = isSharedOwner(source)
             let cachedShared = sharedSourceIDs.contains(cacheIdentifier(for: source.id))
-            if shouldBeSharedBasedOnZone(source) || cachedShared {
+            let wasUnshared = recentlyUnsharedIDs.contains(cacheIdentifier(for: source.id))
+            if (shouldBeSharedBasedOnZone(source) || cachedShared) && !wasUnshared {
                 updated.isPersonal = owner
                 markSharedSource(id: updated.id)
             } else if let userIdentifier, !userIdentifier.isEmpty, source.owner != userIdentifier {
                 updated.isPersonal = false
-                markSharedSource(id: updated.id)
+                if !wasUnshared {
+                    markSharedSource(id: updated.id)
+                } else {
+                    printD("Skipping shared mark due to recent unshare: \(source.name)")
+                }
             }
             return updated
         }
@@ -819,9 +874,35 @@ class CloudKitManager: ObservableObject {
         }
     }
 
+    /// Force delete a source using the private database (owner-only cleanup).
+    func forceDeleteSource(_ source: Source) async -> Bool {
+        do {
+            try await privateDatabase.deleteRecord(withID: source.id)
+            sourceCache.removeValue(forKey: source.id)
+            sources = sources.filter { $0.id != source.id }
+            if currentSource?.id == source.id {
+                currentSource = sources.first
+                saveCurrentSourceID()
+            }
+            saveSourcesLocalCache()
+            return true
+        } catch {
+            printD("Error force deleting source: \(error.localizedDescription)")
+            self.error = "Failed to delete source"
+            return false
+        }
+    }
+
     func isSharedSource(_ source: Source) -> Bool {
         let key = cacheIdentifier(for: source.id)
-        printD("Shared check key: \(key); cached IDs count: \(sharedSourceIDs.count)")
+        printD("Shared check key: \(key); cached IDs count: \(sharedSourceIDs.count); recentlyUnshared count: \(recentlyUnsharedIDs.count)")
+        if recentlyUnsharedIDs.contains(key) {
+            printD("Shared check: \(source.name) explicitly unshared recently; treating as personal")
+            // defensive: scrub any lingering shared flag
+            sharedSourceIDs.remove(key)
+            saveSharedSourceIDs()
+            return false
+        }
         if sharedSourceIDs.contains(key) {
             printD("Shared check: \(source.name) is marked shared via local cache")
             return true
@@ -895,40 +976,48 @@ class CloudKitManager: ObservableObject {
         printD("Removed shared source locally: \(source.name)")
     }
 
-    // MARK: - Debug Functions
-    func debugDeleteAllSourcesAndReset() async {
-        printD("Debug: Starting delete all sources (count: \(sources.count))")
+    /// Debug helper: completely nuke owned data (personal zone) and local caches.
+    func debugNukeOwnedData() async {
+        isLoading = true
+        defer { isLoading = false }
 
-        // Delete all sources from CloudKit
-        let sourcesToDelete = sources // Copy the array since we'll be modifying it
-        for (index, source) in sourcesToDelete.enumerated() {
-            printD("Debug: Deleting source \(index + 1)/\(sourcesToDelete.count): \(source.name)")
-            do {
-                let database = source.isPersonal ? privateDatabase : sharedDatabase
-                try await database.deleteRecord(withID: source.id)
-                sourceCache.removeValue(forKey: source.id)
-                printD("Debug: Successfully deleted \(source.name)")
-            } catch {
-                printD("Debug: Error deleting source \(source.name): \(error.localizedDescription)")
-            }
+        printD("Debug: Nuke owned data - deleting personal zone and caches")
+
+        // Attempt to delete the personal zone
+        do {
+            try await privateDatabase.deleteRecordZone(withID: personalZoneID)
+            printD("Deleted personal zone \(personalZoneID.zoneName)")
+        } catch {
+            printD("Debug: delete zone error (ignored if not found): \(error.localizedDescription)")
         }
 
-        // Clear local state
-        printD("Debug: Clearing all local state")
+        // Clear local caches and state
         sources.removeAll()
         categories.removeAll()
         recipes.removeAll()
+        recipeCounts.removeAll()
         currentSource = nil
         sourceCache.removeAll()
         categoryCache.removeAll()
         recipeCache.removeAll()
-        saveSourcesLocalCache()
-        printD("Debug: Local state cleared, sources now: \(sources.count)")
+        sharedSourceIDs.removeAll()
+        recentlyUnsharedIDs.removeAll()
+        saveSharedSourceIDs()
+        saveCurrentSourceID()
 
-        // Recreate default source
-        printD("Debug: Recreating default source")
-        await createDefaultSource()
-        printD("Debug: Done! Current sources: \(sources.count)")
+        // Remove cache files on disk
+        let fm = FileManager.default
+        do {
+            if fm.fileExists(atPath: cacheDirectoryURL.path) {
+                try fm.removeItem(at: cacheDirectoryURL)
+            }
+        } catch {
+            printD("Debug: Failed to clear cache directory: \(error.localizedDescription)")
+        }
+
+        // Recreate cache directories
+        _ = cacheDirectoryURL
+        _ = imageCacheDirectory
     }
 
     // MARK: - Category Management
@@ -2119,18 +2208,28 @@ class CloudKitManager: ObservableObject {
 
     /// Stop sharing a source
     func stopSharingSource(_ source: Source) async -> Bool {
-        guard !source.isPersonal else {
-            self.error = "Cannot stop sharing a personal source"
+        // Only the owner can stop sharing; ensure we target the private DB share record
+        guard isSharedOwner(source) else {
+            self.error = "Only the owner can stop sharing"
             return false
         }
 
         do {
-            let database = sharedDatabase
-            let record = source.toCKRecord()
+            // Fetch the source record from the private DB
+            let rootRecord = try await privateDatabase.record(for: source.id)
+            guard let shareRef = rootRecord.share else {
+                printD("No share reference found; marking unshared locally")
+                unmarkSharedSource(id: source.id)
+                recentlyUnsharedIDs.insert(cacheIdentifier(for: source.id))
+                saveSourcesLocalCache()
+                return true
+            }
+            // Delete the share record in the private DB
+            try await privateDatabase.deleteRecord(withID: shareRef.recordID)
 
-            // Delete the share by removing it from the shared database
-            try await database.deleteRecord(withID: record.recordID)
-
+            // Clear local markers
+            unmarkSharedSource(id: source.id)
+            recentlyUnsharedIDs.insert(cacheIdentifier(for: source.id))
             printD("Stopped sharing source: \(source.name)")
             return true
         } catch {

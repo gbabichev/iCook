@@ -26,6 +26,7 @@ struct SourceSelector: View {
     @State private var shareData: ShareData?
     @State private var sharingController: UICloudSharingController?
     @State private var sharingCoordinator: SharingControllerWrapper.Coordinator?
+    @State private var sharingDelegateProxy: SharingDelegateProxy?
 
     struct ShareData: Identifiable {
         let id = UUID()
@@ -285,7 +286,7 @@ private struct MacToolbarIconButton: View {
                                 },
                                 onRemoveShare: {
                                     Task {
-                                        await viewModel.removeSharedSourceLocally(source)
+                                        await viewModel.forceRemoveSource(source)
                                     }
                                 }
                             )
@@ -369,7 +370,7 @@ private struct MacToolbarIconButton: View {
         // If the source is owned and already shared, present UICloudSharingController to edit participants
         if viewModel.isSharedOwner(source), let shareController = await viewModel.cloudKitManager.existingSharingController(for: source) {
             await MainActor.run {
-                presentUICloudSharingController(shareController)
+                presentUICloudSharingController(shareController, source: source)
             }
             return
         }
@@ -432,7 +433,7 @@ private struct MacToolbarIconButton: View {
 
 #if os(iOS)
     /// Present UICloudSharingController directly via UIKit
-    private func presentUICloudSharingController(_ controller: UICloudSharingController) {
+    private func presentUICloudSharingController(_ controller: UICloudSharingController, source: Source) {
         printD("Presenting UICloudSharingController via UIKit")
 
         // Get the top view controller
@@ -447,6 +448,15 @@ private struct MacToolbarIconButton: View {
         while let presented = topController.presentedViewController {
             topController = presented
         }
+
+        // Install delegate proxy so we can detect stop-sharing and update state
+        let proxy = SharingDelegateProxy {
+            Task {
+                await viewModel.stopSharingSource(source)
+            }
+        }
+        controller.delegate = proxy
+        sharingDelegateProxy = proxy
 
         // Present modally
         DispatchQueue.main.async {
@@ -473,6 +483,34 @@ private struct MacToolbarIconButton: View {
             printD("Could not find window to present from")
         }
     }
+#endif
+
+#if os(iOS)
+/// Delegate proxy to observe stop sharing events.
+private final class SharingDelegateProxy: NSObject, UICloudSharingControllerDelegate {
+    let onStopSharing: () -> Void
+
+    init(onStopSharing: @escaping () -> Void) {
+        self.onStopSharing = onStopSharing
+    }
+
+    func cloudSharingController(_ csc: UICloudSharingController, failedToSaveShareWithError error: Error) {
+        // no-op
+    }
+
+    func cloudSharingControllerDidSaveShare(_ csc: UICloudSharingController) {
+        // no-op
+    }
+
+    func cloudSharingControllerDidStopSharing(_ csc: UICloudSharingController) {
+        printD("SharingDelegateProxy: cloudSharingControllerDidStopSharing")
+        onStopSharing()
+    }
+
+    func itemTitle(for csc: UICloudSharingController) -> String? {
+        nil
+    }
+}
 #endif
 
     private func deleteSource(_ source: Source) async {
@@ -789,8 +827,14 @@ struct SourceRowWrapper: View {
                 .controlSize(.small)
 #endif
             } else {
-                Color.clear
-                    .frame(width: 32, height: 32)
+                Button(action: onRemoveShare) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 14))
+                }
+                .buttonStyle(.bordered)
+#if os(macOS)
+                .controlSize(.small)
+#endif
             }
 
 #if os(macOS)
