@@ -2153,11 +2153,13 @@ class CloudKitManager: ObservableObject {
         #if os(iOS)
         UIPasteboard.general.url = shareURL
         printD("Share URL copied to pasteboard: \(shareURL.absoluteString)")
+        NotificationCenter.default.post(name: .shareURLCopied, object: shareURL)
         return true
         #else
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(shareURL.absoluteString, forType: .string)
         printD("Share URL copied to pasteboard (macOS): \(shareURL.absoluteString)")
+        NotificationCenter.default.post(name: .shareURLCopied, object: shareURL)
         return true
         #endif
     }

@@ -19,6 +19,8 @@ struct SourceSelector: View {
     @State private var shareSuccessMessage = ""
     @State private var sourceToDelete: Source?
     @State private var showDeleteConfirmation = false
+    @State private var showShareCopiedToast = false
+    @State private var shareToastMessage = ""
 
 #if os(iOS)
     @State private var shareData: ShareData?
@@ -165,6 +167,17 @@ private struct MacToolbarIconButton: View {
                 }
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .shareURLCopied)) { _ in
+            withAnimation {
+                shareToastMessage = "Share URL copied to clipboard"
+                showShareCopiedToast = true
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+                withAnimation {
+                    showShareCopiedToast = false
+                }
+            }
+        }
         .sheet(isPresented: $showNewSourceSheet) {
             NewSourceSheet(
                 isPresented: $showNewSourceSheet,
@@ -204,6 +217,23 @@ private struct MacToolbarIconButton: View {
                             Text("Delete '\(source.name)' and all its recipes and categories?")
                         }
                     }
+            }
+
+            if showShareCopiedToast {
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        Label(shareToastMessage.isEmpty ? "Preparing to share..." : shareToastMessage, systemImage: "doc.on.clipboard")
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .background(.regularMaterial, in: Capsule())
+                            .shadow(radius: 6)
+                        Spacer()
+                    }
+                    .padding(.bottom, 16)
+                }
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
         }
     }
@@ -326,6 +356,15 @@ private struct MacToolbarIconButton: View {
 
         printD("Getting share URL for source: \(source.name)")
 
+#if os(macOS)
+        await MainActor.run {
+            withAnimation {
+                shareToastMessage = "Preparing to share..."
+                showShareCopiedToast = true
+            }
+        }
+#endif
+
 #if os(iOS)
         // If the source is owned and already shared, present UICloudSharingController to edit participants
         if viewModel.isSharedOwner(source), let shareController = await viewModel.cloudKitManager.existingSharingController(for: source) {
@@ -345,7 +384,15 @@ private struct MacToolbarIconButton: View {
 #elseif os(macOS)
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(shareURL.absoluteString, forType: .string)
-                shareSuccessMessage = "Link copied to clipboard"
+                withAnimation {
+                    shareToastMessage = "Share URL copied to clipboard"
+                    showShareCopiedToast = true
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+                    withAnimation {
+                        showShareCopiedToast = false
+                    }
+                }
 #endif
                 printD("Share URL ready for sharing")
             }
