@@ -1803,11 +1803,12 @@ class CloudKitManager: ObservableObject {
                                 await self.attachChildRecordsToShare(share, rootRecord: rootRecord)
                             }
                             DispatchQueue.main.async {
-                                let controller = UICloudSharingController(share: share, container: self.container)
-                                printD("UICloudSharingController created for existing share with URL: \(share.url?.absoluteString ?? "pending")")
-                                    completionHandler(controller)
-                                }
-                            }
+                        let controller = UICloudSharingController(share: share, container: self.container)
+                        printD("UICloudSharingController created for existing share with URL: \(share.url?.absoluteString ?? "pending")")
+                        controller.availablePermissions = [.allowReadOnly, .allowReadWrite, .allowPrivate]
+                            completionHandler(controller)
+                        }
+                    }
                         } catch {
                             printD("Error fetching existing share: \(error.localizedDescription)")
                             completionHandler(nil)
@@ -1835,6 +1836,7 @@ class CloudKitManager: ObservableObject {
 
                         let controller = UICloudSharingController(share: savedShare, container: self.container)
                         printD("UICloudSharingController created with saved share")
+                        controller.availablePermissions = [.allowReadOnly, .allowReadWrite, .allowPrivate]
 
                         // Create a delegate that will copy the URL to pasteboard
                         let delegate = CloudKitShareDelegate()
@@ -1886,7 +1888,7 @@ class CloudKitManager: ObservableObject {
             await attachChildRecordsToShare(share, rootRecord: rootRecord)
 
             let controller = UICloudSharingController(share: share, container: self.container)
-            controller.availablePermissions = [.allowReadOnly, .allowReadWrite]
+            controller.availablePermissions = [.allowReadOnly, .allowReadWrite, .allowPrivate]
             return controller
         } catch {
             printD("existingSharingController error: \(error.localizedDescription)")
