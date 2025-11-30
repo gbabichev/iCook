@@ -19,6 +19,14 @@ struct RecipeDetailView: View {
         self.recipe = recipe
         _displayedRecipe = State(initialValue: recipe)
     }
+
+    private func refreshDisplayedRecipe() {
+        if let updated = model.recipes.first(where: { $0.id == recipe.id }) {
+            displayedRecipe = updated
+        } else if let updated = model.randomRecipes.first(where: { $0.id == recipe.id }) {
+            displayedRecipe = updated
+        }
+    }
     
     var body: some View {
         ScrollView {
@@ -287,11 +295,17 @@ struct RecipeDetailView: View {
         .onChange(of: editingRecipe) { oldValue, newValue in
             // When the edit sheet closes (newValue becomes nil), refresh the displayed recipe
             if newValue == nil, oldValue != nil {
-                // Find the updated recipe from the model's recipes array
-                if let updatedRecipe = model.recipes.first(where: { $0.id == recipe.id }) {
-                    displayedRecipe = updatedRecipe
-                }
+                refreshDisplayedRecipe()
             }
+        }
+        .onChange(of: model.recipes) { _, _ in
+            refreshDisplayedRecipe()
+        }
+        .onChange(of: model.randomRecipes) { _, _ in
+            refreshDisplayedRecipe()
+        }
+        .onAppear {
+            refreshDisplayedRecipe()
         }
         .alert("Delete Recipe", isPresented: $showingDeleteAlert) {
             Button("Delete", role: .destructive) {
@@ -402,5 +416,6 @@ extension Notification.Name {
     static let recipeDeleted = Notification.Name("recipeDeleted")
     static let recipeUpdated = Notification.Name("recipeUpdated")
     static let refreshRequested = Notification.Name("refreshRequested")
+    static let recipesRefreshed = Notification.Name("recipesRefreshed")
 
 }

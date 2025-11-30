@@ -39,6 +39,18 @@ final class AppViewModel: ObservableObject {
             recipes = cloudKitManager.recipes
             randomRecipes = recipes
         }
+
+        NotificationCenter.default.addObserver(
+            forName: .recipesRefreshed,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            Task { @MainActor in
+                self.recipes = self.cloudKitManager.recipes
+                self.randomRecipes = self.cloudKitManager.recipes
+            }
+        }
     }
 
     private func refreshOfflineState() {
@@ -347,6 +359,7 @@ final class AppViewModel: ObservableObject {
         defer { isLoadingRecipes = false }
 
         var updatedRecipe = recipe
+        updatedRecipe.lastModified = Date()
         if let name = name { updatedRecipe.name = name }
         if let recipeTime = recipeTime { updatedRecipe.recipeTime = recipeTime }
         if let details = details { updatedRecipe.details = details }
@@ -395,6 +408,9 @@ final class AppViewModel: ObservableObject {
             if let index = randomRecipes.firstIndex(where: { $0.id == id }) {
                 randomRecipes[index] = updatedRecipe
             }
+            // Persist updated recipes to cache immediately to avoid stale data after relaunch
+            cloudKitManager.recipes = recipes
+            cloudKitManager.cacheRecipesSnapshot(recipes, for: source)
             // Force refresh from CloudKit to pull latest fields and bust stale cache
             await loadCategories()
             await loadRecipesForCategory(updatedRecipe.categoryID, skipCache: true)

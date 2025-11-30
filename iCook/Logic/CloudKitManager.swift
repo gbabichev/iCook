@@ -246,6 +246,11 @@ class CloudKitManager: ObservableObject {
         }
     }
 
+    /// Persist a snapshot of recipes to the all-recipes cache for a source.
+    func cacheRecipesSnapshot(_ recipes: [Recipe], for source: Source) {
+        saveRecipesLocalCache(recipes, for: source, categoryID: nil)
+    }
+
     private func loadRecipesLocalCache(for source: Source, categoryID: CKRecord.ID?) -> [Recipe]? {
         let url = cacheFileURL(for: .recipes, sourceID: source.id, categoryID: categoryID)
         if FileManager.default.fileExists(atPath: url.path) {
@@ -407,13 +412,35 @@ class CloudKitManager: ObservableObject {
         return false
     }
 
-    private func imageCacheURL(for recipeID: CKRecord.ID) -> URL {
-        let filename = cacheIdentifier(for: recipeID) + ".asset"
+    private func versionToken(for date: Date) -> String {
+        let millis = Int(date.timeIntervalSince1970 * 1000)
+        return "v\(millis)"
+    }
+
+    private func imageCacheURL(for recipeID: CKRecord.ID, versionToken: String) -> URL {
+        let filename = cacheIdentifier(for: recipeID) + "_\(versionToken).asset"
         return imageCacheDirectory.appendingPathComponent(filename)
     }
 
-    private func cacheImageData(_ data: Data, for recipeID: CKRecord.ID) -> String? {
-        let destination = imageCacheURL(for: recipeID)
+    private func removeCachedImages(for recipeID: CKRecord.ID) {
+        let prefix = cacheIdentifier(for: recipeID) + "_"
+        let fm = FileManager.default
+        if let contents = try? fm.contentsOfDirectory(atPath: imageCacheDirectory.path) {
+            for entry in contents where entry.hasPrefix(prefix) && entry.hasSuffix(".asset") {
+                let url = imageCacheDirectory.appendingPathComponent(entry)
+                try? fm.removeItem(at: url)
+            }
+        }
+        // Clean up legacy single-file cache name
+        let legacy = imageCacheDirectory.appendingPathComponent(cacheIdentifier(for: recipeID) + ".asset")
+        if fm.fileExists(atPath: legacy.path) {
+            try? fm.removeItem(at: legacy)
+        }
+    }
+
+    private func cacheImageData(_ data: Data, for recipeID: CKRecord.ID, versionToken: String) -> String? {
+        removeCachedImages(for: recipeID)
+        let destination = imageCacheURL(for: recipeID, versionToken: versionToken)
         do {
             try data.write(to: destination, options: .atomic)
             return destination.path
@@ -423,9 +450,13 @@ class CloudKitManager: ObservableObject {
         }
     }
 
-    private func cacheImageAsset(_ asset: CKAsset, for recipeID: CKRecord.ID) -> String? {
-        guard let sourceURL = asset.fileURL else { return nil }
-        let destination = imageCacheURL(for: recipeID)
+    private func cacheImageAsset(_ asset: CKAsset, for recipeID: CKRecord.ID, versionToken: String) -> String? {
+        guard let sourceURL = asset.fileURL else {
+            // If we don't have a local asset file, keep the existing cached image if any
+            return cachedImagePath(for: recipeID)
+        }
+
+        let destination = imageCacheURL(for: recipeID, versionToken: versionToken)
         do {
             if FileManager.default.fileExists(atPath: destination.path) {
                 try FileManager.default.removeItem(at: destination)
@@ -434,16 +465,33 @@ class CloudKitManager: ObservableObject {
             return destination.path
         } catch {
             printD("Error caching image asset: \(error.localizedDescription)")
-            return nil
+            return cachedImagePath(for: recipeID)
         }
     }
 
-    private func cachedImagePath(for recipeID: CKRecord.ID) -> String? {
-        let destination = imageCacheURL(for: recipeID)
-        if FileManager.default.fileExists(atPath: destination.path) {
-            return destination.path
+    private func cachedImagePath(for recipeID: CKRecord.ID, versionToken: String? = nil) -> String? {
+        let prefix = cacheIdentifier(for: recipeID) + "_"
+        let fm = FileManager.default
+        guard let contents = try? fm.contentsOfDirectory(atPath: imageCacheDirectory.path) else {
+            let legacy = imageCacheDirectory.appendingPathComponent(cacheIdentifier(for: recipeID) + ".asset")
+            return fm.fileExists(atPath: legacy.path) ? legacy.path : nil
         }
-        return nil
+
+        let matches = contents
+            .filter { $0.hasPrefix(prefix) && $0.hasSuffix(".asset") }
+            .sorted()
+
+        if let versionToken = versionToken,
+           let match = matches.first(where: { $0.contains("_\(versionToken).asset") }) {
+            return imageCacheDirectory.appendingPathComponent(match).path
+        }
+
+        if let latest = matches.last {
+            return imageCacheDirectory.appendingPathComponent(latest).path
+        }
+
+        let legacy = imageCacheDirectory.appendingPathComponent(cacheIdentifier(for: recipeID) + ".asset")
+        return fm.fileExists(atPath: legacy.path) ? legacy.path : nil
     }
 
     /// Public helper to retrieve a cached image path for a recipe if it exists.
@@ -452,21 +500,24 @@ class CloudKitManager: ObservableObject {
     }
 
     private func removeCachedImage(for recipeID: CKRecord.ID) {
-        let destination = imageCacheURL(for: recipeID)
-        if FileManager.default.fileExists(atPath: destination.path) {
-            try? FileManager.default.removeItem(at: destination)
-        }
+        removeCachedImages(for: recipeID)
     }
 
     private func recipeWithCachedImage(_ recipe: Recipe) -> Recipe {
         var updatedRecipe = recipe
+        let token = versionToken(for: recipe.lastModified)
+
         if let asset = recipe.imageAsset,
-           let localPath = cacheImageAsset(asset, for: recipe.id) {
+           let localPath = cacheImageAsset(asset, for: recipe.id, versionToken: token) {
             updatedRecipe.cachedImagePath = localPath
         } else if let currentPath = recipe.cachedImagePath,
+                  currentPath.contains("_\(token).asset"),
                   FileManager.default.fileExists(atPath: currentPath) {
             updatedRecipe.cachedImagePath = currentPath
+        } else if let cachedPath = cachedImagePath(for: recipe.id, versionToken: token) {
+            updatedRecipe.cachedImagePath = cachedPath
         } else if let cachedPath = cachedImagePath(for: recipe.id) {
+            // Fall back to any cached image if version-specific file not found
             updatedRecipe.cachedImagePath = cachedPath
         } else {
             updatedRecipe.cachedImagePath = nil
@@ -1054,7 +1105,6 @@ class CloudKitManager: ObservableObject {
            let cachedRecipes = loadRecipesLocalCache(for: source, categoryID: category?.id),
            !cachedRecipes.isEmpty {
             self.recipes = cachedRecipes
-
             guard isCloudKitAvailable else { return }
 
             Task { [weak self] in
@@ -1117,6 +1167,9 @@ class CloudKitManager: ObservableObject {
             self.recipes = allRecipes
             saveRecipesLocalCache(allRecipes, for: source, categoryID: category?.id)
             markOnlineIfNeeded()
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: .recipesRefreshed, object: nil)
+            }
         } catch {
             if handleOfflineFallback(for: error) {
                 if let cachedRecipes = loadRecipesLocalCache(for: source, categoryID: category?.id) {
@@ -1135,6 +1188,9 @@ class CloudKitManager: ObservableObject {
                 } else {
                     self.recipes = []
                 }
+            }
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: .recipesRefreshed, object: nil)
             }
         }
     }
@@ -1205,6 +1261,9 @@ class CloudKitManager: ObservableObject {
                 self.recipes = Array(stable.prefix(count))
             }
             markOnlineIfNeeded()
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: .recipesRefreshed, object: nil)
+            }
         } catch {
             if handleOfflineFallback(for: error) {
                 if let cachedAllRecipes = loadRecipesLocalCache(for: source, categoryID: nil) {
@@ -1226,6 +1285,9 @@ class CloudKitManager: ObservableObject {
                 } else {
                     self.recipes = []
                 }
+            }
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: .recipesRefreshed, object: nil)
             }
         }
     }
@@ -1335,7 +1397,8 @@ class CloudKitManager: ObservableObject {
 
             let asset = CKAsset(fileURL: tempURL)
             printD("Image asset created: \(tempURL)")
-            let cachedPath = cacheImageData(imageData, for: recipe.id)
+            let token = versionToken(for: recipe.lastModified)
+            let cachedPath = cacheImageData(imageData, for: recipe.id, versionToken: token)
             return ImageSaveResult(asset: asset, cachedPath: cachedPath)
         } catch {
             printD("Error saving image: \(error.localizedDescription)")
