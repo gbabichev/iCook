@@ -777,6 +777,16 @@ struct RecipeCollectionView: View {
                 }
             }
             .toolbar {
+                if model.isLoadingCategories {
+                    ToolbarItem(placement: .navigation) {
+                        Button(action: {}) {
+                            ProgressView()
+                                .scaleEffect(0.7)
+                        }
+                        .disabled(true)
+                    }
+                }
+                
                 ToolbarItem(placement: .primaryAction) {
                     Button {
                         showingAddRecipe = true

@@ -108,7 +108,7 @@ struct CategoryList: View {
                 HStack {
                     ProgressView()
                         .scaleEffect(0.8)
-                    Text("Loading categories...")
+                    Text("Updating from iCloud...")
                         .foregroundStyle(.secondary)
                 }
                 .padding(.vertical, 8)
