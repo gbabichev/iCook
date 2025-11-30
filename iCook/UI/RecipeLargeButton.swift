@@ -51,19 +51,20 @@ struct RobustAsyncImage<Content: View, Placeholder: View>: View {
         }
         
         loadingState = .loading
-        
         do {
-            // Use URLSession to download the image data manually
-            let (data, response) = try await URLSession.shared.data(from: url)
-
-            // Validate HTTP response (skip for file:// URLs)
-            if let httpResponse = response as? HTTPURLResponse {
-                guard 200...299 ~= httpResponse.statusCode else {
-                    throw URLError(.badServerResponse)
+            let data: Data
+            if url.isFileURL {
+                data = try Data(contentsOf: url)
+            } else {
+                let (fetched, response) = try await URLSession.shared.data(from: url)
+                if let httpResponse = response as? HTTPURLResponse {
+                    guard 200...299 ~= httpResponse.statusCode else {
+                        throw URLError(.badServerResponse)
+                    }
                 }
+                data = fetched
             }
-            
-            // Create platform-specific image from data
+
             #if os(iOS)
             guard let uiImage = UIImage(data: data) else {
                 throw URLError(.cannotDecodeContentData)
@@ -78,11 +79,12 @@ struct RobustAsyncImage<Content: View, Placeholder: View>: View {
             throw URLError(.cannotDecodeContentData)
             #endif
             loadingState = .success(image)
-            
+
         } catch {
+            if Task.isCancelled { return }
             print("Failed to load image from \(url): \(error)")
             
-            if retryCount < maxRetries {
+            if retryCount < maxRetries && !url.isFileURL {
                 retryCount += 1
                 // Add a small delay before retry
                 try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds

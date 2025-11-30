@@ -417,6 +417,14 @@ struct RecipeCollectionView: View {
                         NavigationLink(destination: RecipeDetailView(recipe: recipe)) {
                             RecipeLargeButtonWithState(recipe: recipe, index: index)
                         }
+                        .onAppear {
+                            if let path = recipe.cachedImagePath {
+                                let exists = FileManager.default.fileExists(atPath: path)
+                                printD("[ImagePath] grid appear: \(recipe.name) path=\(path) exists=\(exists)")
+                            } else {
+                                printD("[ImagePath] grid appear: \(recipe.name) path=nil")
+                            }
+                        }
                         .buttonStyle(.plain)
                         .contextMenu {
                             Button {
@@ -535,6 +543,15 @@ struct RecipeCollectionView: View {
         }
         
         deletingRecipe = nil
+    }
+
+    private func logImagePath(_ recipe: Recipe, context: String) {
+        if let path = recipe.cachedImagePath {
+            let exists = FileManager.default.fileExists(atPath: path)
+            printD("[ImagePath] \(context): \(recipe.name) path=\(path) exists=\(exists)")
+        } else {
+            printD("[ImagePath] \(context): \(recipe.name) path=nil")
+        }
     }
     
     // MARK: - Search Logic
@@ -686,6 +703,11 @@ struct RecipeCollectionView: View {
             .onSubmit(of: .search) {
                 performSearch()
                 logSearchState("onSubmit")
+            }
+            .onChange(of: model.recipes) { _, newValue in
+                if let first = newValue.first {
+                    logImagePath(first, context: "onChange model.recipes first")
+                }
             }
             .onChange(of: searchText) { _, newValue in
                 let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)

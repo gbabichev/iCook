@@ -439,33 +439,49 @@ class CloudKitManager: ObservableObject {
     }
 
     private func cacheImageData(_ data: Data, for recipeID: CKRecord.ID, versionToken: String) -> String? {
-        removeCachedImages(for: recipeID)
-        let destination = imageCacheURL(for: recipeID, versionToken: versionToken)
-        do {
-            try data.write(to: destination, options: .atomic)
-            return destination.path
-        } catch {
-            printD("Error caching image data: \(error.localizedDescription)")
-            return nil
-        }
-    }
-
-    private func cacheImageAsset(_ asset: CKAsset, for recipeID: CKRecord.ID, versionToken: String) -> String? {
-        guard let sourceURL = asset.fileURL else {
-            // If we don't have a local asset file, keep the existing cached image if any
-            return cachedImagePath(for: recipeID)
-        }
-
         let destination = imageCacheURL(for: recipeID, versionToken: versionToken)
         do {
             if FileManager.default.fileExists(atPath: destination.path) {
                 try FileManager.default.removeItem(at: destination)
             }
+            try data.write(to: destination, options: .atomic)
+            let attrs = try FileManager.default.attributesOfItem(atPath: destination.path)
+            if let size = attrs[.size] as? NSNumber, size.intValue > 0 {
+                printD("Image cache write (data) OK for \(recipeID.recordName) -> \(destination.lastPathComponent) (\(size.intValue) bytes)")
+                return destination.path
+            } else {
+                try? FileManager.default.removeItem(at: destination)
+                printD("Image cache write (data) empty for \(recipeID.recordName)")
+                return cachedImagePath(for: recipeID)
+            }
+        } catch {
+            printD("Error caching image data: \(error.localizedDescription)")
+            return cachedImagePath(for: recipeID)
+        }
+    }
+
+    private func cacheImageAsset(_ asset: CKAsset, for recipeID: CKRecord.ID, versionToken: String, existingPath: String?) -> String? {
+        guard let sourceURL = asset.fileURL else {
+            // If we don't have a local asset file, keep the existing cached image if any
+            return existingPath ?? cachedImagePath(for: recipeID)
+        }
+
+        let destination = imageCacheURL(for: recipeID, versionToken: versionToken)
+        do {
             try FileManager.default.copyItem(at: sourceURL, to: destination)
-            return destination.path
+            // Validate non-empty file; otherwise keep existing
+            let attrs = try FileManager.default.attributesOfItem(atPath: destination.path)
+            if let size = attrs[.size] as? NSNumber, size.intValue > 0 {
+                printD("Image cache write OK for \(recipeID.recordName) -> \(destination.lastPathComponent) (\(size.intValue) bytes)")
+                return destination.path
+            } else {
+                try? FileManager.default.removeItem(at: destination)
+                printD("Image cache write empty for \(recipeID.recordName); keeping existing")
+                return existingPath ?? cachedImagePath(for: recipeID)
+            }
         } catch {
             printD("Error caching image asset: \(error.localizedDescription)")
-            return cachedImagePath(for: recipeID)
+            return existingPath ?? cachedImagePath(for: recipeID)
         }
     }
 
@@ -505,21 +521,41 @@ class CloudKitManager: ObservableObject {
 
     private func recipeWithCachedImage(_ recipe: Recipe) -> Recipe {
         var updatedRecipe = recipe
+        let fm = FileManager.default
+
+        // If we already have a cached image path and it exists, keep it to avoid breaking images on metadata-only edits.
+        if let current = recipe.cachedImagePath,
+           fm.fileExists(atPath: current) {
+            printD("Image cache reuse current for \(recipe.id.recordName): \(current)")
+            updatedRecipe.cachedImagePath = current
+            return updatedRecipe
+        }
+
+        // Try any previously cached file for this recipe ID
+        if let fallback = cachedImagePath(for: recipe.id),
+           fm.fileExists(atPath: fallback) {
+            let size = (try? fm.attributesOfItem(atPath: fallback)[.size] as? NSNumber)?.intValue ?? -1
+            printD("Image cache reuse fallback for \(recipe.id.recordName): \(fallback) size=\(size)")
+            updatedRecipe.cachedImagePath = fallback
+            return updatedRecipe
+        }
+
         let token = versionToken(for: recipe.lastModified)
 
+        // Cache from CloudKit asset if available
         if let asset = recipe.imageAsset,
-           let localPath = cacheImageAsset(asset, for: recipe.id, versionToken: token) {
+           let localPath = cacheImageAsset(asset, for: recipe.id, versionToken: token, existingPath: nil) {
+            printD("Image cache wrote versioned for \(recipe.id.recordName): \(localPath)")
             updatedRecipe.cachedImagePath = localPath
-        } else if let currentPath = recipe.cachedImagePath,
-                  currentPath.contains("_\(token).asset"),
-                  FileManager.default.fileExists(atPath: currentPath) {
-            updatedRecipe.cachedImagePath = currentPath
-        } else if let cachedPath = cachedImagePath(for: recipe.id, versionToken: token) {
+        } else if let cachedPath = cachedImagePath(for: recipe.id, versionToken: token),
+                  fm.fileExists(atPath: cachedPath) {
+            printD("Image cache found versioned for \(recipe.id.recordName): \(cachedPath)")
             updatedRecipe.cachedImagePath = cachedPath
         } else if let cachedPath = cachedImagePath(for: recipe.id) {
-            // Fall back to any cached image if version-specific file not found
+            printD("Image cache fallback any for \(recipe.id.recordName): \(cachedPath)")
             updatedRecipe.cachedImagePath = cachedPath
         } else {
+            printD("Image cache missing for \(recipe.id.recordName)")
             updatedRecipe.cachedImagePath = nil
         }
         return updatedRecipe
