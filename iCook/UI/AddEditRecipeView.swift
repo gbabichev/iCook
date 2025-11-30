@@ -195,6 +195,22 @@ struct AddEditRecipeView: View {
                     .disabled(!isFormValid || isSaving || !canEdit)
                 }
             }
+            .overlay {
+                if isSaving {
+                    ZStack {
+                        Color.black.opacity(0.25)
+                            .ignoresSafeArea()
+                        VStack(spacing: 12) {
+                            ProgressView()
+                            Text(isEditing ? "Updating recipe..." : "Creating recipe...")
+                                .font(.headline)
+                                .foregroundStyle(.primary)
+                        }
+                        .padding(24)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                    }
+                }
+            }
             .task {
                 await initializeView()
             }
