@@ -685,6 +685,11 @@ final class AppViewModel: ObservableObject {
         }
     }
 
+    func clearErrors() {
+        error = nil
+        cloudKitManager.error = nil
+    }
+
     func checkForSharedSourceInvitations() async {
         await cloudKitManager.checkForIncomingShareInvitations()
     }

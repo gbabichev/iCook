@@ -320,7 +320,11 @@ private struct MacToolbarIconButton: View {
             }
 #endif
         }
+        .onAppear {
+            viewModel.clearErrors()
+        }
     }
+
 
 #if DEBUG
     private func openDebugShareURL() {

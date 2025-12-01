@@ -722,8 +722,6 @@ class CloudKitManager: ObservableObject {
                 currentSource = refreshed
             }
             saveSourcesLocalCache()
-            await upgradeOwnedSharedPermissions()
-
             // Set default source if none selected
             if currentSource == nil, !allSources.isEmpty {
                 currentSource = allSources.first(where: { $0.isPersonal }) ?? allSources.first
@@ -768,22 +766,6 @@ class CloudKitManager: ObservableObject {
                 printD("Detected shared source via record.share: \(source.name) (owner=\(source.owner)) ownerMatch=\(owner)")
             }
             return source
-        }
-    }
-
-    private func upgradeOwnedSharedPermissions() async {
-        let ownedShared = sources.filter { isSharedOwner($0) && sharedSourceIDs.contains(cacheIdentifier(for: $0.id)) }
-        guard !ownedShared.isEmpty else { return }
-
-        for source in ownedShared {
-            do {
-                let rootRecord = try await privateDatabase.record(for: source.id)
-                guard let shareRef = rootRecord.share else { continue }
-                guard let shareRecord = try await privateDatabase.record(for: shareRef.recordID) as? CKShare else { continue }
-                await ensureShareIsWritable(shareRecord, rootRecord: rootRecord)
-            } catch {
-                printD("upgradeOwnedSharedPermissions failed for \(source.name): \(error.localizedDescription)")
-            }
         }
     }
 
@@ -1663,16 +1645,13 @@ class CloudKitManager: ObservableObject {
 
                 do {
                     let share = try await privateDatabase.record(for: shareRecordID) as? CKShare
-                if let share {
-                    await ensureShareIsWritable(share, rootRecord: rootRecord)
-                    if let url = share.url {
+                    if let share, let url = share.url {
                         printD("Using existing share URL: \(url.absoluteString)")
                         await resolveParticipantIdentities(in: share)
                         await attachChildRecordsToShare(share, rootRecord: rootRecord)
                         return url
                     }
-                }
-            } catch {
+                } catch {
                     printD("Error fetching existing share: \(error.localizedDescription)")
                 }
             }
@@ -1714,7 +1693,6 @@ class CloudKitManager: ObservableObject {
                         printD("Share URL obtained: \(url.absoluteString)")
                         markSharedSource(id: rootRecord.recordID)
                         saveSourcesLocalCache()
-                        await ensureShareIsWritable(fetchedShare, rootRecord: rootRecord)
                         await resolveParticipantIdentities(in: fetchedShare)
                         await attachChildRecordsToShare(fetchedShare, rootRecord: rootRecord)
                         return url
@@ -1727,7 +1705,6 @@ class CloudKitManager: ObservableObject {
                         printD("Share URL obtained on retry: \(url.absoluteString)")
                         markSharedSource(id: rootRecord.recordID)
                         saveSourcesLocalCache()
-                        await ensureShareIsWritable(retryShare, rootRecord: rootRecord)
                         await resolveParticipantIdentities(in: retryShare)
                         await attachChildRecordsToShare(retryShare, rootRecord: rootRecord)
                         return url
@@ -1798,7 +1775,6 @@ class CloudKitManager: ObservableObject {
                         let record = try result.get()
                         if let share = record as? CKShare {
                             Task {
-                                await self.ensureShareIsWritable(share, rootRecord: rootRecord)
                                 await self.resolveParticipantIdentities(in: share)
                                 await self.attachChildRecordsToShare(share, rootRecord: rootRecord)
                             }
@@ -1831,7 +1807,6 @@ class CloudKitManager: ObservableObject {
                     do {
                         let savedShare = try await self.saveShare(for: rootRecord, share: share)
                         printD("Share saved successfully prior to presenting controller with ID: \(savedShare.recordID.recordName)")
-                        await ensureShareIsWritable(savedShare, rootRecord: rootRecord)
                         await resolveParticipantIdentities(in: savedShare)
                         await attachChildRecordsToShare(savedShare, rootRecord: rootRecord)
 
@@ -1885,7 +1860,6 @@ class CloudKitManager: ObservableObject {
             let shareRecord = try await privateDatabase.record(for: shareRef.recordID)
             guard let share = shareRecord as? CKShare else { return nil }
 
-            await ensureShareIsWritable(share, rootRecord: rootRecord)
             await attachChildRecordsToShare(share, rootRecord: rootRecord)
 
             let controller = UICloudSharingController(share: share, container: self.container)
@@ -2138,28 +2112,8 @@ class CloudKitManager: ObservableObject {
     }
 
     private func ensureShareIsWritable(_ share: CKShare, rootRecord: CKRecord) async {
-        do {
-            // Private-only sharing (invite specific people)
-            share.publicPermission = .none
-            // Update participants in place; CKShareParticipant is a CKRecordValue
-            for participant in share.participants {
-                if participant.permission != .readWrite {
-                    participant.permission = .readWrite
-                }
-            }
-
-            let (results, _) = try await privateDatabase.modifyRecords(
-                saving: [share, rootRecord],
-                deleting: []
-            )
-            let success = results.allSatisfy { _, result in
-                if case .success = result { return true }
-                return false
-            }
-            printD("Updated share permission to readWrite (public + participants): \(success)")
-        } catch {
-            printD("Failed to update share permission to readWrite: \(error.localizedDescription)")
-        }
+        // No-op placeholder to avoid rewriting participant permissions
+        printD("ensureShareIsWritable noop - respecting existing participant permissions")
     }
 
     private func fetchShareMetadata(for url: URL) async throws -> CKShare.Metadata {
