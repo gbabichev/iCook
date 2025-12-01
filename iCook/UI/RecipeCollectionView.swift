@@ -807,8 +807,14 @@ struct RecipeCollectionView: View {
                     } label: {
                         Image(systemName: "plus.circle.fill")
                     }
-                    .disabled(model.isOfflineMode || !hasActiveCollection)
-                    .help(model.isOfflineMode ? "Connect to iCloud to add recipes" : (!hasActiveCollection ? "Create a collection first" : "Add Recipe"))
+                    .disabled(model.isOfflineMode || !hasActiveCollection || model.categories.isEmpty)
+                    .help(
+                        model.isOfflineMode
+                        ? "Connect to iCloud to add recipes"
+                        : (!hasActiveCollection
+                           ? "Create a collection first"
+                           : (model.categories.isEmpty ? "Add a category first" : "Add Recipe"))
+                    )
                     .accessibilityLabel("Add Recipe")
                 }
 //                ToolbarItem(placement: .primaryAction) {
