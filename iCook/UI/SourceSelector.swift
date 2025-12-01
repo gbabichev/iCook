@@ -466,11 +466,18 @@ private struct MacToolbarIconButton: View {
         }
 
         // Install delegate proxy so we can detect stop-sharing and update state
-        let proxy = SharingDelegateProxy {
-            Task {
-                await viewModel.stopSharingSource(source)
+        let proxy = SharingDelegateProxy(
+            onStopSharing: {
+                Task {
+                    await viewModel.stopSharingSource(source)
+                }
+            },
+            onSave: {
+                Task {
+                    await viewModel.loadSources()
+                }
             }
-        }
+        )
         controller.delegate = proxy
         sharingDelegateProxy = proxy
 
@@ -505,9 +512,11 @@ private struct MacToolbarIconButton: View {
 /// Delegate proxy to observe stop sharing events.
 private final class SharingDelegateProxy: NSObject, UICloudSharingControllerDelegate {
     let onStopSharing: () -> Void
+    let onSave: () -> Void
 
-    init(onStopSharing: @escaping () -> Void) {
+    init(onStopSharing: @escaping () -> Void, onSave: @escaping () -> Void) {
         self.onStopSharing = onStopSharing
+        self.onSave = onSave
     }
 
     func cloudSharingController(_ csc: UICloudSharingController, failedToSaveShareWithError error: Error) {
@@ -515,7 +524,8 @@ private final class SharingDelegateProxy: NSObject, UICloudSharingControllerDele
     }
 
     func cloudSharingControllerDidSaveShare(_ csc: UICloudSharingController) {
-        // no-op
+        printD("SharingDelegateProxy: cloudSharingControllerDidSaveShare")
+        onSave()
     }
 
     func cloudSharingControllerDidStopSharing(_ csc: UICloudSharingController) {
@@ -568,6 +578,16 @@ struct SourceRow: View {
     @State private var showDeleteConfirmation = false
     @EnvironmentObject private var viewModel: AppViewModel
 
+    private var badgeText: String? {
+        if !source.isPersonal, viewModel.isSharedOwner(source) {
+            return "Owner"
+        }
+        if !source.isPersonal, !viewModel.isSharedOwner(source) {
+            return "Collaborator"
+        }
+        return nil
+    }
+
     var body: some View {
         HStack(spacing: 12) {
             // Source info
@@ -576,24 +596,13 @@ struct SourceRow: View {
                     .font(.headline)
                     .fontWeight(isSelected ? .semibold : .regular)
 
-                HStack(spacing: 6) {
-                    let isShared = viewModel.isSourceShared(source)
-                    let isOwner = viewModel.isSharedOwner(source)
-                    if isShared {
-                        Label("Shared", systemImage: "person.2.fill")
+                if let badgeText {
+                    HStack(spacing: 6) {
+                        Label(badgeText, systemImage: badgeText == "Owner" ? "crown.fill" : "person.2.fill")
                     }
-                    if source.isPersonal || isOwner {
-                        if isShared && isOwner {
-                            Label("Personal, Shared (Owner)", systemImage: "crown.fill")
-                        } else if isOwner {
-                            Label("Personal (Owner)", systemImage: "person.fill.checkmark")
-                        } else {
-                            Label("Personal", systemImage: "person.fill")
-                        }
-                    }
+                    .font(.caption)
+                    .foregroundColor(.secondary)
                 }
-                .font(.caption)
-                .foregroundColor(.secondary)
             }
 
             Spacer()
@@ -807,16 +816,17 @@ struct SourceRowWrapper: View {
                 Text(source.name)
                     .fontWeight(isSelected ? .semibold : .regular)
 
-                HStack(spacing: 6) {
-                    if viewModel.isSourceShared(source) {
-                        Label("Shared", systemImage: "person.2.fill")
+                if viewModel.isSourceShared(source) {
+                    HStack(spacing: 6) {
+                        if viewModel.isSharedOwner(source) {
+                            Label("Owner", systemImage: "crown.fill")
+                        } else {
+                            Label("Collaborator", systemImage: "person.2.fill")
+                        }
                     }
-                    if source.isPersonal {
-                        Label("Personal", systemImage: "person.fill")
-                    }
+                    .font(.caption)
+                    .foregroundColor(.secondary)
                 }
-                .font(.caption)
-                .foregroundColor(.secondary)
             }
 
             Spacer()
