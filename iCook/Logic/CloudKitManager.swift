@@ -691,10 +691,10 @@ class CloudKitManager: ObservableObject {
 
             var allSources = personalSources
 
-            // Try to load shared sources from shared database (it may not support zone-wide queries)
+            // Try to load shared sources from shared database
+            var sharedSources: [Source] = []
             do {
-                let sharedSources = try await fetchSourcesFromDatabase(sharedDatabase, isPersonal: false)
-                allSources.append(contentsOf: sharedSources)
+                sharedSources = try await fetchSourcesFromDatabase(sharedDatabase, isPersonal: false)
             } catch {
                 let errorDesc = error.localizedDescription
                 // SharedDB doesn't support zone-wide queries, so this is expected
@@ -702,6 +702,16 @@ class CloudKitManager: ObservableObject {
                     printD("Note: Could not load shared sources: \(errorDesc)")
                 }
             }
+            // If none returned (due to limitations), try via CKShare metadata
+            if sharedSources.isEmpty {
+                let zoneSources = await fetchSharedSourcesViaZones()
+                sharedSources.append(contentsOf: zoneSources)
+                if sharedSources.isEmpty {
+                    let shareSources = await fetchSharedSourcesViaShares()
+                    sharedSources.append(contentsOf: shareSources)
+                }
+            }
+            allSources.append(contentsOf: sharedSources)
 
             // If shared could not be fetched, keep cached shared sources so they persist across launches
             if cachedSharedSources.count > 0 {
@@ -1084,6 +1094,56 @@ class CloudKitManager: ObservableObject {
         // Recreate cache directories
         _ = cacheDirectoryURL
         _ = imageCacheDirectory
+    }
+
+    private func fetchSharedSourcesViaZones() async -> [Source] {
+        var sharedSources: [Source] = []
+        do {
+            let zones = try await sharedDatabase.allRecordZones()
+            for zone in zones {
+                let predicate = NSPredicate(value: true)
+                let query = CKQuery(recordType: "Source", predicate: predicate)
+                do {
+                    let (results, _) = try await sharedDatabase.records(matching: query, inZoneWith: zone.zoneID)
+                    let sourcesInZone = results.compactMap { _, result -> Source? in
+                        guard case .success(let record) = result,
+                              var source = Source.from(record) else {
+                            return nil
+                        }
+                        source.isPersonal = false
+                        return source
+                    }
+                    sharedSources.append(contentsOf: sourcesInZone)
+                } catch {
+                    printD("Failed to query shared zone \(zone.zoneID.zoneName): \(error.localizedDescription)")
+                }
+            }
+        } catch {
+            printD("Failed to list shared zones: \(error.localizedDescription)")
+        }
+        return sharedSources
+    }
+
+    private func fetchSharedSourcesViaShares() async -> [Source] {
+        var sharedSources: [Source] = []
+        let shares = await fetchAllShares()
+        for share in shares {
+            // Use KVC to access rootRecordID
+            let rootID = share.value(forKey: "rootRecordID") as? CKRecord.ID
+            guard let rootID else { continue }
+            do {
+                let record = try await sharedDatabase.record(for: rootID)
+                if var source = Source.from(record) {
+                    source.isPersonal = false
+                    markSharedSource(id: source.id)
+                    sharedSources.append(source)
+                    printD("Fetched shared source via CKShare: \(source.name)")
+                }
+            } catch {
+                printD("Failed to fetch shared source via share \(share.recordID.recordName): \(error.localizedDescription)")
+            }
+        }
+        return sharedSources
     }
 
     // MARK: - Category Management
