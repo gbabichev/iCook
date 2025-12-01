@@ -359,32 +359,39 @@ private struct MacToolbarIconButton: View {
 
         printD("Getting share URL for source: \(source.name)")
 
-#if os(macOS)
+#if os(iOS)
+        // Always use UICloudSharingController so we can manage invites/participants
+        if viewModel.isSharedOwner(source),
+           let shareController = await viewModel.cloudKitManager.existingSharingController(for: source) {
+            await MainActor.run {
+                presentUICloudSharingController(shareController, source: source)
+            }
+            return
+        }
+
+        viewModel.cloudKitManager.prepareSharingController(for: source) { controller in
+            Task { @MainActor in
+                if let controller {
+                    presentUICloudSharingController(controller, source: source)
+                } else {
+                    printD("Failed to prepare sharing controller")
+                    shareSuccessMessage = viewModel.cloudKitManager.error ?? "Failed to start sharing"
+                    showShareSuccess = true
+                }
+            }
+        }
+#else
         await MainActor.run {
             withAnimation {
                 shareToastMessage = "Preparing to share..."
                 showShareCopiedToast = true
             }
         }
-#endif
-
-#if os(iOS)
-        // If the source is owned and already shared, present UICloudSharingController to edit participants
-        if viewModel.isSharedOwner(source), let shareController = await viewModel.cloudKitManager.existingSharingController(for: source) {
-            await MainActor.run {
-                presentUICloudSharingController(shareController, source: source)
-            }
-            return
-        }
-#endif
 
         if let shareURL = await viewModel.cloudKitManager.getShareURL(for: source) {
             printD("Got share URL: \(shareURL.absoluteString)")
 
             await MainActor.run {
-#if os(iOS)
-                presentShareSheet(with: shareURL)
-#elseif os(macOS)
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(shareURL.absoluteString, forType: .string)
                 withAnimation {
@@ -396,7 +403,6 @@ private struct MacToolbarIconButton: View {
                         showShareCopiedToast = false
                     }
                 }
-#endif
                 printD("Share URL ready for sharing")
                 Task {
                     await viewModel.loadSources()
@@ -409,6 +415,7 @@ private struct MacToolbarIconButton: View {
                 showShareSuccess = true
             }
         }
+#endif
     }
 
 #if os(iOS)

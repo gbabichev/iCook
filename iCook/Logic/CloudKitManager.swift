@@ -1823,7 +1823,8 @@ class CloudKitManager: ObservableObject {
                     let shareID = CKRecord.ID(recordName: UUID().uuidString, zoneID: rootRecord.recordID.zoneID)
                     let share = CKShare(rootRecord: rootRecord, shareID: shareID)
                     share[CKShare.SystemFieldKey.title] = source.name as CKRecordValue
-                    share.publicPermission = .readWrite
+                    // Private-only sharing (invite specific people)
+                    share.publicPermission = .none
 
                     printD("Share instance created with ID: \(shareID.recordName)")
 
@@ -2138,7 +2139,8 @@ class CloudKitManager: ObservableObject {
 
     private func ensureShareIsWritable(_ share: CKShare, rootRecord: CKRecord) async {
         do {
-            share.publicPermission = .readWrite
+            // Private-only sharing (invite specific people)
+            share.publicPermission = .none
             // Update participants in place; CKShareParticipant is a CKRecordValue
             for participant in share.participants {
                 if participant.permission != .readWrite {
