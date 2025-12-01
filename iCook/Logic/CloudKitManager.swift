@@ -232,7 +232,7 @@ class CloudKitManager: ObservableObject {
         return nil
         #elseif os(macOS)
         if let image = NSImage(named: "AppIconShareThumbnail") ?? NSImage(named: "AppIconShareThumbnail.png") {
-            return image.pngData()
+            return image.pngDataUsingTIFF()
         }
         if let tiff = NSApplication.shared.applicationIconImage.tiffRepresentation {
             return Data(tiff)
@@ -2371,6 +2371,16 @@ class CloudKitManager: ObservableObject {
     }
 
 }
+
+#if os(macOS)
+private extension NSImage {
+    func pngDataUsingTIFF() -> Data? {
+        guard let tiffData = self.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiffData) else { return nil }
+        return bitmap.representation(using: .png, properties: [:])
+    }
+}
+#endif
 
 // MARK: - Cloud Sharing Delegate
 #if os(iOS)
