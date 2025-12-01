@@ -568,80 +568,6 @@ private final class SharingDelegateProxy: NSObject, UICloudSharingControllerDele
     }
 }
 
-struct SourceRow: View {
-    let source: Source
-    let isSelected: Bool
-    let onSelect: () -> Void
-    let onDelete: () -> Void
-    let onShare: () -> Void
-
-    @State private var showDeleteConfirmation = false
-    @EnvironmentObject private var viewModel: AppViewModel
-
-    private var badgeText: String? {
-        if !source.isPersonal, viewModel.isSharedOwner(source) {
-            return "Owner"
-        }
-        if !source.isPersonal, !viewModel.isSharedOwner(source) {
-            return "Collaborator"
-        }
-        return nil
-    }
-
-    var body: some View {
-        HStack(spacing: 12) {
-            // Source info
-            VStack(alignment: .leading, spacing: 4) {
-                Text(source.name)
-                    .font(.headline)
-                    .fontWeight(isSelected ? .semibold : .regular)
-
-                if let badgeText {
-                    HStack(spacing: 6) {
-                        Label(badgeText, systemImage: badgeText == "Owner" ? "crown.fill" : "person.2.fill")
-                    }
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                }
-            }
-
-            Spacer()
-
-            // Share button for personal sources
-            if source.isPersonal {
-                Button(action: onShare) {
-                    Image(systemName: "square.and.arrow.up")
-                        .font(.system(size: 16))
-                        .foregroundColor(.blue)
-                        .padding(8)
-                }
-            }
-
-            // Selection indicator
-            if isSelected {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 18))
-                    .foregroundColor(.blue)
-            }
-        }
-        .contentShape(Rectangle())
-        .onTapGesture(perform: onSelect)
-        .swipeActions(edge: .trailing) {
-            Button(role: .destructive) {
-                showDeleteConfirmation = true
-            } label: {
-                Label("Delete", systemImage: "trash")
-            }
-        }
-        .alert("Delete Source", isPresented: $showDeleteConfirmation) {
-            Button("Cancel", role: .cancel) { }
-            Button("Delete", role: .destructive, action: onDelete)
-        } message: {
-            Text("Are you sure you want to delete '\(source.name)'? This will also delete all recipes in this source.")
-        }
-    }
-}
-
 struct NewSourceSheet: View {
     @Binding var isPresented: Bool
     @EnvironmentObject private var viewModel: AppViewModel
@@ -845,22 +771,17 @@ struct SourceRowWrapper: View {
             // Share button
             if source.isPersonal {
                 Button(action: onShare) {
-                    Image(systemName: "square.and.arrow.up")
+                    Image(systemName: "person.crop.circle.badge.checkmark")
                         .font(.system(size: 14))
                 }
                 .buttonStyle(.bordered)
-#if os(macOS)
-                .controlSize(.small)
-#endif
+
             } else {
                 Button(action: onRemoveShare) {
                     Image(systemName: "trash")
                         .font(.system(size: 14))
                 }
                 .buttonStyle(.bordered)
-#if os(macOS)
-                .controlSize(.small)
-#endif
             }
 
 #if os(macOS)
