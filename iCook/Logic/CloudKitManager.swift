@@ -1326,18 +1326,18 @@ class CloudKitManager: ObservableObject {
         defer { isLoading = false }
 
         // Serve cache immediately and refresh in background for a snappier UI
-        if !skipCache,
-           let cachedRecipes = loadRecipesLocalCache(for: source, categoryID: category?.id),
-           !cachedRecipes.isEmpty {
-            self.recipes = cachedRecipes
-            guard isCloudKitAvailable else { return }
+            if !skipCache,
+               let cachedRecipes = loadRecipesLocalCache(for: source, categoryID: category?.id),
+               !cachedRecipes.isEmpty {
+                self.recipes = cachedRecipes
+                guard isCloudKitAvailable else { return }
 
-            Task { [weak self] in
-                guard let self else { return }
-                await self.fetchRecipesFromCloud(for: source, category: category)
+                Task { [weak self] in
+                    guard let self else { return }
+                    await self.fetchRecipesFromCloud(for: source, category: category)
+                }
+                return
             }
-            return
-        }
 
         guard isCloudKitAvailable else {
             return
@@ -1490,6 +1490,12 @@ class CloudKitManager: ObservableObject {
                 }
                 saveRecipesLocalCache(stable, for: source, categoryID: nil)
                 self.recipes = Array(stable.prefix(count))
+                // Refresh per-category caches so names stay in sync across views
+                let sourceCategories = categories.filter { $0.sourceID == source.id }
+                for cat in sourceCategories {
+                    let filtered = stable.filter { $0.categoryID == cat.id }
+                    saveRecipesLocalCache(filtered, for: source, categoryID: cat.id)
+                }
             }
             markOnlineIfNeeded()
             DispatchQueue.main.async {
