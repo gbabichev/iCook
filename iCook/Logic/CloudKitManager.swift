@@ -200,6 +200,48 @@ class CloudKitManager: ObservableObject {
             UserDefaults.standard.set(Array(revokedToastShownIDs), forKey: revokedToastKey)
         }
     }
+    
+    private func appIconThumbnailData() -> Data? {
+        #if os(iOS)
+        // Load from assets and apply rounded mask
+        if let image = UIImage(named: "AppIconShareThumbnail") ?? UIImage(named: "AppIconShareThumbnail.png") {
+            let radius = min(image.size.width, image.size.height) * 0.22
+            let renderer = UIGraphicsImageRenderer(size: image.size)
+            let rounded = renderer.image { _ in
+                let rect = CGRect(origin: .zero, size: image.size)
+                UIBezierPath(roundedRect: rect, cornerRadius: radius).addClip()
+                image.draw(in: rect)
+            }
+            return rounded.pngData()
+        }
+        // Fallback: try primary icon
+        if let icons = Bundle.main.infoDictionary?["CFBundleIcons"] as? [String: Any],
+           let primary = icons["CFBundlePrimaryIcon"] as? [String: Any],
+           let files = primary["CFBundleIconFiles"] as? [String],
+           let last = files.last,
+           let image = UIImage(named: last) {
+            let radius = min(image.size.width, image.size.height) * 0.22
+            let renderer = UIGraphicsImageRenderer(size: image.size)
+            let rounded = renderer.image { _ in
+                let rect = CGRect(origin: .zero, size: image.size)
+                UIBezierPath(roundedRect: rect, cornerRadius: radius).addClip()
+                image.draw(in: rect)
+            }
+            return rounded.pngData()
+        }
+        return nil
+        #elseif os(macOS)
+        if let image = NSImage(named: "AppIconShareThumbnail") ?? NSImage(named: "AppIconShareThumbnail.png") {
+            return image.pngData()
+        }
+        if let tiff = NSApplication.shared.applicationIconImage.tiffRepresentation {
+            return Data(tiff)
+        }
+        return nil
+        #else
+        return nil
+        #endif
+    }
 
     private func loadSharedSourceIDs() {
         if let ids = UserDefaults.standard.array(forKey: sharedSourceIDsKey) as? [String] {
@@ -1661,7 +1703,10 @@ class CloudKitManager: ObservableObject {
             let shareID = CKRecord.ID(recordName: UUID().uuidString, zoneID: rootRecord.recordID.zoneID)
             let share = CKShare(rootRecord: rootRecord, shareID: shareID)
             share[CKShare.SystemFieldKey.title] = source.name as CKRecordValue
-            share.publicPermission = .readWrite  // Allow read-write for collaboration
+            share.publicPermission = .none  // Private invites only
+            if let iconData = appIconThumbnailData() {
+                share[CKShare.SystemFieldKey.thumbnailImageData] = iconData as CKRecordValue
+            }
 
             printD("Share instance created with ID: \(shareID.recordName)")
 
@@ -1801,6 +1846,9 @@ class CloudKitManager: ObservableObject {
                     share[CKShare.SystemFieldKey.title] = source.name as CKRecordValue
                     // Private-only sharing (invite specific people)
                     share.publicPermission = .none
+                    if let iconData = appIconThumbnailData() {
+                        share[CKShare.SystemFieldKey.thumbnailImageData] = iconData as CKRecordValue
+                    }
 
                     printD("Share instance created with ID: \(shareID.recordName)")
 
