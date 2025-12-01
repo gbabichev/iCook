@@ -778,19 +778,21 @@ struct SourceRowWrapper: View {
 
             } else {
                 Button(action: onRemoveShare) {
-                    Image(systemName: "trash")
+                    Image(systemName: "person.crop.circle.badge.xmark")
                         .font(.system(size: 14))
                 }
                 .buttonStyle(.bordered)
             }
 
 #if os(macOS)
-            Button(role: .destructive, action: onDelete) {
-                Image(systemName: "trash")
-                    .font(.system(size: 14, weight: .semibold))
+            if viewModel.isSharedOwner(source) || source.isPersonal {
+                Button(role: .destructive, action: onDelete) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 14, weight: .semibold))
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
 #endif
         }
         .contentShape(Rectangle())
