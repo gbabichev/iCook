@@ -119,6 +119,14 @@ final class AppViewModel: ObservableObject {
         if currentSource?.id == source.id {
             currentSource = sources.first
             cloudKitManager.saveCurrentSourceID()
+            if let newSource = currentSource {
+                await selectSource(newSource)
+                return
+            } else {
+                categories.removeAll()
+                recipes.removeAll()
+                recipeCounts.removeAll()
+            }
         }
         refreshOfflineState()
     }
@@ -129,6 +137,14 @@ final class AppViewModel: ObservableObject {
         if currentSource?.id == source.id {
             currentSource = sources.first
             cloudKitManager.saveCurrentSourceID()
+            if let newSource = currentSource {
+                await selectSource(newSource)
+                return
+            } else {
+                categories.removeAll()
+                recipes.removeAll()
+                recipeCounts.removeAll()
+            }
         }
         refreshOfflineState()
     }
