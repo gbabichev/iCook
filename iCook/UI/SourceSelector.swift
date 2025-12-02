@@ -47,12 +47,31 @@ private struct MacToolbarIconButton: View {
     let systemImage: String
     let help: String
     let action: () -> Void
+    let shortcut: KeyboardShortcut?
+
+    init(systemImage: String, help: String, shortcut: KeyboardShortcut? = nil, action: @escaping () -> Void) {
+        self.systemImage = systemImage
+        self.help = help
+        self.shortcut = shortcut
+        self.action = action
+    }
 
     var body: some View {
-        Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.system(size: 13, weight: .semibold))
-                .frame(width: 28, height: 28)
+        Group {
+            if let shortcut {
+                Button(action: action) {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(width: 28, height: 28)
+                }
+                .keyboardShortcut(shortcut)
+            } else {
+                Button(action: action) {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(width: 28, height: 28)
+                }
+            }
         }
         .padding(4)
         .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
@@ -147,6 +166,16 @@ private struct MacToolbarIconButton: View {
 
                 MacToolbarIconButton(systemImage: "plus", help: "Add new collection") {
                     showNewSourceSheet = true
+                }
+
+                MacToolbarIconButton(
+                    systemImage: "arrow.clockwise",
+                    help: "Refresh collections",
+                    shortcut: KeyboardShortcut(.init("r"), modifiers: .command)
+                ) {
+                    Task {
+                        await viewModel.loadSources()
+                    }
                 }
 
                 MacToolbarIconButton(systemImage: "xmark", help: "Close") {
@@ -317,6 +346,11 @@ private struct MacToolbarIconButton: View {
                 Button("OK", role: .cancel) { }
             } message: {
                 Text(debugShareAlertMessage)
+            }
+#endif
+#if os(iOS)
+            .refreshable {
+                await viewModel.loadSources()
             }
 #endif
         }
