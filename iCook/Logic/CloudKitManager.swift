@@ -827,7 +827,13 @@ class CloudKitManager: ObservableObject {
             saveCurrentSourceID()
         }
 
-        allSources.sort { $0.lastModified > $1.lastModified }
+        // Sort with owned collections first (personal or shared owner), then by lastModified desc.
+        allSources.sort { lhs, rhs in
+            let lhsOwned = isSharedOwner(lhs) || lhs.isPersonal
+            let rhsOwned = isSharedOwner(rhs) || rhs.isPersonal
+            if lhsOwned != rhsOwned { return lhsOwned && !rhsOwned }
+            return lhs.lastModified > rhs.lastModified
+        }
 
         self.sources = allSources
         // Reset sharedSourceIDs to the current fetched shared sources
