@@ -200,6 +200,7 @@ class CloudKitManager: ObservableObject {
             UserDefaults.standard.set(Array(revokedToastShownIDs), forKey: revokedToastKey)
         }
     }
+    // NOTE: we previously tried KVS sync; removed due to missing entitlement
     
     private func appIconThumbnailData() -> Data? {
         #if os(iOS)
@@ -244,14 +245,18 @@ class CloudKitManager: ObservableObject {
     }
 
     private func loadSharedSourceIDs() {
+        // Pull latest ubiquitous values before merging
+        NSUbiquitousKeyValueStore.default.synchronize()
+
         if let ids = UserDefaults.standard.array(forKey: sharedSourceIDsKey) as? [String] {
             sharedSourceIDs = Set(ids)
-            printD("Loaded sharedSourceIDs: \(sharedSourceIDs.count)")
+            printD("Loaded sharedSourceIDs: \(sharedSourceIDs.count) \(sharedSourceIDs)")
         }
         if let unshared = UserDefaults.standard.array(forKey: recentlyUnsharedKey) as? [String] {
             recentlyUnsharedIDs = Set(unshared)
-            printD("Loaded recentlyUnsharedIDs: \(recentlyUnsharedIDs.count)")
+            printD("Loaded recentlyUnsharedIDs: \(recentlyUnsharedIDs.count) \(recentlyUnsharedIDs)")
         }
+        // No ubiquitous merge; rely on CloudKit records and local cache only
         if let revoked = UserDefaults.standard.array(forKey: revokedNotifiedKey) as? [String] {
             revokedNotifiedIDs = Set(revoked)
             printD("Loaded revokedNotifiedIDs: \(revokedNotifiedIDs.count)")
@@ -267,6 +272,7 @@ class CloudKitManager: ObservableObject {
         }
     }
 
+
     private func saveSharedSourceIDs() {
         UserDefaults.standard.set(Array(sharedSourceIDs), forKey: sharedSourceIDsKey)
     }
@@ -274,7 +280,8 @@ class CloudKitManager: ObservableObject {
     // Track sources explicitly unshared locally to avoid re-marking from stale data
     private var recentlyUnsharedIDs: Set<String> = [] {
         didSet {
-            UserDefaults.standard.set(Array(recentlyUnsharedIDs), forKey: recentlyUnsharedKey)
+            let arr = Array(recentlyUnsharedIDs)
+            UserDefaults.standard.set(arr, forKey: recentlyUnsharedKey)
         }
     }
 
@@ -686,8 +693,8 @@ class CloudKitManager: ObservableObject {
         }
 
         do {
-            // Load personal sources from private database
-            let personalSources = try await fetchSourcesFromDatabase(privateDatabase, isPersonal: true)
+        // Load personal sources from private database
+        let personalSources = try await fetchSourcesFromDatabase(privateDatabase, isPersonal: true)
 
             var allSources = personalSources
 
@@ -713,16 +720,51 @@ class CloudKitManager: ObservableObject {
             }
             allSources.append(contentsOf: sharedSources)
 
-            // If shared could not be fetched, keep cached shared sources so they persist across launches
-            if cachedSharedSources.count > 0 {
-                let missingShared = cachedSharedSources.filter { cached in
-                    !allSources.contains(where: { $0.id == cached.id })
-                }
-                if !missingShared.isEmpty {
-                    printD("Keeping \(missingShared.count) cached shared sources due to SharedDB limitations")
-                    allSources.append(contentsOf: missingShared)
+            // Clear any stale unshared flags for fetched shared sources before we normalize flags
+            if !sharedSources.isEmpty {
+                let fetchedKeysNow = Set(allSources.map { cacheIdentifier(for: $0.id) })
+                let revived = recentlyUnsharedIDs.intersection(fetchedKeysNow)
+                if !revived.isEmpty {
+                    recentlyUnsharedIDs.subtract(revived)
+                    printD("Cleared unshared flags for fetched shared sources: \(revived)")
                 }
             }
+
+            // Any fetched shared sources should clear stale unshared flags so they aren't filtered out
+            if !sharedSources.isEmpty {
+                let sharedKeys = sharedSources.map { cacheIdentifier(for: $0.id) }
+                let cleared = recentlyUnsharedIDs.intersection(sharedKeys)
+                if !cleared.isEmpty {
+                    recentlyUnsharedIDs.subtract(cleared)
+                    printD("Cleared unshared flags for fetched shared sources: \(cleared)")
+                }
+            }
+
+        // Remove any cached shared sources that no longer exist (revoked/removed)
+        let missingShared = cachedSharedSources.filter { cached in
+            !allSources.contains(where: { $0.id == cached.id })
+        }
+        if !missingShared.isEmpty {
+            printD("Pruning \(missingShared.count) missing shared sources from cache")
+            for missing in missingShared {
+                sourceCache.removeValue(forKey: missing.id)
+                unmarkSharedSource(id: missing.id)
+                let key = cacheIdentifier(for: missing.id)
+                recentlyUnsharedIDs.insert(key)
+                // delete any cached files for this source
+                let fm = FileManager.default
+                let prefix = cacheIdentifier(for: missing.id)
+                if let files = try? fm.contentsOfDirectory(atPath: cacheDirectoryURL.path) {
+                    for entry in files where entry.contains(prefix) {
+                        let url = cacheDirectoryURL.appendingPathComponent(entry)
+                        try? fm.removeItem(at: url)
+                    }
+                }
+                // also clear any recipe/category caches for this source
+                categoryCache.removeValue(forKey: missing.id)
+                recipeCache = recipeCache.filter { $0.key.zoneID != missing.id.zoneID }
+            }
+        }
 
         // Normalize shared flag based on zone ownership
         // First, ensure recently unshared IDs are removed from shared cache
@@ -734,8 +776,9 @@ class CloudKitManager: ObservableObject {
         allSources = allSources.map { source in
             var updated = source
             let owner = isSharedOwner(source)
-            let cachedShared = sharedSourceIDs.contains(cacheIdentifier(for: source.id))
-            let wasUnshared = recentlyUnsharedIDs.contains(cacheIdentifier(for: source.id))
+            let key = cacheIdentifier(for: source.id)
+            let cachedShared = sharedSourceIDs.contains(key)
+            let wasUnshared = recentlyUnsharedIDs.contains(key)
             if (shouldBeSharedBasedOnZone(source) || cachedShared) && !wasUnshared {
                 updated.isPersonal = owner
                 markSharedSource(id: updated.id)
@@ -750,14 +793,32 @@ class CloudKitManager: ObservableObject {
             return updated
         }
 
-        // Drop any recently unshared sources for non-owners so they disappear from the list
+        // Drop any recently unshared sources so they disappear from the list
         allSources = allSources.filter { source in
             let key = cacheIdentifier(for: source.id)
-            let shouldDrop = recentlyUnsharedIDs.contains(key) && !isSharedOwner(source)
+            let shouldDrop = recentlyUnsharedIDs.contains(key)
             if shouldDrop {
                 printD("Filtering out revoked source from list: \(source.name)")
+                sourceCache.removeValue(forKey: source.id)
+                unmarkSharedSource(id: source.id)
             }
             return !shouldDrop
+        }
+
+        // Prune sharedSourceIDs entries that no longer exist in the fetched list
+        let fetchedKeys = Set(allSources.map { cacheIdentifier(for: $0.id) })
+        // If a previously unshared key is now fetched again, clear its unshared flag
+        let revived = recentlyUnsharedIDs.intersection(fetchedKeys)
+        if !revived.isEmpty {
+            recentlyUnsharedIDs.subtract(revived)
+            printD("Cleared unshared flags for re-fetched shared sources: \(revived)")
+        }
+        let staleSharedKeys = sharedSourceIDs.subtracting(fetchedKeys)
+        if !staleSharedKeys.isEmpty {
+            printD("Pruning \(staleSharedKeys.count) stale shared keys from cache")
+            sharedSourceIDs.subtract(staleSharedKeys)
+            recentlyUnsharedIDs.formUnion(staleSharedKeys)
+            saveSharedSourceIDs()
         }
 
         if let current = currentSource,
@@ -766,19 +827,26 @@ class CloudKitManager: ObservableObject {
             saveCurrentSourceID()
         }
 
-            allSources.sort { $0.lastModified > $1.lastModified }
+        allSources.sort { $0.lastModified > $1.lastModified }
 
-            self.sources = allSources
-            if let currentID = currentSource?.id,
-               let refreshed = allSources.first(where: { $0.id == currentID }) {
-                currentSource = refreshed
-            }
-            saveSourcesLocalCache()
-            // Set default source if none selected
-            if currentSource == nil, !allSources.isEmpty {
-                currentSource = allSources.first(where: { $0.isPersonal }) ?? allSources.first
-            }
-            updateSharedEditabilityFlag()
+        self.sources = allSources
+        // Reset sharedSourceIDs to the current fetched shared sources
+        let currentSharedKeys = Set(allSources.filter { !$0.isPersonal }.map { cacheIdentifier(for: $0.id) })
+        sharedSourceIDs = currentSharedKeys
+        saveSharedSourceIDs()
+
+        if let currentID = currentSource?.id,
+           let refreshed = allSources.first(where: { $0.id == currentID }) {
+            currentSource = refreshed
+        } else {
+            currentSource = allSources.first
+        }
+        saveSourcesLocalCache()
+        // Set default source if none selected
+        if currentSource == nil, !allSources.isEmpty {
+            currentSource = allSources.first(where: { $0.isPersonal }) ?? allSources.first
+        }
+        updateSharedEditabilityFlag()
         } catch {
             let errorDesc = error.localizedDescription
             // Silently handle schema/indexing errors - CloudKit is still setting up
@@ -1033,15 +1101,25 @@ class CloudKitManager: ObservableObject {
     }
 
     func removeSharedSourceLocally(_ source: Source) async {
-        // Allow removal for revoked shares even if flagged personal; skip only if owner
+        // Allow removal even if flagged personal; skip only if owner
         if isSharedOwner(source) && source.isPersonal {
             return
+        }
+        // Attempt to delete the shared zone for this user so it disappears on all devices for this account
+        do {
+            try await sharedDatabase.deleteRecordZone(withID: source.id.zoneID)
+            printD("Deleted shared zone for removed source: \(source.name)")
+        } catch {
+            printD("Delete shared zone (ignored if already gone) failed for \(source.name): \(error.localizedDescription)")
         }
         sources = sources.filter { $0.id != source.id }
         sourceCache.removeValue(forKey: source.id)
         unmarkSharedSource(id: source.id)
-        recentlyUnsharedIDs.insert(cacheIdentifier(for: source.id))
+        let key = cacheIdentifier(for: source.id)
+        recentlyUnsharedIDs.insert(key)
+        printD("Removed shared source locally: \(source.name) key=\(key)")
         saveSourcesLocalCache()
+        saveCurrentSourceID()
         DispatchQueue.main.async {
             NotificationCenter.default.post(name: .sourcesRefreshed, object: nil)
         }
@@ -1203,7 +1281,6 @@ class CloudKitManager: ObservableObject {
             if isSharedSource(source), isShareRevokedError(error) {
                 printD("Share revoked or inaccessible for \(source.name); removing locally")
                 await removeSharedSourceLocally(source)
-                setRevokedErrorOnce(for: source, context: "categories")
                 return
             }
             if handleOfflineFallback(for: error) {
@@ -1237,27 +1314,6 @@ class CloudKitManager: ObservableObject {
             return ck.code == .zoneNotFound || ck.code == .unknownItem || ck.code == .permissionFailure
         }
         return false
-    }
-
-    private func setRevokedErrorOnce(for source: Source, context: String) {
-        let key = cacheIdentifier(for: source.id)
-        if !revokedNotifiedIDs.contains(key) {
-            revokedNotifiedIDs.insert(key)
-            let message = "Shared collection '\(source.name)' was revoked."
-            printD("Revocation alert (\(context)): \(message)")
-            self.error = message
-            if !revokedToastShownIDs.contains(key) {
-                revokedToastShownIDs.insert(key)
-                DispatchQueue.main.async {
-                    NotificationCenter.default.post(
-                        name: .shareRevokedToast,
-                        object: source.name
-                    )
-                }
-            }
-        } else {
-            printD("Revocation alert suppressed (\(context)) for \(source.name)")
-        }
     }
 
     func loadRecipeCounts(for source: Source) async {
@@ -1459,7 +1515,6 @@ class CloudKitManager: ObservableObject {
             if isSharedSource(source), isShareRevokedError(error) {
                 printD("Share revoked or inaccessible for \(source.name); removing locally")
                 await removeSharedSourceLocally(source)
-                self.error = "Shared collection '\(source.name)' was revoked."
                 return
             }
             if handleOfflineFallback(for: error) {
@@ -1573,7 +1628,6 @@ class CloudKitManager: ObservableObject {
                 if isSharedSource(source), isShareRevokedError(error) {
                     printD("Share revoked or inaccessible for \(source.name); removing locally (random load)")
                     await removeSharedSourceLocally(source)
-                    setRevokedErrorOnce(for: source, context: "random")
                     return
                 }
                 let errorDesc = error.localizedDescription
@@ -1984,6 +2038,33 @@ class CloudKitManager: ObservableObject {
             return nil
         }
     }
+
+    /// Return a UICloudSharingController for an existing shared source (participant)
+    @available(iOS 17.0, *)
+    func participantSharingController(for source: Source) async -> UICloudSharingController? {
+        guard isSharedSource(source) else { return nil }
+
+        do {
+            let rootRecord = try await sharedDatabase.record(for: source.id)
+            guard let shareRef = rootRecord.share else {
+                printD("participantSharingController: no share ref on root")
+                return nil
+            }
+            let shareRecord = try await sharedDatabase.record(for: shareRef.recordID)
+            guard let share = shareRecord as? CKShare else {
+                printD("participantSharingController: share record not CKShare")
+                return nil
+            }
+            await attachChildRecordsToShare(share, rootRecord: rootRecord)
+
+            let controller = UICloudSharingController(share: share, container: self.container)
+            controller.availablePermissions = [.allowReadOnly, .allowReadWrite]
+            return controller
+        } catch {
+            printD("participantSharingController error: \(error.localizedDescription)")
+            return nil
+        }
+    }
 #endif
 
     /// Prepare a source for sharing - legacy method, kept for compatibility
@@ -2136,6 +2217,8 @@ class CloudKitManager: ObservableObject {
                 sources.sort { $0.lastModified > $1.lastModified }
                 saveSourcesLocalCache()
                 printD("Injected shared source manually after accept: \(sharedSource.name)")
+                recentlyUnsharedIDs.remove(cacheIdentifier(for: sharedSource.id))
+                saveSharedSourceIDs()
             }
             if let sharedSource {
                 currentSource = sharedSource

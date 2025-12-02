@@ -373,6 +373,15 @@ private struct MacToolbarIconButton: View {
             return
         }
 
+        // If collaborator, present sharing controller to allow "Leave Share"
+        if !viewModel.isSharedOwner(source), viewModel.cloudKitManager.isSharedSource(source),
+           let controller = await viewModel.cloudKitManager.participantSharingController(for: source) {
+            await MainActor.run {
+                presentUICloudSharingController(controller, source: source)
+            }
+            return
+        }
+
         viewModel.cloudKitManager.prepareSharingController(for: source) { controller in
             Task { @MainActor in
                 if let controller {
@@ -466,10 +475,15 @@ private struct MacToolbarIconButton: View {
         }
 
         // Install delegate proxy so we can detect stop-sharing and update state
+        let isOwner = viewModel.isSharedOwner(source)
         let proxy = SharingDelegateProxy(
             onStopSharing: {
                 Task {
-                    await viewModel.stopSharingSource(source)
+                    if isOwner {
+                        await viewModel.stopSharingSource(source)
+                    } else {
+                        await viewModel.removeSharedSourceLocally(source)
+                    }
                 }
             },
             onSave: {
@@ -768,7 +782,7 @@ struct SourceRowWrapper: View {
                     .foregroundColor(.clear)
             }
 
-            // Share button
+            // Share / manage sharing
             if source.isPersonal {
                 Button(action: onShare) {
                     Image(systemName: "person.crop.circle.badge.checkmark")
@@ -777,7 +791,8 @@ struct SourceRowWrapper: View {
                 .buttonStyle(.bordered)
 
             } else {
-                Button(action: onRemoveShare) {
+                // Collaborators use the share action to open UICloudSharingController (for "Remove Me")
+                Button(action: onShare) {
                     Image(systemName: "person.crop.circle.badge.xmark")
                         .font(.system(size: 14))
                 }
@@ -804,8 +819,8 @@ struct SourceRowWrapper: View {
                     Label("Delete", systemImage: "trash")
                 }
             } else {
-                Button(role: .destructive, action: onRemoveShare) {
-                    Label("Remove", systemImage: "xmark.circle")
+                Button(role: .destructive, action: onShare) {
+                    Label("Manage", systemImage: "person.crop.circle.badge.xmark")
                 }
             }
         }
