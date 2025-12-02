@@ -1569,13 +1569,29 @@ class CloudKitManager: ObservableObject {
         }
     }
 
+    private func removeRecipeCache(for source: Source) {
+        let fm = FileManager.default
+        // Remove per-source recipe caches (all categories and per-category files)
+        if let files = try? fm.contentsOfDirectory(at: cacheDirectoryURL, includingPropertiesForKeys: nil) {
+            let prefix = "recipes_\(cacheIdentifier(for: source.id))"
+            for url in files where url.lastPathComponent.hasPrefix(prefix) {
+                try? fm.removeItem(at: url)
+            }
+        }
+        // Clear in-memory caches
+        recipeCache = recipeCache.filter { $0.key.zoneID != source.id.zoneID }
+    }
+
     func loadRandomRecipes(for source: Source, count: Int = 20, skipCache: Bool = false) async {
         isLoading = true
         defer { isLoading = false }
 
-        if !skipCache,
-           let cachedAllRecipes = loadRecipesLocalCache(for: source, categoryID: nil),
-           !cachedAllRecipes.isEmpty {
+        if skipCache {
+            // Purge caches so we fetch fresh content/images
+            recipes.removeAll()
+            removeRecipeCache(for: source)
+        } else if let cachedAllRecipes = loadRecipesLocalCache(for: source, categoryID: nil),
+                  !cachedAllRecipes.isEmpty {
             // Keep existing order to avoid jarring reorders; just seed from cache if we have none
             if recipes.isEmpty {
                 self.recipes = Array(cachedAllRecipes.prefix(count))

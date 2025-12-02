@@ -175,6 +175,7 @@ private struct MacToolbarIconButton: View {
                 ) {
                     Task {
                         await viewModel.loadSources()
+                        await viewModel.loadRandomRecipes(skipCache: true)
                     }
                 }
 
@@ -351,7 +352,7 @@ private struct MacToolbarIconButton: View {
 #if os(iOS)
             .refreshable {
                 await viewModel.loadSources()
-                // Force-refresh recipes for the current source so images reflect latest changes
+                // Force-refresh recipes for the current source so content/images reflect latest changes
                 await viewModel.loadRandomRecipes(skipCache: true)
             }
 #endif

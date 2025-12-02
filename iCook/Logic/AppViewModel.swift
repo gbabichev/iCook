@@ -88,7 +88,7 @@ final class AppViewModel: ObservableObject {
         cloudKitManager.saveCurrentSourceID()
         currentSource = source
         await loadCategories()
-        await loadRandomRecipes()
+        await loadRandomRecipes(skipCache: true)
         refreshOfflineState()
     }
 
@@ -249,9 +249,7 @@ final class AppViewModel: ObservableObject {
         await cloudKitManager.loadRandomRecipes(for: source, count: count, skipCache: skipCache)
         randomRecipes = cloudKitManager.recipes
         // Keep the main recipes array in sync so category views pick up latest names
-        if skipCache {
-            recipes = cloudKitManager.recipes
-        }
+        recipes = cloudKitManager.recipes
         error = cloudKitManager.error
         refreshOfflineState()
         isLoadingRecipes = false
