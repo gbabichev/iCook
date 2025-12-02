@@ -277,6 +277,10 @@ class CloudKitManager: ObservableObject {
         UserDefaults.standard.set(Array(sharedSourceIDs), forKey: sharedSourceIDsKey)
     }
 
+    // Track shared keys detected during a load pass so we can rebuild the cache cleanly.
+    private var collectedSharedKeys: Set<String> = []
+    private var isCollectingSharedKeys = false
+
     // Track sources explicitly unshared locally to avoid re-marking from stale data
     private var recentlyUnsharedIDs: Set<String> = [] {
         didSet {
@@ -290,6 +294,9 @@ class CloudKitManager: ObservableObject {
         sharedSourceIDs.insert(key)
         recentlyUnsharedIDs.remove(key)
         saveSharedSourceIDs()
+        if isCollectingSharedKeys {
+            collectedSharedKeys.insert(key)
+        }
     }
 
     private func unmarkSharedSource(id: CKRecord.ID) {
@@ -693,6 +700,10 @@ class CloudKitManager: ObservableObject {
         }
 
         do {
+        // Begin collecting shared keys for this load pass
+        isCollectingSharedKeys = true
+        collectedSharedKeys.removeAll()
+
         // Load personal sources from private database
         let personalSources = try await fetchSourcesFromDatabase(privateDatabase, isPersonal: true)
 
@@ -777,8 +788,14 @@ class CloudKitManager: ObservableObject {
             var updated = source
             let owner = isSharedOwner(source)
             let key = cacheIdentifier(for: source.id)
-            let cachedShared = sharedSourceIDs.contains(key)
+            var cachedShared = sharedSourceIDs.contains(key)
             let wasUnshared = recentlyUnsharedIDs.contains(key)
+            // If this is an owned/personal source and no longer in a shared zone, drop stale shared marker
+            if owner && updated.isPersonal && !shouldBeSharedBasedOnZone(updated) && cachedShared {
+                sharedSourceIDs.remove(key)
+                saveSharedSourceIDs()
+                cachedShared = false
+            }
             if (shouldBeSharedBasedOnZone(source) || cachedShared) && !wasUnshared {
                 updated.isPersonal = owner
                 markSharedSource(id: updated.id)
@@ -836,9 +853,10 @@ class CloudKitManager: ObservableObject {
         }
 
         self.sources = allSources
-        // Reset sharedSourceIDs to the current fetched shared sources
-        let currentSharedKeys = Set(allSources.filter { !$0.isPersonal }.map { cacheIdentifier(for: $0.id) })
-        sharedSourceIDs = currentSharedKeys
+        // Reset sharedSourceIDs to include any cached/shared markers plus fetched shared sources.
+        let fetchedSharedKeys = Set(allSources.filter { !$0.isPersonal }.map { cacheIdentifier(for: $0.id) })
+        let rebuiltSharedKeys = collectedSharedKeys.union(fetchedSharedKeys)
+        sharedSourceIDs = rebuiltSharedKeys.intersection(fetchedKeys)
         saveSharedSourceIDs()
 
         if let currentID = currentSource?.id,
@@ -867,6 +885,7 @@ class CloudKitManager: ObservableObject {
             }
         }
         isLoading = false
+        isCollectingSharedKeys = false
     }
 
     private func fetchSourcesFromDatabase(_ database: CKDatabase, isPersonal: Bool) async throws -> [Source] {
