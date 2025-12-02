@@ -1130,6 +1130,43 @@ class CloudKitManager: ObservableObject {
         printD("Removed shared source locally: \(source.name)")
     }
 
+    /// Participant leaves a shared source (removes themselves from the share).
+    func leaveSharedSource(_ source: Source) async -> Bool {
+        guard !isSharedOwner(source) else {
+            printD("leaveSharedSource called for owner; ignoring.")
+            return false
+        }
+
+        printD("Attempting to leave shared source: \(source.name) (\(source.id.recordName))")
+
+        // Try to fetch the root record in the shared DB and use its share reference
+        do {
+            let rootRecord = try await sharedDatabase.record(for: source.id)
+            if let shareRef = rootRecord.share {
+                do {
+                    try await sharedDatabase.deleteRecord(withID: shareRef.recordID)
+                    printD("Deleted share record \(shareRef.recordID.recordName) for source \(source.name) to leave share.")
+                } catch {
+                    printD("Failed to delete share record for \(source.name): \(error.localizedDescription)")
+                    self.error = "Failed to leave share"
+                    return false
+                }
+            } else {
+                printD("Root record has no share ref when leaving source: \(source.name)")
+                self.error = "No share record found to leave"
+                return false
+            }
+        } catch {
+            printD("Failed to fetch root record in shared DB for \(source.name): \(error.localizedDescription)")
+            self.error = "Failed to leave share"
+            return false
+        }
+
+        printD("Proceeding to remove shared source locally after leaving: \(source.name)")
+        await removeSharedSourceLocally(source)
+        return true
+    }
+
     /// Debug helper: completely nuke owned data (personal zone) and local caches.
     func debugNukeOwnedData() async {
         isLoading = true
@@ -2066,6 +2103,26 @@ class CloudKitManager: ObservableObject {
         }
     }
 #endif
+
+    /// Fetch an existing CKShare for a source (owner or participant).
+    func existingShare(for source: Source) async -> CKShare? {
+        do {
+            if isSharedOwner(source) {
+                let rootRecord = try await privateDatabase.record(for: source.id)
+                guard let shareRef = rootRecord.share else { return nil }
+                let shareRecord = try await privateDatabase.record(for: shareRef.recordID)
+                return shareRecord as? CKShare
+            } else {
+                let rootRecord = try await sharedDatabase.record(for: source.id)
+                guard let shareRef = rootRecord.share else { return nil }
+                let shareRecord = try await sharedDatabase.record(for: shareRef.recordID)
+                return shareRecord as? CKShare
+            }
+        } catch {
+            printD("existingShare error: \(error.localizedDescription)")
+            return nil
+        }
+    }
 
     /// Prepare a source for sharing - legacy method, kept for compatibility
     /// - Parameters:

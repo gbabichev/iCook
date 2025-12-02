@@ -394,6 +394,13 @@ private struct MacToolbarIconButton: View {
             }
         }
 #else
+        // If collaborator, leave the share directly
+        if !viewModel.isSharedOwner(source), viewModel.cloudKitManager.isSharedSource(source) {
+            printD("macOS collaborator leave flow for source: \(source.name)")
+            await viewModel.leaveSharedSource(source)
+            return
+        }
+
         await MainActor.run {
             withAnimation {
                 shareToastMessage = "Preparing to share..."
@@ -502,7 +509,7 @@ private struct MacToolbarIconButton: View {
             }
         }
     }
-#elseif os(macOS)
+#else
     /// Present NSSharingServicePicker on macOS
     private func presentSharingServices(with url: URL, sourceTitle: String) {
         printD("Presenting NSSharingServicePicker with URL: \(url.absoluteString)")

@@ -123,6 +123,16 @@ final class AppViewModel: ObservableObject {
         refreshOfflineState()
     }
 
+    func leaveSharedSource(_ source: Source) async {
+        _ = await cloudKitManager.leaveSharedSource(source)
+        sources = cloudKitManager.sources
+        if currentSource?.id == source.id {
+            currentSource = sources.first
+            cloudKitManager.saveCurrentSourceID()
+        }
+        refreshOfflineState()
+    }
+
     func acceptShareURL(_ url: URL) async -> Bool {
         let success = await cloudKitManager.acceptShare(from: url)
         sources = cloudKitManager.sources
