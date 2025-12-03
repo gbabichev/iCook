@@ -125,15 +125,15 @@ struct iCookApp: App {
                 Divider()
                 
                 Button {
-                    exportRecipes()
-                } label: {
-                    Label("Export Recipes…", systemImage: "square.and.arrow.up")
-                }
-                
-                Button {
                     importRecipes()
                 } label: {
                     Label("Import Recipes…", systemImage: "square.and.arrow.down")
+                }
+                
+                Button {
+                    exportRecipes()
+                } label: {
+                    Label("Export Recipes…", systemImage: "square.and.arrow.up")
                 }
             }
         }
