@@ -1,5 +1,6 @@
-import Foundation
 #if os(macOS)
+
+import Foundation
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -8,7 +9,6 @@ enum RecipeExportConstants {
     nonisolated static let recipesFileName = "Recipes.json"
     nonisolated static let imagesFolderName = "Images"
 }
-#endif
 
 struct ExportedCategory: Codable {
     let name: String
@@ -57,7 +57,6 @@ struct RecipeExportPackage: Codable {
     }
 }
 
-#if os(macOS)
 struct RecipeExportDocument: FileDocument {
     static var readableContentTypes: [UTType] { [RecipeExportConstants.contentType, .json] }
     static var writableContentTypes: [UTType] { [RecipeExportConstants.contentType, .json] }

@@ -13,10 +13,10 @@ import UniformTypeIdentifiers
 struct AddEditRecipeView: View {
     @EnvironmentObject private var model: AppViewModel
     @Environment(\.dismiss) private var dismiss
-
+    
     let editingRecipe: Recipe?
     let preselectedCategoryId: CKRecord.ID?
-
+    
     @State private var selectedCategoryId: CKRecord.ID?
     @State private var recipeName: String = ""
     @State private var recipeTime: String = ""
@@ -26,10 +26,12 @@ struct AddEditRecipeView: View {
     @State private var existingImagePath: String?
     @State private var isUploading = false
     @State private var isSaving = false
+#if os(macOS)
     @State private var fileImporterTrigger = UUID()
+#endif
     @State private var isCompressingImage = false
     @State private var saveErrorMessage: String?
-
+    
     // Recipe Steps
     @State private var recipeSteps: [RecipeStep] = []
     @State private var expandedSteps: Set<Int> = []
@@ -48,15 +50,15 @@ struct AddEditRecipeView: View {
     private var isFormValid: Bool {
         let nameValid = !recipeName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let timeValid = !recipeTime.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-                        Int(recipeTime.trimmingCharacters(in: .whitespacesAndNewlines)) != nil
+        Int(recipeTime.trimmingCharacters(in: .whitespacesAndNewlines)) != nil
         return nameValid && timeValid
     }
-
+    
     private var canEdit: Bool {
         guard let source = model.currentSource else { return false }
         return model.canEditSource(source)
     }
-
+    
     var isEditing: Bool { editingRecipe != nil }
     
     init(editingRecipe: Recipe? = nil, preselectedCategoryId: CKRecord.ID? = nil) {
@@ -77,7 +79,7 @@ struct AddEditRecipeView: View {
                         }
                     }
                 }
-
+                
                 if let errorMessage = saveErrorMessage {
                     Section {
                         HStack {
@@ -88,7 +90,7 @@ struct AddEditRecipeView: View {
                         }
                     }
                 }
-
+                
                 Section("Basic Information") {
                     // Category Picker
                     if !model.categories.isEmpty {
@@ -103,11 +105,11 @@ struct AddEditRecipeView: View {
                         Text("No categories available")
                             .foregroundStyle(.secondary)
                     }
-
+                    
                     // Recipe Name - REQUIRED
                     TextField("Recipe Name *", text: $recipeName)
                         .disabled(!canEdit)
-
+                    
                     // Recipe Time - REQUIRED
                     HStack {
                         TextField("Cooking Time *", text: $recipeTime)
@@ -116,15 +118,15 @@ struct AddEditRecipeView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-
+                
                 Section("Image") {
                     imageSection.disabled(!canEdit)
                 }
-
+                
                 // Recipe Steps Section
                 Section {
                     VStack(alignment: .leading, spacing: 16) {
-
+                        
                         HStack {
                             Text("Recipe Steps")
                                 .font(.headline)
@@ -184,7 +186,7 @@ struct AddEditRecipeView: View {
                         dismiss()
                     }
                 }
-
+                
                 ToolbarItem(placement: .confirmationAction) {
                     Button(isEditing ? "Update" : "Create") {
                         Task {
@@ -316,14 +318,14 @@ struct AddEditRecipeView: View {
             }
             .id(fileImporterTrigger)
 #endif
-//            .alert("Error", isPresented: .init(
-//                get: { model.error != nil },
-//                set: { if !$0 { model.error = nil } }
-//            )) {
-//                Button("OK") { model.error = nil }
-//            } message: {
-//                Text(model.error ?? "")
-//            }
+            //            .alert("Error", isPresented: .init(
+            //                get: { model.error != nil },
+            //                set: { if !$0 { model.error = nil } }
+            //            )) {
+            //                Button("OK") { model.error = nil }
+            //            } message: {
+            //                Text(model.error ?? "")
+            //            }
         }
     }
     
@@ -384,7 +386,7 @@ struct AddEditRecipeView: View {
         if model.categories.isEmpty {
             await model.loadCategories()
         }
-
+        
         if !isEditing, selectedCategoryId == nil {
             if let preselected = preselectedCategoryId, model.categories.contains(where: { $0.id == preselected }) {
                 selectedCategoryId = preselected
@@ -401,7 +403,7 @@ struct AddEditRecipeView: View {
             if existingImagePath == nil {
                 existingImagePath = model.cloudKitManager.cachedImagePathForRecipe(recipe.id)
             }
-
+            
             // Load recipe steps
             if !recipe.recipeSteps.isEmpty {
                 recipeSteps = recipe.recipeSteps
@@ -410,13 +412,13 @@ struct AddEditRecipeView: View {
                     expandedSteps.insert(firstStep.stepNumber)
                 }
             }
-
+            
             // Load legacy ingredients (for recipes that haven't been converted yet)
             if let ingredients = recipe.ingredients, !ingredients.isEmpty {
                 // Check if ingredients are already in steps
                 let allStepIngredients = Set(recipeSteps.flatMap(\.ingredients))
                 let uniqueLegacyIngredients = ingredients.filter { !allStepIngredients.contains($0) }
-
+                
                 if !uniqueLegacyIngredients.isEmpty {
                     legacyIngredients = uniqueLegacyIngredients
                     showingLegacySection = true
@@ -427,7 +429,7 @@ struct AddEditRecipeView: View {
     
     private func handleCategoryChanges(_ newCategories: [Category]) {
         let ids = Set(newCategories.map { $0.id })
-
+        
         if isEditing {
             if let recipe = editingRecipe, !ids.contains(recipe.categoryID) {
                 selectedCategoryId = newCategories.first?.id
@@ -512,7 +514,7 @@ struct AddEditRecipeView: View {
         guard let categoryId = selectedCategoryId else {
             return // Category is required
         }
-
+        
         let success: Bool
         if let recipe = editingRecipe {
             print("DEBUG: Saving recipe - UPDATE mode. Recipe ID: \(recipe.id.recordName)")
@@ -538,7 +540,7 @@ struct AddEditRecipeView: View {
             )
             print("DEBUG: Create result: \(success)")
         }
-
+        
         if success {
             if let recipe = editingRecipe {
                 var updated = recipe
@@ -707,8 +709,8 @@ struct AddEditRecipeView: View {
                     .foregroundStyle(.secondary)
             }
     }
-    
-        private func loadImageFromURL(_ url: URL) {
+#if os(macOS)
+    private func loadImageFromURL(_ url: URL) {
         Task {
             isUploading = true
             isCompressingImage = true
@@ -717,12 +719,11 @@ struct AddEditRecipeView: View {
                 isCompressingImage = false
             }
             
-#if os(macOS)
+
             let didStartAccess = url.startAccessingSecurityScopedResource()
             defer {
                 if didStartAccess { url.stopAccessingSecurityScopedResource() }
             }
-#endif
             
             do {
                 let originalData = try Data(contentsOf: url, options: .mappedIfSafe)
@@ -750,7 +751,7 @@ struct AddEditRecipeView: View {
             }
         }
     }
-    
+#endif
     // Background compression function
     private func compressImageInBackground(_ data: Data, maxDimension: CGFloat = 1600, quality: CGFloat = 0.7) async -> Data? {
 #if os(iOS)
@@ -1162,7 +1163,7 @@ struct CameraView: View {
                             Capsule()
                                 .stroke(Color.white.opacity(0.6), lineWidth: 1)
                         )
-
+                        
                         Spacer()
                     }
                     .padding(.horizontal, 12)
@@ -1294,7 +1295,7 @@ private extension CameraView {
 struct CameraPreview: UIViewRepresentable {
     let session: AVCaptureSession
     let cameraManager: CameraManager
-
+    
     func makeCoordinator() -> Coordinator {
         Coordinator(cameraManager: cameraManager)
     }
@@ -1415,7 +1416,7 @@ struct CameraPreview: UIViewRepresentable {
             }
         }
     }
-
+    
     func makeUIView(context: Context) -> PreviewView {
         let view = PreviewView()
         view.videoPreviewLayer.session = session
@@ -1431,7 +1432,7 @@ struct CameraPreview: UIViewRepresentable {
         
         return view
     }
-
+    
     func updateUIView(_ uiView: PreviewView, context: Context) {
         Task { @MainActor in
             context.coordinator.updateVideoRotation()
@@ -1455,7 +1456,7 @@ class CameraManager: NSObject, ObservableObject {
     private var videoDeviceInput: AVCaptureDeviceInput?
     private var captureCompletion: ((UIImage?) -> Void)?
     var rotationCoordinator: AVCaptureDevice.RotationCoordinator?
-
+    
     @Published var availableCameras: [CameraInfo] = []
     @Published var currentCamera: CameraInfo?
     @Published var flashMode: AVCaptureDevice.FlashMode = .auto
@@ -1518,13 +1519,13 @@ class CameraManager: NSObject, ObservableObject {
         } else {
             currentCamera = availableCameras.first
         }
-
+        
         // Deduplicate cameras by position + zoom label, and skip combined labels when specifics exist
         let hasSpecificPerPosition: [AVCaptureDevice.Position: Bool] = [
             .back: availableCameras.contains { $0.position == .back && !$0.zoomLabel.contains("/") },
             .front: availableCameras.contains { $0.position == .front && !$0.zoomLabel.contains("/") }
         ]
-
+        
         var seen: Set<String> = []
         availableCameras = availableCameras.filter { cam in
             if cam.zoomLabel.contains("/"), hasSpecificPerPosition[cam.position] == true {
@@ -1570,14 +1571,14 @@ class CameraManager: NSObject, ObservableObject {
     
     func switchToCamera(_ cameraInfo: CameraInfo) {
         guard cameraInfo.id != currentCamera?.id else { return }
-
+        
         session.beginConfiguration()
-
+        
         // Remove current input
         if let currentInput = videoDeviceInput {
             session.removeInput(currentInput)
         }
-
+        
         // Add new input
         do {
             let newInput = try AVCaptureDeviceInput(device: cameraInfo.device)
@@ -1585,11 +1586,11 @@ class CameraManager: NSObject, ObservableObject {
                 session.addInput(newInput)
                 videoDeviceInput = newInput
                 currentCamera = cameraInfo
-
+                
                 // Don't create rotation coordinator here - let the preview handle it
                 // The coordinator needs the preview layer reference
                 rotationCoordinator = nil
-
+                
                 // Update flash mode based on new camera capabilities
                 if !cameraInfo.device.hasFlash && flashMode != .off {
                     flashMode = .off
@@ -1602,7 +1603,7 @@ class CameraManager: NSObject, ObservableObject {
                 session.addInput(previousInput)
             }
         }
-
+        
         session.commitConfiguration()
         
         // Notify that the device changed
@@ -1616,7 +1617,7 @@ class CameraManager: NSObject, ObservableObject {
         
         // Find the first camera of the opposite position (preferring wide camera)
         if let targetCamera = availableCameras.first(where: { $0.position == targetPosition && $0.device.deviceType == .builtInWideAngleCamera }) ??
-           availableCameras.first(where: { $0.position == targetPosition }) {
+            availableCameras.first(where: { $0.position == targetPosition }) {
             switchToCamera(targetCamera)
         }
     }
@@ -1658,14 +1659,14 @@ class CameraManager: NSObject, ObservableObject {
         let settings = AVCapturePhotoSettings()
         settings.maxPhotoDimensions = photoOutput.maxPhotoDimensions
         settings.flashMode = flashMode
-
+        
         // Only set photoQualityPrioritization if the output supports it
         if photoOutput.maxPhotoQualityPrioritization.rawValue >= AVCapturePhotoOutput.QualityPrioritization.quality.rawValue {
             settings.photoQualityPrioritization = .quality
         } else {
             settings.photoQualityPrioritization = photoOutput.maxPhotoQualityPrioritization
         }
-
+        
         // Use modern rotation approach
         if let photoConnection = photoOutput.connection(with: .video),
            let coordinator = rotationCoordinator {

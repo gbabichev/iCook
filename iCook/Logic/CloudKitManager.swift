@@ -1070,6 +1070,7 @@ class CloudKitManager: ObservableObject {
         printD("Removed shared source locally: \(source.name)")
     }
 
+    #if os(macOS)
     /// Participant leaves a shared source (removes themselves from the share).
     func leaveSharedSource(_ source: Source) async -> Bool {
         guard !isSharedOwner(source) else {
@@ -1106,7 +1107,7 @@ class CloudKitManager: ObservableObject {
         await removeSharedSourceLocally(source)
         return true
     }
-
+    #endif
     /// Debug helper: completely nuke owned data (personal zone) and local caches.
     func debugNukeOwnedData() async {
         isLoading = true
@@ -1749,6 +1750,7 @@ class CloudKitManager: ObservableObject {
     /// Get or create a share URL for a source (cross-platform)
     /// - Parameter source: The source to share (must be personal)
     /// - Returns: The share URL, or nil on error
+#if os(macOS)
     func getShareURL(for source: Source) async -> URL? {
         guard source.isPersonal else {
             self.error = "Cannot share sources that are already shared"
@@ -1862,14 +1864,12 @@ class CloudKitManager: ObservableObject {
             return nil
         }
     }
-
-#if os(iOS)
+#else
     /// Prepare a UICloudSharingController for sharing a source
     /// Creates and saves the share first, then creates the controller
     /// - Parameters:
     ///   - source: The source to share (must be personal)
     ///   - completionHandler: Called with the controller when ready, or nil on error
-    @available(iOS 17.0, *)
     func prepareSharingController(for source: Source, completionHandler: @escaping (UICloudSharingController?) -> Void) {
         guard source.isPersonal else {
             self.error = "Cannot share sources that are already shared"
@@ -1984,7 +1984,6 @@ class CloudKitManager: ObservableObject {
     }
 
     /// Return a UICloudSharingController for an existing shared source (owner only)
-    @available(iOS 17.0, *)
     func existingSharingController(for source: Source) async -> UICloudSharingController? {
         guard isSharedOwner(source) else { return nil }
 
@@ -2007,7 +2006,6 @@ class CloudKitManager: ObservableObject {
     }
 
     /// Return a UICloudSharingController for an existing shared source (participant)
-    @available(iOS 17.0, *)
     func participantSharingController(for source: Source) async -> UICloudSharingController? {
         guard isSharedSource(source) else { return nil }
 

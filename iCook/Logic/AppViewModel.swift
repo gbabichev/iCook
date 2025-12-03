@@ -13,7 +13,9 @@ final class AppViewModel: ObservableObject {
     @Published var recipeCounts: [CKRecord.ID: Int] = [:]
     @Published var isLoadingCategories = false
     @Published var isLoadingRecipes = false
+    #if os(macOS)
     @Published var isImporting = false
+    #endif
     @Published var error: String?
     @Published var isOfflineMode = false
     private let lastViewedRecipeKey = "LastViewedRecipe"
@@ -127,7 +129,7 @@ final class AppViewModel: ObservableObject {
         }
         refreshOfflineState()
     }
-    #endif
+    #else
     func leaveSharedSource(_ source: Source) async {
         _ = await cloudKitManager.leaveSharedSource(source)
         sources = cloudKitManager.sources
@@ -145,6 +147,7 @@ final class AppViewModel: ObservableObject {
         }
         refreshOfflineState()
     }
+    #endif
 
     func acceptShareURL(_ url: URL) async -> Bool {
         let success = await cloudKitManager.acceptShare(from: url)
