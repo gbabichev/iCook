@@ -722,15 +722,15 @@ final class AppViewModel: ObservableObject {
         // Allow edits on shared sources once the share is read-write
         return source.isPersonal || cloudKitManager.canEditSharedSources
     }
-#if os(iOS)
     func stopSharingSource(_ source: Source) async {
         let success = await cloudKitManager.stopSharingSource(source)
         if success {
+#if os(iOS)
             cloudKitManager.markSourceUnshared(source)
+#endif
             await loadSources()
         }
     }
-#endif
     func debugNukeOwnedData() async {
         await cloudKitManager.debugNukeOwnedData()
         await loadSources()

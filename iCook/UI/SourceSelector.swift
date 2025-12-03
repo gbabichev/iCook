@@ -303,6 +303,11 @@ struct SourceSelector: View {
                                         await shareSource(for: source)
                                     }
                                 },
+                                onStopSharing: {
+                                    Task {
+                                        await viewModel.stopSharingSource(source)
+                                    }
+                                },
                                 onRename: {
                                     beginRenaming(source)
                                 },
@@ -651,6 +656,7 @@ struct SourceRowWrapper: View {
     let isSelected: Bool
     let onSelect: () -> Void
     let onShare: () -> Void
+    let onStopSharing: () -> Void
     let onRename: () -> Void
     let onDelete: () -> Void
     @EnvironmentObject private var viewModel: AppViewModel
@@ -745,9 +751,24 @@ struct SourceRowWrapper: View {
                 }
             }
 
+#if os(macOS)
+            if viewModel.isSharedOwner(source), viewModel.isSourceShared(source) {
+                Button(action: onShare) {
+                    Label("Copy Share URL", systemImage: "link")
+                }
+                Button(role: .destructive, action: onStopSharing) {
+                    Label("Stop Sharing", systemImage: "xmark.circle")
+                }
+            } else {
+                Button(action: onShare) {
+                    Label("Share", systemImage: "square.and.arrow.up")
+                }
+            }
+#else
             Button(action: onShare) {
                 Label(shareLabel, systemImage: "person.2.fill")
             }
+#endif
 
             if canDelete {
                 Button(role: .destructive, action: onDelete) {

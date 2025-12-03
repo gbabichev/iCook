@@ -2340,7 +2340,6 @@ class CloudKitManager: ObservableObject {
         
         return allShares
     }
-#if os(iOS)
     /// Stop sharing a source
     func stopSharingSource(_ source: Source) async -> Bool {
         // Only the owner can stop sharing; ensure we target the private DB share record
@@ -2373,7 +2372,6 @@ class CloudKitManager: ObservableObject {
             return false
         }
     }
-#endif
     
     /// Generate a new CKRecord.ID for the appropriate zone based on the source.
     func makeRecordID(for source: Source) -> CKRecord.ID {
