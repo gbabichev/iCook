@@ -9,9 +9,7 @@ import AppKit
 struct SourceSelector: View {
     @EnvironmentObject private var viewModel: AppViewModel
     @Environment(\.dismiss) var dismiss
-#if DEBUG
-    @Environment(\.openURL) private var openURL
-#endif
+
     @State private var showNewSourceSheet = false
     @State private var newSourceName = ""
     @State private var isPreparingShare = false
@@ -313,13 +311,6 @@ private struct MacToolbarIconButton: View {
                                 onDelete: {
                                     sourceToDelete = source
                                     showDeleteConfirmation = true
-                                },
-                                onRemoveShare: {
-                                    Task {
-                                        await viewModel.forceRemoveSource(source)
-                                        // Update list immediately
-                                        viewModel.removeSourceFromList(source)
-                                    }
                                 }
                             )
                         }
@@ -791,7 +782,6 @@ struct SourceRowWrapper: View {
     let onSelect: () -> Void
     let onShare: () -> Void
     let onDelete: () -> Void
-    let onRemoveShare: () -> Void
     @EnvironmentObject private var viewModel: AppViewModel
 
     var body: some View {

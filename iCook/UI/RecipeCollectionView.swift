@@ -21,15 +21,6 @@ enum RecipeCollectionType: Hashable {
         }
     }
     
-    var sectionTitle: String {
-        switch self {
-        case .home:
-            return "More Recipes"
-        case .category(let category):
-            return "All \(category.name)"
-        }
-    }
-    
     var loadingText: String {
         switch self {
         case .home:
@@ -93,7 +84,6 @@ struct RecipeCollectionView: View {
     @State private var categoryRecipes: [Recipe] = []
     @State private var isLoading = false
     @State private var error: String?
-    @State private var loadingTask: Task<Void, Never>?
     @State private var currentLoadTask: Task<Void, Never>?
     @State private var refreshTrigger = UUID()
     @State private var editingRecipe: Recipe?
@@ -228,38 +218,6 @@ struct RecipeCollectionView: View {
 
     // MARK: - Toolbar Views
 
-    private var sourceMenu: some View {
-        Menu {
-            if let source = model.currentSource {
-                Section(source.name) {
-                    ForEach(model.sources, id: \.id) { s in
-                        Button {
-                            Task {
-                                await model.selectSource(s)
-                            }
-                        } label: {
-                            HStack {
-                                Text(s.name)
-                                if model.currentSource?.id == s.id {
-                                    Image(systemName: "checkmark")
-                                }
-                            }
-                        }
-                    }
-
-                    Divider()
-
-                    Button(action: { showNewSourceSheet = true }) {
-                        Label("New Collection", systemImage: "plus")
-                    }
-                }
-            }
-        } label: {
-            Image(systemName: "cloud")
-        }
-        .accessibilityLabel("Collections")
-    }
-
     private var debugMenu: some View {
         Menu {
             Section("Debug") {
@@ -287,10 +245,6 @@ struct RecipeCollectionView: View {
     // Initializers
     init(collectionType: RecipeCollectionType = .home) {
         self.collectionType = collectionType
-    }
-
-    init(category: Category) {
-        self.init(collectionType: .category(category))
     }
         
     // MARK: - Header Views
@@ -533,15 +487,6 @@ struct RecipeCollectionView: View {
         guard case .category(let category) = collectionType else { return }
         await loadCategoryRecipes(category, skipCache: skipCache)
         refreshTrigger = UUID() // Force view refresh
-    }
-    
-    private func handleRecipeDeleted(_ recipeId: Int) {
-        Task {
-            if case .category = collectionType {
-                await refreshCategoryRecipes()
-            }
-            // Home view will automatically update via model.randomRecipes
-        }
     }
     
     @MainActor
@@ -835,14 +780,13 @@ struct RecipeCollectionView: View {
                     )
                     .accessibilityLabel("Add Recipe")
                 }
+
+//                #if DEBUG
 //                ToolbarItem(placement: .primaryAction) {
-//                    sourceMenu
+//                    debugMenu
 //                }
-                #if DEBUG
-                ToolbarItem(placement: .primaryAction) {
-                    debugMenu
-                }
-                #endif
+//                #endif
+                
 #if os(macOS)
                 ToolbarItem(placement: .status) {
                     offlineStatusIndicator

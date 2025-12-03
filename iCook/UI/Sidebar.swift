@@ -174,20 +174,3 @@ struct CategoryList: View {
         }
     }
 }
-
-// MARK: - Row (Landmarks: *Row)
-
-struct CategoryRow: View {
-    let category: Category
-    var body: some View {
-        HStack(spacing: 12) {
-            Text(category.icon)
-                .font(.title2)
-                .foregroundStyle(.primary)
-                .frame(width: 24, height: 24)
-
-            Text(category.name)
-                .font(.body)
-        }
-    }
-}

@@ -7,32 +7,6 @@
 
 import SwiftUI
 
-// MARK: - Individual Icon Button
-struct IconButton: View {
-    let icon: String
-    let isSelected: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Text(icon)
-                .font(.title2)
-                .frame(width: 44, height: 44)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(isSelected ? Color.accentColor.opacity(0.2) : Color.clear)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(isSelected ? Color.accentColor : Color.gray.opacity(0.3), lineWidth: isSelected ? 2 : 1)
-                )
-                .foregroundStyle(isSelected ? .primary : .secondary)
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-
 struct AddCategoryView: View {
     @EnvironmentObject private var model: AppViewModel
     @Environment(\.dismiss) private var dismiss
@@ -42,7 +16,6 @@ struct AddCategoryView: View {
     @State private var categoryName: String = ""
     @State private var selectedIcon: String = "🍴"
     @State private var isSaving = false
-    @State private var showReadOnlyAlert = false
     
     // Emoji icons for categories
     private let commonIcons = [

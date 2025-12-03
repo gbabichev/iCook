@@ -96,26 +96,6 @@ struct RobustAsyncImage<Content: View, Placeholder: View>: View {
     }
 }
 
-// Convenience initializer similar to AsyncImage
-extension RobustAsyncImage {
-    init(url: URL?) where Content == Image, Placeholder == AnyView {
-        self.init(
-            url: url,
-            content: { image in image },
-            placeholder: {
-                AnyView(
-                    ZStack {
-                        Rectangle()
-                            .fill(.ultraThinMaterial)
-                        ProgressView()
-                            .scaleEffect(0.8)
-                    }
-                )
-            }
-        )
-    }
-}
-
 // Updated RecipeLargeButtonWithState using the robust image loader
 struct RecipeLargeButtonWithState: View {
     let recipe: Recipe

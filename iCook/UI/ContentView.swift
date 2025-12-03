@@ -5,7 +5,6 @@ import CloudKit
 
 struct ContentView: View {
     @EnvironmentObject private var model: AppViewModel
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     @State private var preferredColumn: NavigationSplitViewColumn = .detail
     @State private var selectedCategoryID: CKRecord.ID?

@@ -36,7 +36,6 @@ struct AddEditRecipeView: View {
     
     // Legacy ingredients (for backward compatibility)
     @State private var legacyIngredients: [String] = []
-    @State private var newLegacyIngredient: String = ""
     @State private var showingLegacySection = false
     
     // iOS specific photo states
@@ -377,53 +376,6 @@ struct AddEditRecipeView: View {
         
         // Preserve expanded state - just keep the current expanded set
         // since we've renumbered everything sequentially
-    }
-    
-    // MARK: - Legacy Ingredient Management
-    
-    private func addLegacyIngredient() {
-        let trimmed = newLegacyIngredient.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        
-        if !legacyIngredients.contains(where: { $0.lowercased() == trimmed.lowercased() }) {
-            legacyIngredients.append(trimmed)
-            newLegacyIngredient = ""
-        } else {
-            newLegacyIngredient = ""
-        }
-    }
-    
-    private func deleteLegacyIngredients(at offsets: IndexSet) {
-        legacyIngredients.remove(atOffsets: offsets)
-    }
-    
-    private func moveLegacyIngredients(from source: IndexSet, to destination: Int) {
-        legacyIngredients.move(fromOffsets: source, toOffset: destination)
-    }
-    
-    private func convertLegacyIngredientsToSteps() {
-        guard !legacyIngredients.isEmpty else { return }
-        
-        if recipeSteps.isEmpty {
-            // Create first step with all legacy ingredients
-            let newStep = RecipeStep(
-                stepNumber: 1,
-                instruction: "Follow recipe instructions",
-                ingredients: legacyIngredients
-            )
-            recipeSteps.append(newStep)
-            expandedSteps.insert(1)
-        } else {
-            // Add to first step
-            recipeSteps[0] = RecipeStep(
-                stepNumber: recipeSteps[0].stepNumber,
-                instruction: recipeSteps[0].instruction,
-                ingredients: recipeSteps[0].ingredients + legacyIngredients
-            )
-        }
-        
-        legacyIngredients.removeAll()
-        showingLegacySection = false
     }
     
     // MARK: - Initialization and State Management
