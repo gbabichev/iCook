@@ -36,15 +36,6 @@ class CloudKitManager: ObservableObject {
     private let userIdentifier: String? = UserDefaults.standard.string(forKey: "iCloudUserID")
     private let personalZoneID = CKRecordZone.ID(zoneName: "PersonalSources", ownerName: CKCurrentUserDefaultName)
     private lazy var personalZone: CKRecordZone = CKRecordZone(zoneID: personalZoneID)
-    private var currentAppVersion: String {
-        if let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String, !version.isEmpty {
-            return version
-        }
-        if let build = Bundle.main.object(forInfoDictionaryKey: kCFBundleVersionKey as String) as? String, !build.isEmpty {
-            return build
-        }
-        return "0"
-    }
 
     // Caches
     private var sourceCache: [CKRecord.ID: Source] = [:]
@@ -1771,9 +1762,6 @@ class CloudKitManager: ObservableObject {
     }
 
     // MARK: - Sharing
-    @Published var shareControllerPresented = false
-    @Published var pendingShare: CKShare?
-    @Published var pendingRecord: CKRecord?
 
     /// Get or create a share URL for a source (cross-platform)
     /// - Parameter source: The source to share (must be personal)
