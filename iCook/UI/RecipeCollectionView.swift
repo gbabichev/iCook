@@ -315,7 +315,7 @@ struct RecipeCollectionView: View {
                         .opacity(0.8)
                     
                     // Clickable button within the non-clickable header
-                    NavigationLink(destination: RecipeDetailView(recipe: recipe)) {
+                    NavigationLink(value: recipe) {
                         HStack {
                             Image(systemName: "eye")
                             Text("View Recipe")
@@ -354,7 +354,7 @@ struct RecipeCollectionView: View {
                                     .foregroundColor(.white)
                                     .opacity(0.9)
                                 // Clickable button within the non-clickable header
-                                NavigationLink(destination: RecipeDetailView(recipe: recipe)) {
+                                NavigationLink(value: recipe) {
                                     HStack {
                                         Image(systemName: "eye")
                                         Text("View Recipe")
@@ -418,7 +418,7 @@ struct RecipeCollectionView: View {
             if !remainingRecipes.isEmpty {
                 LazyVGrid(columns: columns, spacing: 15) {
                     ForEach(Array(remainingRecipes.enumerated()), id: \.element.id) { index, recipe in
-                        NavigationLink(destination: RecipeDetailView(recipe: recipe)) {
+                        NavigationLink(value: recipe) {
                             RecipeLargeButtonWithState(recipe: recipe, index: index)
                         }
                         .onAppear {
@@ -632,6 +632,9 @@ struct RecipeCollectionView: View {
         mainContent
             .applySearchModifiers(searchText: $searchText, searchTask: $searchTask, showingSearchResults: $showingSearchResults, searchResults: $searchResults)
             .applyNavigationModifiers(collectionType: collectionType, showingSearchResults: showingSearchResults)
+            .navigationDestination(for: Recipe.self) { recipe in
+                RecipeDetailView(recipe: recipe)
+            }
             .applyLifecycleModifiers(collectionType: collectionType, hasLoadedInitially: $hasLoadedInitially, selectedFeaturedRecipe: $selectedFeaturedRecipe, showingSearchResults: $showingSearchResults, searchResults: $searchResults, searchText: $searchText, searchTask: $searchTask)
             .applyDataModifiers(categoryRecipes: $categoryRecipes, selectedFeaturedRecipe: $selectedFeaturedRecipe, model: model, collectionType: collectionType)
             .applyAlertModifiers(

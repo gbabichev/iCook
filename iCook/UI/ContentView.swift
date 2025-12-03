@@ -13,6 +13,7 @@ struct ContentView: View {
     @State private var showingAddCategory = false
     @State private var editingCategory: Category? = nil
     @State private var collectionType: RecipeCollectionType? = .home
+    @State private var navPath = NavigationPath()
 
     var body: some View {
         NavigationSplitView(preferredCompactColumn: $preferredColumn) {
@@ -45,7 +46,7 @@ struct ContentView: View {
             .navigationTitle("iCook") //sidebar title on iOS
         } detail: {
             // Single NavigationStack for the detail view
-            NavigationStack {
+            NavigationStack(path: $navPath) {
                 RecipeCollectionView(collectionType: collectionType ?? .home)
             }
 #if os(iOS)
@@ -61,6 +62,11 @@ struct ContentView: View {
                 await model.loadCategories()
                 await model.loadRandomRecipes()
             }
+        }
+        .onChange(of: model.currentSource?.id) {
+            // Pop to root when switching collections
+            navPath = NavigationPath()
+            collectionType = .home
         }
         .alert("Error",
                isPresented: .init(
