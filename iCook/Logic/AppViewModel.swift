@@ -705,30 +705,9 @@ final class AppViewModel: ObservableObject {
         }
     }
 
-    /// Force-remove a source that is stuck as shared.
-    /// - If owner/personal: stop sharing if needed, then delete.
-    /// - If participant: just remove locally.
-    func forceRemoveSource(_ source: Source) async {
-        if source.isPersonal || isSharedOwner(source) {
-            _ = await cloudKitManager.stopSharingSource(source)
-            let _ = await cloudKitManager.forceDeleteSource(source)
-            await loadSources()
-        } else {
-            await removeSharedSourceLocally(source)
-        }
-    }
-
     func debugNukeOwnedData() async {
         await cloudKitManager.debugNukeOwnedData()
         await loadSources()
-    }
-
-    func removeSourceFromList(_ source: Source) {
-        sources.removeAll { $0.id == source.id }
-        if currentSource?.id == source.id {
-            currentSource = sources.first
-            cloudKitManager.saveCurrentSourceID()
-        }
     }
 
     func clearErrors() {

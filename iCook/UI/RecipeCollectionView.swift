@@ -781,11 +781,11 @@ struct RecipeCollectionView: View {
                     .accessibilityLabel("Add Recipe")
                 }
 
-//                #if DEBUG
-//                ToolbarItem(placement: .primaryAction) {
-//                    debugMenu
-//                }
-//                #endif
+                #if DEBUG
+                ToolbarItem(placement: .primaryAction) {
+                    debugMenu
+                }
+                #endif
                 
 #if os(macOS)
                 ToolbarItem(placement: .status) {

@@ -969,25 +969,6 @@ class CloudKitManager: ObservableObject {
         }
     }
 
-    /// Force delete a source using the private database (owner-only cleanup).
-    func forceDeleteSource(_ source: Source) async -> Bool {
-        do {
-            try await privateDatabase.deleteRecord(withID: source.id)
-            sourceCache.removeValue(forKey: source.id)
-            sources = sources.filter { $0.id != source.id }
-            if currentSource?.id == source.id {
-                currentSource = sources.first
-                saveCurrentSourceID()
-            }
-            saveSourcesLocalCache()
-            return true
-        } catch {
-            printD("Error force deleting source: \(error.localizedDescription)")
-            self.error = "Failed to delete source"
-            return false
-        }
-    }
-
     func isSharedSource(_ source: Source) -> Bool {
         let key = cacheIdentifier(for: source.id)
         printD("Shared check key: \(key); cached IDs count: \(sharedSourceIDs.count); recentlyUnshared count: \(recentlyUnsharedIDs.count)")
