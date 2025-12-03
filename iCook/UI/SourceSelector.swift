@@ -800,17 +800,19 @@ struct SourceRowWrapper: View {
                 Text(source.name)
                     .fontWeight(isSelected ? .semibold : .regular)
 
-                if viewModel.isSourceShared(source) {
-                    HStack(spacing: 6) {
+                HStack(spacing: 6) {
+                    if viewModel.isSourceShared(source) {
                         if viewModel.isSharedOwner(source) {
-                            Label("Owner", systemImage: "crown.fill")
+                            Label("Shared - Owner", systemImage: "person.2.fill")
                         } else {
-                            Label("Collaborator", systemImage: "person.2.fill")
+                            Label("Shared - Collaborator", systemImage: "person.2.fill")
                         }
+                    } else {
+                        Label("Private", systemImage: "person.fill")
                     }
-                    .font(.caption)
-                    .foregroundColor(.secondary)
                 }
+                .font(.caption)
+                .foregroundColor(.secondary)
             }
 
             Spacer()
