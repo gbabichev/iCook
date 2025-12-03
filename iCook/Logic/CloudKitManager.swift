@@ -25,7 +25,6 @@ class CloudKitManager: ObservableObject {
     @Published var recipeCounts: [CKRecord.ID: Int] = [:]
     @Published var isLoading = false
     @Published var error: String?
-    @Published var sharedSourceInvitations: [SharedSourceInvitation] = []
     @Published var isCloudKitAvailable = true // Assume available until proven otherwise
     @Published var isOfflineMode = false
     @Published var canEditSharedSources = false

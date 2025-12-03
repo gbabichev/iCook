@@ -21,7 +21,6 @@ struct ExportedRecipe: Codable {
     let details: String?
     let categoryName: String
     let recipeSteps: [RecipeStep]
-    let lastModified: Date
     let imageFilename: String?
 }
 

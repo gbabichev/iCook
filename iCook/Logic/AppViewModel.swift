@@ -529,7 +529,6 @@ final class AppViewModel: ObservableObject {
                     details: recipe.details,
                     categoryName: categoryName,
                     recipeSteps: recipe.recipeSteps,
-                    lastModified: recipe.lastModified,
                     imageFilename: imageFilename
                 )
                 return (exported, imageFilename, imageData)

@@ -9,10 +9,6 @@ struct Source: Identifiable {
     var owner: String // iCloud user identifier
     var lastModified: Date
 
-    var displayName: String {
-        isPersonal ? "Personal" : name
-    }
-
     init(id: CKRecord.ID, name: String, isPersonal: Bool, owner: String, lastModified: Date) {
         self.id = id
         self.name = name
@@ -375,17 +371,5 @@ extension Recipe: Codable {
         self.recipeSteps = try container.decode([RecipeStep].self, forKey: .recipeSteps)
         self.lastModified = try container.decode(Date.self, forKey: .lastModified)
         self.imageAsset = nil
-    }
-}
-
-// MARK: - Shared Source Invitation
-struct SharedSourceInvitation {
-    var sourceID: CKRecord.ID
-    var sourceName: String
-    var ownerName: String
-    var shareMetadata: CKShare.Metadata
-
-    var containerID: String {
-        shareMetadata.containerIdentifier
     }
 }
