@@ -970,6 +970,47 @@ class CloudKitManager: ObservableObject {
             self.error = "Failed to delete source"
         }
     }
+
+    func updateSource(_ source: Source, newName: String) async {
+        let trimmedName = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else { return }
+        guard source.isPersonal || isSharedOwner(source) else {
+            printD("Update source denied for collaborator: \(source.name)")
+            self.error = "Only collection owners can rename it."
+            return
+        }
+
+        do {
+            let database = source.isPersonal || isSharedOwner(source) ? privateDatabase : sharedDatabase
+            let serverRecord = try await database.record(for: source.id)
+            serverRecord["name"] = trimmedName
+            serverRecord["lastModified"] = Date()
+
+            let savedRecord = try await database.save(serverRecord)
+
+            if var updatedSource = Source.from(savedRecord) {
+                // Preserve shared markers for owners so UI stays in sync
+                if savedRecord.share != nil {
+                    markSharedSource(id: savedRecord.recordID)
+                    updatedSource.isPersonal = isSharedOwner(source)
+                }
+
+                sourceCache[updatedSource.id] = updatedSource
+                self.sources = sources.map { $0.id == updatedSource.id ? updatedSource : $0 }
+                if currentSource?.id == updatedSource.id {
+                    currentSource = updatedSource
+                }
+                saveSourcesLocalCache()
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(name: .sourcesRefreshed, object: nil)
+                }
+                printD("Source renamed: \(updatedSource.name)")
+            }
+        } catch {
+            printD("Error updating source: \(error.localizedDescription)")
+            self.error = "Failed to rename collection"
+        }
+    }
     
     func isSharedSource(_ source: Source) -> Bool {
         let key = cacheIdentifier(for: source.id)

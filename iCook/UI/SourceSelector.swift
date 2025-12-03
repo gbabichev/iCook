@@ -15,6 +15,7 @@ struct SourceSelector: View {
     @State private var isPreparingShare = false
     @State private var showShareSuccess = false
     @State private var shareSuccessMessage = ""
+    @State private var editingSource: Source?
     @State private var sourceToDelete: Source?
     @State private var showDeleteConfirmation = false
 #if os(macOS)
@@ -302,6 +303,9 @@ struct SourceSelector: View {
                                         await shareSource(for: source)
                                     }
                                 },
+                                onRename: {
+                                    beginRenaming(source)
+                                },
                                 onDelete: {
                                     sourceToDelete = source
                                     showDeleteConfirmation = true
@@ -345,6 +349,16 @@ struct SourceSelector: View {
         .onAppear {
             viewModel.clearErrors()
         }
+        .sheet(item: $editingSource) { source in
+            RenameSourceSheet(
+                isPresented: Binding(
+                    get: { editingSource != nil },
+                    set: { if !$0 { editingSource = nil } }
+                ),
+                source: source
+            )
+            .environmentObject(viewModel)
+        }
     }
     
     
@@ -377,6 +391,11 @@ struct SourceSelector: View {
         }
     }
 #endif
+    
+    private func beginRenaming(_ source: Source) {
+        guard viewModel.canRenameSource(source) else { return }
+        editingSource = source
+    }
     
     
     private func shareSource(for source: Source) async {
@@ -620,8 +639,24 @@ struct SourceRowWrapper: View {
     let isSelected: Bool
     let onSelect: () -> Void
     let onShare: () -> Void
+    let onRename: () -> Void
     let onDelete: () -> Void
     @EnvironmentObject private var viewModel: AppViewModel
+
+    private var canRename: Bool {
+        viewModel.canRenameSource(source)
+    }
+
+    private var canDelete: Bool {
+        viewModel.isSharedOwner(source) || source.isPersonal
+    }
+
+    private var shareLabel: String {
+        if viewModel.isSharedOwner(source) {
+            return viewModel.isSourceShared(source) ? "Manage Sharing" : "Share"
+        }
+        return viewModel.isSourceShared(source) ? "Manage Access" : "Share"
+    }
     
     var body: some View {
         HStack(spacing: 12) {
@@ -687,6 +722,27 @@ struct SourceRowWrapper: View {
         }
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
+        .contextMenu {
+            Button(action: onSelect) {
+                Label("Open", systemImage: "checkmark.circle")
+            }
+
+            if canRename {
+                Button(action: onRename) {
+                    Label("Rename", systemImage: "pencil")
+                }
+            }
+
+            Button(action: onShare) {
+                Label(shareLabel, systemImage: "person.2.fill")
+            }
+
+            if canDelete {
+                Button(role: .destructive, action: onDelete) {
+                    Label("Delete", systemImage: "trash")
+                }
+            }
+        }
 #if os(iOS)
         .swipeActions(edge: .trailing) {
             if source.isPersonal {
@@ -700,5 +756,68 @@ struct SourceRowWrapper: View {
             }
         }
 #endif
+    }
+}
+
+struct RenameSourceSheet: View {
+    @Binding var isPresented: Bool
+    @EnvironmentObject private var viewModel: AppViewModel
+    let source: Source
+    @State private var sourceName: String
+    @State private var isSaving = false
+
+    init(isPresented: Binding<Bool>, source: Source) {
+        self._isPresented = isPresented
+        self.source = source
+        _sourceName = State(initialValue: source.name)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Collection Name") {
+                    TextField("Collection Name", text: $sourceName)
+                }
+
+                Section {
+                    Text("Only owners can rename a collection.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .formStyle(.grouped)
+            .navigationTitle("Rename Collection")
+#if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+#endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        isPresented = false
+                    }
+                }
+
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        Task {
+                            await save()
+                        }
+                    }
+                    .disabled(sourceName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSaving)
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private func save() async {
+        let trimmed = sourceName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        isSaving = true
+        let success = await viewModel.renameSource(source, newName: trimmed)
+        isSaving = false
+        if success {
+            isPresented = false
+        }
     }
 }

@@ -111,6 +111,20 @@ final class AppViewModel: ObservableObject {
         refreshOfflineState()
         return true
     }
+
+    func renameSource(_ source: Source, newName: String) async -> Bool {
+        await cloudKitManager.updateSource(source, newName: newName)
+        sources = cloudKitManager.sources
+        if let updated = sources.first(where: { $0.id == source.id }) {
+            currentSource = updated
+            cloudKitManager.currentSource = updated
+        } else {
+            currentSource = cloudKitManager.currentSource
+        }
+        cloudKitManager.saveCurrentSourceID()
+        refreshOfflineState()
+        return cloudKitManager.error == nil
+    }
 #if os (iOS)
     func removeSharedSourceLocally(_ source: Source) async {
         await cloudKitManager.removeSharedSourceLocally(source)
@@ -690,6 +704,10 @@ final class AppViewModel: ObservableObject {
     
     func isSharedOwner(_ source: Source) -> Bool {
         return cloudKitManager.isSharedOwner(source)
+    }
+
+    func canRenameSource(_ source: Source) -> Bool {
+        return source.isPersonal || isSharedOwner(source)
     }
     
     func canEditSource(_ source: Source) -> Bool {
