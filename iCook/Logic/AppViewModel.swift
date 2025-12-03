@@ -709,6 +709,14 @@ final class AppViewModel: ObservableObject {
     func canRenameSource(_ source: Source) -> Bool {
         return source.isPersonal || isSharedOwner(source)
     }
+
+    func markSourceSharedLocally(_ source: Source) {
+        cloudKitManager.markSourceShared(source)
+        sources = cloudKitManager.sources
+        if let current = cloudKitManager.currentSource {
+            currentSource = current
+        }
+    }
     
     func canEditSource(_ source: Source) -> Bool {
         // Allow edits on shared sources once the share is read-write

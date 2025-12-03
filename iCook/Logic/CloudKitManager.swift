@@ -41,7 +41,6 @@ class CloudKitManager: ObservableObject {
     private var sourceCache: [CKRecord.ID: Source] = [:]
     private var categoryCache: [CKRecord.ID: Category] = [:]
     private var recipeCache: [CKRecord.ID: Recipe] = [:]
-    private var isCreatingDefaultSource = false
     private enum CacheFileType: String {
         case categories
         case recipes
@@ -298,7 +297,11 @@ class CloudKitManager: ObservableObject {
         let key = cacheIdentifier(for: source.id)
         printD("Marking source as unshared: \(source.name) (key=\(key)) before=\(sharedSourceIDs.count)")
         sharedSourceIDs.remove(key)
-        recentlyUnsharedIDs.insert(key)
+        if isSharedOwner(source) {
+            recentlyUnsharedIDs.remove(key)
+        } else {
+            recentlyUnsharedIDs.insert(key)
+        }
         saveSharedSourceIDs()
         printD("After unmark: sharedSourceIDs count=\(sharedSourceIDs.count)")
         
@@ -318,7 +321,27 @@ class CloudKitManager: ObservableObject {
         saveSourcesLocalCache()
         saveCurrentSourceID()
     }
+
 #endif
+
+    /// Mark a source as shared locally so UI updates immediately after saving a share.
+    func markSourceShared(_ source: Source) {
+        markSharedSource(id: source.id)
+        sources = sources.map { src in
+            if src.id == source.id {
+                var updated = src
+                updated.isPersonal = isSharedOwner(src) ? true : false
+                return updated
+            }
+            return src
+        }
+        sourceCache[source.id]?.isPersonal = isSharedOwner(source)
+        if let current = currentSource, current.id == source.id {
+            currentSource?.isPersonal = isSharedOwner(source)
+        }
+        saveSourcesLocalCache()
+        saveCurrentSourceID()
+    }
     
     private func saveCategoriesLocalCache(_ categories: [Category], for source: Source) {
         let url = cacheFileURL(for: .categories, sourceID: source.id)
@@ -646,11 +669,6 @@ class CloudKitManager: ObservableObject {
         // If CloudKit is not available, use local cache only
         guard isCloudKitAvailable else {
             printD("CloudKit not available, using cached sources only")
-            if sources.isEmpty && !isCreatingDefaultSource {
-                isCreatingDefaultSource = true
-                await createDefaultSource()
-                isCreatingDefaultSource = false
-            }
             return
         }
         
@@ -745,6 +763,9 @@ class CloudKitManager: ObservableObject {
                 let key = cacheIdentifier(for: source.id)
                 var cachedShared = sharedSourceIDs.contains(key)
                 let wasUnshared = recentlyUnsharedIDs.contains(key)
+                if owner && wasUnshared {
+                    recentlyUnsharedIDs.remove(key)
+                }
                 // If this is an owned/personal source and no longer in a shared zone, drop stale shared marker
                 if owner && updated.isPersonal && !shouldBeSharedBasedOnZone(updated) && cachedShared {
                     sharedSourceIDs.remove(key)
@@ -768,7 +789,7 @@ class CloudKitManager: ObservableObject {
             // Drop any recently unshared sources so they disappear from the list
             allSources = allSources.filter { source in
                 let key = cacheIdentifier(for: source.id)
-                let shouldDrop = recentlyUnsharedIDs.contains(key)
+                let shouldDrop = recentlyUnsharedIDs.contains(key) && !isSharedOwner(source)
                 if shouldDrop {
                     printD("Filtering out revoked source from list: \(source.name)")
                     sourceCache.removeValue(forKey: source.id)
@@ -832,12 +853,7 @@ class CloudKitManager: ObservableObject {
             if !errorDesc.contains("Did not find record type") && !errorDesc.contains("not marked queryable") {
                 printD("Error loading sources: \(errorDesc)")
             }
-            // If no sources exist yet, initialize with a default personal source
-            if sources.isEmpty && !isCreatingDefaultSource {
-                isCreatingDefaultSource = true
-                await createDefaultSource()
-                isCreatingDefaultSource = false
-            }
+            // If no sources exist yet, simply stay empty and wait for user to create one
         }
         isLoading = false
         isCollectingSharedKeys = false
@@ -866,35 +882,6 @@ class CloudKitManager: ObservableObject {
                 printD("Detected shared source via record.share: \(source.name) (owner=\(source.owner)) ownerMatch=\(owner)")
             }
             return source
-        }
-    }
-    
-    private func createDefaultSource() async {
-        printD("Creating default personal source for new user")
-        do {
-            await ensurePersonalZoneExists()
-            let recordID = CKRecord.ID(recordName: UUID().uuidString, zoneID: personalZoneID)
-            let source = Source(
-                id: recordID,
-                name: "My Recipes",
-                isPersonal: true,
-                owner: userIdentifier ?? "Unknown",
-                lastModified: Date()
-            )
-            
-            let record = source.toCKRecord()
-            let savedRecord = try await privateDatabase.save(record)
-            
-            if let savedSource = Source.from(savedRecord) {
-                sourceCache[savedSource.id] = savedSource
-                sources = [savedSource]
-                currentSource = savedSource
-                saveSourcesLocalCache()
-                printD("Default source created: \(savedSource.name)")
-            }
-        } catch {
-            printD("Error creating default source: \(error.localizedDescription)")
-            self.error = "Failed to create default source"
         }
     }
     
@@ -1191,6 +1178,8 @@ class CloudKitManager: ObservableObject {
         // Recreate cache directories
         _ = cacheDirectoryURL
         _ = imageCacheDirectory
+
+        // Do not recreate any default collections; user will add their own.
     }
     
     private func fetchSharedSourcesViaZones() async -> [Source] {

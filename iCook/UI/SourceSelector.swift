@@ -510,6 +510,8 @@ struct SourceSelector: View {
                 }
             },
             onSave: {
+                // Optimistically mark as shared so UI updates immediately
+                viewModel.markSourceSharedLocally(source)
                 Task {
                     await viewModel.loadSources()
                 }
@@ -527,7 +529,7 @@ struct SourceSelector: View {
     }
     
     /// Delegate proxy to observe stop sharing events.
-    private final class SharingDelegateProxy: NSObject, UICloudSharingControllerDelegate {
+    private final class SharingDelegateProxy: NSObject, UICloudSharingControllerDelegate, UIAdaptivePresentationControllerDelegate {
         let onStopSharing: () -> Void
         let onSave: () -> Void
         
@@ -544,10 +546,20 @@ struct SourceSelector: View {
             printD("SharingDelegateProxy: cloudSharingControllerDidSaveShare")
             onSave()
         }
+
+        func cloudSharingController(_ csc: UICloudSharingController, didSaveShare share: CKShare) {
+            printD("SharingDelegateProxy: didSaveShare callback")
+            onSave()
+        }
         
         func cloudSharingControllerDidStopSharing(_ csc: UICloudSharingController) {
             printD("SharingDelegateProxy: cloudSharingControllerDidStopSharing")
             onStopSharing()
+        }
+
+        func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
+            printD("SharingDelegateProxy: presentationControllerDidDismiss - refreshing sources")
+            onSave()
         }
         
         func itemTitle(for csc: UICloudSharingController) -> String? {
