@@ -372,7 +372,7 @@ final class AppViewModel: ObservableObject {
         // Handle image if provided
         var recipeWithImage = recipe
         if let imageData = image {
-            if let result = await cloudKitManager.saveImage(imageData, for: recipe, in: source) {
+            if let result = await cloudKitManager.saveImage(imageData, for: recipe) {
                 recipeWithImage.imageAsset = result.asset
                 recipeWithImage.cachedImagePath = result.cachedPath
             }
@@ -444,7 +444,7 @@ final class AppViewModel: ObservableObject {
 
         // Handle image if provided
         if let imageData = image {
-            if let result = await cloudKitManager.saveImage(imageData, for: updatedRecipe, in: source) {
+            if let result = await cloudKitManager.saveImage(imageData, for: updatedRecipe) {
                 updatedRecipe.imageAsset = result.asset
                 let fm = FileManager.default
                 if let existingPath = recipe.cachedImagePath, fm.fileExists(atPath: existingPath) {

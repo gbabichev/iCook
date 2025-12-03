@@ -337,20 +337,7 @@ struct RecipeCollectionView: View {
                     }
                 
             case .failure:
-                headerPlaceholder {
-                    VStack(spacing: 12) {
-                        Image(systemName: "photo.badge.exclamationmark")
-                            .font(.system(size: 48))
-                            .foregroundStyle(.secondary)
-                        Text("Image not available")
-                            .font(.headline)
-                            .foregroundStyle(.secondary)
-                        Text(recipe.name)
-                            .font(.title2)
-                            .fontWeight(.bold)
-                    }
-                    .padding()
-                }
+                headerPlaceholder()
                 
             @unknown default:
                 EmptyView()
@@ -359,11 +346,10 @@ struct RecipeCollectionView: View {
     }
     
     @ViewBuilder
-    private func headerPlaceholder<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+    private func headerPlaceholder() -> some View {
         ZStack {
             Rectangle()
                 .fill(.ultraThinMaterial)
-            //content()
         }
         .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: 350)
         .backgroundExtensionEffect()
@@ -589,7 +575,7 @@ struct RecipeCollectionView: View {
             .navigationDestination(for: Recipe.self) { recipe in
                 RecipeDetailView(recipe: recipe)
             }
-            .applyLifecycleModifiers(collectionType: collectionType, hasLoadedInitially: $hasLoadedInitially, selectedFeaturedRecipe: $selectedFeaturedRecipe, showingSearchResults: $showingSearchResults, searchResults: $searchResults, searchText: $searchText, searchTask: $searchTask)
+            .applyLifecycleModifiers(searchTask: $searchTask)
             .applyDataModifiers(categoryRecipes: $categoryRecipes, selectedFeaturedRecipe: $selectedFeaturedRecipe, model: model, collectionType: collectionType)
             .applyAlertModifiers(
                 error: $error,
@@ -942,12 +928,6 @@ extension View {
     }
 
     func applyLifecycleModifiers(
-        collectionType: RecipeCollectionType,
-        hasLoadedInitially: Binding<Bool>,
-        selectedFeaturedRecipe: Binding<Recipe?>,
-        showingSearchResults: Binding<Bool>,
-        searchResults: Binding<[Recipe]>,
-        searchText: Binding<String>,
         searchTask: Binding<Task<Void, Never>?>
     ) -> some View {
         self

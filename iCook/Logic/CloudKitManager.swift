@@ -1725,7 +1725,7 @@ class CloudKitManager: ObservableObject {
     }
 
     // MARK: - Image Handling
-    func saveImage(_ imageData: Data, for recipe: Recipe, in source: Source) async -> ImageSaveResult? {
+    func saveImage(_ imageData: Data, for recipe: Recipe) async -> ImageSaveResult? {
         do {
             let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".jpg")
             try imageData.write(to: tempURL)
