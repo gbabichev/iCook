@@ -597,32 +597,26 @@ struct AddEditRecipeView: View {
             }
 #else
             // macOS File Picker Button
-            Button {
-                fileImporterTrigger = UUID()
-                showingImagePicker = true
-            } label: {
-                HStack {
-                    Image(systemName: "photo.badge.plus")
-                    Text((selectedImageData != nil || existingImagePath != nil) ? "Change Photo" : "Add Photo")
+            HStack {
+                Button {
+                    fileImporterTrigger = UUID()
+                    showingImagePicker = true
+                } label: {
+                    HStack {
+                        Image(systemName: "photo.badge.plus")
+                        Text((selectedImageData != nil || existingImagePath != nil) ? "Change Photo" : "Add Photo")
+                    }
+                }
+                
+                // Add Remove Photo option for macOS when there's an image
+                if selectedImageData != nil || existingImagePath != nil {
+                    Button("Remove Photo", role: .destructive) {
+                        selectedImageData = nil
+                        existingImagePath = nil
+                    }
                 }
             }
-            .buttonStyle(.bordered)
-            .contentShape(Rectangle())
-            .zIndex(1)
-            .allowsHitTesting(true)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            
-            // Add Remove Photo option for macOS when there's an image
-            if selectedImageData != nil || existingImagePath != nil {
-                Button("Remove Photo", role: .destructive) {
-                    selectedImageData = nil
-                    existingImagePath = nil
-                }
-                .buttonStyle(.bordered)
-                .zIndex(1)
-                .allowsHitTesting(true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
+
 #endif
             
             // Image Preview
@@ -971,8 +965,6 @@ struct StepEditView: View {
                             }
                         ), axis: .vertical)
                         .focused($isInstructionFocused)
-                        .textFieldStyle(.roundedBorder)
-                        .lineLimit(3...6)
                     }
                     
                     // Step Ingredients
