@@ -160,7 +160,7 @@ final class AppViewModel: ObservableObject {
     }
 
     // MARK: - Category Management
-    func loadCategories(search: String? = nil) async {
+    func loadCategories() async {
         guard let source = currentSource else { return }
         isLoadingCategories = true
 
@@ -735,10 +735,6 @@ final class AppViewModel: ObservableObject {
     func clearErrors() {
         error = nil
         cloudKitManager.error = nil
-    }
-
-    func checkForSharedSourceInvitations() async {
-        await cloudKitManager.checkForIncomingShareInvitations()
     }
 
 }

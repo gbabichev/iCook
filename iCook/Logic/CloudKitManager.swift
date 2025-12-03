@@ -962,27 +962,6 @@ class CloudKitManager: ObservableObject {
         }
     }
 
-    func updateSource(_ source: Source) async {
-        do {
-            let database = source.isPersonal ? privateDatabase : sharedDatabase
-            let record = source.toCKRecord()
-            let savedRecord = try await database.save(record)
-
-            if let savedSource = Source.from(savedRecord) {
-                sourceCache[savedSource.id] = savedSource
-                // Update in local array - reassign to ensure SwiftUI detects change
-                self.sources = sources.map { $0.id == savedSource.id ? savedSource : $0 }
-                if currentSource?.id == savedSource.id {
-                    currentSource = savedSource
-                }
-                saveSourcesLocalCache()
-            }
-        } catch {
-            printD("Error updating source: \(error.localizedDescription)")
-            self.error = "Failed to update source"
-        }
-    }
-
     func deleteSource(_ source: Source) async {
         do {
             let database = source.isPersonal ? privateDatabase : sharedDatabase
@@ -1690,19 +1669,6 @@ class CloudKitManager: ObservableObject {
         }
     }
 
-    func searchRecipes(in source: Source, query: String) async {
-        isLoading = true
-        defer { isLoading = false }
-        self.error = nil
-
-        let cachedAllRecipes = loadRecipesLocalCache(for: source, categoryID: nil) ?? recipes
-        let filtered = cachedAllRecipes.filter { recipe in
-            recipe.name.range(of: query, options: [.caseInsensitive, .diacriticInsensitive]) != nil
-        }
-        self.recipes = filtered
-    }
-
-
     func createRecipe(_ recipe: Recipe, in source: Source) async {
         do {
             let owner = isSharedOwner(source)
@@ -1801,16 +1767,6 @@ class CloudKitManager: ObservableObject {
         } catch {
             printD("Error saving image: \(error.localizedDescription)")
             self.error = "Failed to save image"
-            return nil
-        }
-    }
-
-    func getImageData(from asset: CKAsset) async -> Data? {
-        do {
-            guard let fileURL = asset.fileURL else { return nil }
-            return try Data(contentsOf: fileURL)
-        } catch {
-            printD("Error reading image: \(error.localizedDescription)")
             return nil
         }
     }
@@ -2108,91 +2064,6 @@ class CloudKitManager: ObservableObject {
     }
 #endif
 
-    /// Fetch an existing CKShare for a source (owner or participant).
-    func existingShare(for source: Source) async -> CKShare? {
-        do {
-            if isSharedOwner(source) {
-                let rootRecord = try await privateDatabase.record(for: source.id)
-                guard let shareRef = rootRecord.share else { return nil }
-                let shareRecord = try await privateDatabase.record(for: shareRef.recordID)
-                return shareRecord as? CKShare
-            } else {
-                let rootRecord = try await sharedDatabase.record(for: source.id)
-                guard let shareRef = rootRecord.share else { return nil }
-                let shareRecord = try await sharedDatabase.record(for: shareRef.recordID)
-                return shareRecord as? CKShare
-            }
-        } catch {
-            printD("existingShare error: \(error.localizedDescription)")
-            return nil
-        }
-    }
-
-    /// Prepare a source for sharing - legacy method, kept for compatibility
-    /// - Parameters:
-    ///   - source: The source to share (must be personal)
-    /// - Returns: A tuple of (share, record) if successful, nil otherwise
-    func prepareShareForSource(_ source: Source) async -> (CKShare, CKRecord)? {
-        guard source.isPersonal else {
-            self.error = "Cannot share sources that are already shared"
-            return nil
-        }
-
-        do {
-            // Fetch the source record from the PRIVATE database
-            let privateRecord = try await privateDatabase.record(for: source.id)
-            printD("Fetched source record from private database: \(privateRecord.recordID.recordName)")
-
-            if privateRecord.recordID.zoneID == CKRecordZone.default().zoneID {
-                printD("Cannot prepare share for record in default zone")
-                self.error = "Sharing requires the source to be stored in the iCook zone. Please recreate this source to share it."
-                return nil
-            }
-
-            // If already shared, fetch and return the existing share
-            if let shareID = privateRecord.share?.recordID {
-                // Fetch the actual share record
-                let share = try await privateDatabase.record(for: shareID) as? CKShare
-                return share.map { (share: $0, record: privateRecord) }
-            }
-
-            // Create the share object with the private record as root
-            let share = CKShare(rootRecord: privateRecord)
-            share.publicPermission = .readOnly
-            share[CKShare.SystemFieldKey.title] = source.name
-
-            printD("Share created with ID: \(share.recordID.recordName)")
-
-            // Save the share and root record together (the correct way)
-            printD("Saving share and root record together...")
-            let (saveResults, _) = try await privateDatabase.modifyRecords(
-                saving: [share, privateRecord],
-                deleting: []
-            )
-
-            // Find the share in saved records by extracting successful results
-            let savedShares = saveResults.compactMap { _, result -> CKShare? in
-                if case .success(let record) = result,
-                   let shareRecord = record as? CKShare {
-                    return shareRecord
-                }
-                return nil
-            }
-
-            if let savedShare = savedShares.first {
-                printD("Share saved successfully with ID: \(savedShare.recordID.recordName)")
-                return (savedShare, privateRecord)
-            } else {
-                printD("Share was not returned in saved records")
-                return (share, privateRecord)
-            }
-        } catch {
-            printD("Error preparing share: \(error.localizedDescription)")
-            self.error = "Failed to prepare share: \(error.localizedDescription)"
-            return nil
-        }
-    }
-
     private func ensurePersonalZoneExists() async {
         do {
             let existingZones = try await privateDatabase.allRecordZones()
@@ -2248,18 +2119,6 @@ class CloudKitManager: ObservableObject {
 
             self.privateDatabase.add(operation)
         }
-    }
-
-    /// Accept a shared source invitation
-    /// This is called when the user taps a shared source link
-    func acceptSharedSource(_ metadata: CKShare.Metadata) async {
-        printD("Accepting shared source with container: \(metadata.containerIdentifier)")
-
-        // The CloudKit framework automatically handles accepting shares
-        // We just need to reload sources to show the newly accepted shared source
-        await loadSources()
-
-        printD("Shared source accepted and loaded")
     }
 
     /// Accept a CloudKit share link directly (useful for debug flows where the system does not handle it)
@@ -2354,24 +2213,11 @@ class CloudKitManager: ObservableObject {
             database.add(operation)
         }
     }
-    private func hasShareForSource(_ source: Source) async -> Bool {
-        guard source.isPersonal else { return false }
-        do {
-            let rootRecord = try await privateDatabase.record(for: source.id)
-            return rootRecord.share != nil
-        } catch {
-            return false
-        }
-    }
+
     private func updateSharedEditabilityFlag() {
         // If we have any shared sources and sharing is enabled, allow editing of shared sources.
         // For now we assume shares are created as readWrite (enforced in sharing flows).
         canEditSharedSources = sources.contains { !$0.isPersonal }
-    }
-
-    private func ensureShareIsWritable(_ share: CKShare, rootRecord: CKRecord) async {
-        // No-op placeholder to avoid rewriting participant permissions
-        printD("ensureShareIsWritable noop - respecting existing participant permissions")
     }
 
     private func fetchShareMetadata(for url: URL) async throws -> CKShare.Metadata {
@@ -2469,20 +2315,6 @@ class CloudKitManager: ObservableObject {
         }
     }
 
-    /// Check for incoming share invitations
-    /// Note: On iOS 15+, share invitations are handled automatically by the system
-    /// This method is provided for reference and future use with custom share handling
-    func checkForIncomingShareInvitations() async {
-        printD("Checking for incoming share invitations")
-
-        // In a production app, you would handle this in the SceneDelegate or
-        // WindowGroup's .onOpenURL modifier to process cloudkit:// links
-        // For now, shares are automatically synced when the user taps the link
-
-        // Reload sources to ensure we have the latest shares
-        await loadSources()
-    }
-
     /// Fetch all shares created by or shared with this user
     func fetchAllShares() async -> [CKShare] {
         var allShares: [CKShare] = []
@@ -2541,35 +2373,6 @@ class CloudKitManager: ObservableObject {
             self.error = "Failed to stop sharing"
             return false
         }
-    }
-
-    /// Copy a share URL to the pasteboard
-    /// - Parameter share: The CKShare object to copy the URL from
-    /// - Returns: true if successful, false otherwise
-    func copyShareURLToPasteboard(_ share: CKShare) -> Bool {
-        guard let shareURL = share.url else {
-            printD("Error: Share URL is not available")
-            self.error = "Share URL not available"
-            return false
-        }
-
-        #if os(iOS)
-        UIPasteboard.general.url = shareURL
-        printD("Share URL copied to pasteboard: \(shareURL.absoluteString)")
-        NotificationCenter.default.post(name: .shareURLCopied, object: shareURL)
-        return true
-        #else
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(shareURL.absoluteString, forType: .string)
-        printD("Share URL copied to pasteboard (macOS): \(shareURL.absoluteString)")
-        NotificationCenter.default.post(name: .shareURLCopied, object: shareURL)
-        return true
-        #endif
-    }
-
-    /// Generate a new CKRecord.ID for content in the personal zone.
-    func makePersonalRecordID() -> CKRecord.ID {
-        CKRecord.ID(recordName: UUID().uuidString, zoneID: personalZoneID)
     }
 
     /// Generate a new CKRecord.ID for the appropriate zone based on the source.
