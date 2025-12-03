@@ -1,3 +1,4 @@
+#if os(macOS)
 import SwiftUI
 import AppKit
 
@@ -96,3 +97,5 @@ struct LiveAppIconView: View {
             }
     }
 }
+#endif
+

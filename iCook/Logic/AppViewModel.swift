@@ -25,10 +25,6 @@ final class AppViewModel: ObservableObject {
     @Published var currentSource: Source?
     @Published var sources: [Source] = []
 
-    var isLoading: Bool {
-        isLoadingCategories || isLoadingRecipes
-    }
-
     init() {
         // Prime from cached manager state so UI doesn't start empty when offline/online
         sources = cloudKitManager.sources
@@ -256,15 +252,6 @@ final class AppViewModel: ObservableObject {
         isLoadingRecipes = false
     }
 
-    func searchRecipes(query: String) async {
-        guard let source = currentSource else { return }
-
-        await cloudKitManager.searchRecipes(in: source, query: query)
-        recipes = cloudKitManager.recipes
-        error = cloudKitManager.error
-        refreshOfflineState()
-    }
-
     func deleteRecipe(id: CKRecord.ID) async -> Bool {
         printD("deleteRecipe: Called with recipe ID: \(id.recordName)")
 
@@ -355,10 +342,6 @@ final class AppViewModel: ObservableObject {
             return (recipeID, sourceID, catID)
         }
         return (recipeID, sourceID, nil)
-    }
-
-    func clearLastViewedRecipe() {
-        UserDefaults.standard.removeObject(forKey: lastViewedRecipeKey)
     }
 
     func createRecipeWithSteps(
@@ -713,17 +696,6 @@ final class AppViewModel: ObservableObject {
     func canEditSource(_ source: Source) -> Bool {
         // Allow edits on shared sources once the share is read-write
         return source.isPersonal || cloudKitManager.canEditSharedSources
-    }
-
-    func acceptShareInvitation(_ metadata: CKShare.Metadata) async {
-        await cloudKitManager.acceptSharedSource(metadata)
-        // Reload sources to display the newly accepted shared source
-        await loadSources()
-    }
-
-    func markSourceUnshared(_ source: Source) async {
-        cloudKitManager.markSourceUnshared(source)
-        await loadSources()
     }
 
     func stopSharingSource(_ source: Source) async {
