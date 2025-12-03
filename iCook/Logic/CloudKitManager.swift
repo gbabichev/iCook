@@ -33,7 +33,7 @@ class CloudKitManager: ObservableObject {
     let container: CKContainer
     private var privateDatabase: CKDatabase { container.privateCloudDatabase }
     private var sharedDatabase: CKDatabase { container.sharedCloudDatabase }
-    private let userIdentifier: String? = UserDefaults.standard.string(forKey: "iCloudUserID")
+    private var userIdentifier: String? = UserDefaults.standard.string(forKey: "iCloudUserID")
     private let personalZoneID = CKRecordZone.ID(zoneName: "PersonalSources", ownerName: CKCurrentUserDefaultName)
     private lazy var personalZone: CKRecordZone = CKRecordZone(zoneID: personalZoneID)
     
@@ -79,6 +79,7 @@ class CloudKitManager: ObservableObject {
     private func setupiCloudUser() async {
         do {
             let userRecord = try await container.userRecordID()
+            userIdentifier = userRecord.recordName
             UserDefaults.standard.set(userRecord.recordName, forKey: "iCloudUserID")
             isCloudKitAvailable = true
             printD("iCloud user authenticated successfully")
@@ -96,6 +97,18 @@ class CloudKitManager: ObservableObject {
             } else {
                 self.error = "Failed to connect to iCloud"
             }
+        }
+    }
+
+    private func ensureUserIdentifier() async {
+        if let userIdentifier, !userIdentifier.isEmpty { return }
+        do {
+            let userRecord = try await container.userRecordID()
+            userIdentifier = userRecord.recordName
+            UserDefaults.standard.set(userRecord.recordName, forKey: "iCloudUserID")
+            printD("Ensured userIdentifier: \(userRecord.recordName)")
+        } catch {
+            printD("Failed to ensure userIdentifier: \(error.localizedDescription)")
         }
     }
     
@@ -872,6 +885,10 @@ class CloudKitManager: ObservableObject {
                   var source = Source.from(record) else {
                 return nil
             }
+            if (source.owner.isEmpty || source.owner == "Unknown"),
+               let userIdentifier, !userIdentifier.isEmpty {
+                source.owner = userIdentifier
+            }
             source.isPersonal = isPersonal
             // If the record is shared (owner side), mark and normalize
             if record.share != nil {
@@ -886,6 +903,7 @@ class CloudKitManager: ObservableObject {
     }
     
     func createSource(name: String, isPersonal: Bool = true) async {
+        await ensureUserIdentifier()
         if isPersonal {
             await ensurePersonalZoneExists()
         }
@@ -896,7 +914,7 @@ class CloudKitManager: ObservableObject {
             id: recordID,
             name: name,
             isPersonal: isPersonal,
-            owner: userIdentifier ?? "Unknown",
+            owner: userIdentifier ?? UserDefaults.standard.string(forKey: "iCloudUserID") ?? "Unknown",
             lastModified: Date()
         )
         
