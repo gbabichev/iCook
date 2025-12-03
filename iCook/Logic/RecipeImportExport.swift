@@ -33,7 +33,7 @@ struct RecipeExportPackage: Codable {
         case recipes
     }
     
-    init(sourceName: String, exportedAt: Date, categories: [ExportedCategory], recipes: [ExportedRecipe], formatVersion: Int) {
+    init(categories: [ExportedCategory], recipes: [ExportedRecipe]) {
         self.categories = categories
         self.recipes = recipes
     }

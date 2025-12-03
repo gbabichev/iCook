@@ -546,11 +546,8 @@ final class AppViewModel: ObservableObject {
         }
         
         let package = RecipeExportPackage(
-            sourceName: source.name,
-            exportedAt: Date(),
             categories: exportedCategories,
             recipes: recipes,
-            formatVersion: 1
         )
         
         let encoder = JSONEncoder()
