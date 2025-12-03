@@ -263,6 +263,12 @@ struct RecipeCollectionView: View {
     private var debugMenu: some View {
         Menu {
             Section("Debug") {
+                Button {
+                    print("debug")
+                } label: {
+                    Label("Print debug", systemImage: "terminal")
+                }
+
                 Button(role: .destructive) {
                     isDebugOperationInProgress = true
                     Task {
