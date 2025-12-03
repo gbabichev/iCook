@@ -415,9 +415,11 @@ struct RecipeDetailView: View {
 extension Notification.Name {
     static let recipeDeleted = Notification.Name("recipeDeleted")
     static let recipeUpdated = Notification.Name("recipeUpdated")
+    #if os(macOS)
     static let refreshRequested = Notification.Name("refreshRequested")
-    static let recipesRefreshed = Notification.Name("recipesRefreshed")
     static let shareURLCopied = Notification.Name("shareURLCopied")
+    #endif
+    static let recipesRefreshed = Notification.Name("recipesRefreshed")
     static let sourcesRefreshed = Notification.Name("sourcesRefreshed")
     static let shareRevokedToast = Notification.Name("shareRevokedToast")
 

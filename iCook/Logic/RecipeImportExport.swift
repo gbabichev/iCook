@@ -25,35 +25,23 @@ struct ExportedRecipe: Codable {
 }
 
 struct RecipeExportPackage: Codable {
-    let sourceName: String
-    let exportedAt: Date
     let categories: [ExportedCategory]
     let recipes: [ExportedRecipe]
-    let formatVersion: Int
 
     enum CodingKeys: String, CodingKey {
-        case sourceName
-        case exportedAt
         case categories
         case recipes
-        case formatVersion
     }
 
     init(sourceName: String, exportedAt: Date, categories: [ExportedCategory], recipes: [ExportedRecipe], formatVersion: Int) {
-        self.sourceName = sourceName
-        self.exportedAt = exportedAt
         self.categories = categories
         self.recipes = recipes
-        self.formatVersion = formatVersion
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.sourceName = try container.decode(String.self, forKey: .sourceName)
-        self.exportedAt = try container.decode(Date.self, forKey: .exportedAt)
         self.categories = try container.decode([ExportedCategory].self, forKey: .categories)
         self.recipes = try container.decode([ExportedRecipe].self, forKey: .recipes)
-        self.formatVersion = try container.decodeIfPresent(Int.self, forKey: .formatVersion) ?? 1
     }
 }
 
