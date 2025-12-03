@@ -5,7 +5,7 @@ struct RecipeDetailView: View {
     let recipe: Recipe
     @EnvironmentObject private var model: AppViewModel
     @Environment(\.dismiss) private var dismiss
-
+    
     @State private var editingRecipe: Recipe?
     @State private var showingDeleteAlert = false
     @State private var isDeleting = false
@@ -14,12 +14,12 @@ struct RecipeDetailView: View {
     @State private var checkedStepIngredients: Set<String> = [] // Format: "stepNumber-ingredientIndex"
     @State private var showCopiedHUD = false
     @State private var displayedRecipe: Recipe
-
+    
     init(recipe: Recipe) {
         self.recipe = recipe
         _displayedRecipe = State(initialValue: recipe)
     }
-
+    
     private func refreshDisplayedRecipe() {
         if let updated = model.recipes.first(where: { $0.id == recipe.id }) {
             displayedRecipe = updated
@@ -66,7 +66,7 @@ struct RecipeDetailView: View {
                         Text(displayedRecipe.name)
                             .font(.largeTitle)
                             .bold()
-
+                        
                         HStack {
                             Image(systemName: "clock")
                                 .foregroundStyle(.secondary)
@@ -86,7 +86,7 @@ struct RecipeDetailView: View {
                                     .font(.title2)
                                     .bold()
                             }
-
+                            
                             LazyVStack(alignment: .leading, spacing: 16) {
                                 ForEach(displayedRecipe.recipeSteps, id: \.stepNumber) { step in
                                     VStack(alignment: .leading, spacing: 12) {
@@ -106,10 +106,10 @@ struct RecipeDetailView: View {
                                             .buttonStyle(.plain)
                                             
                                             VStack(alignment: .leading, spacing: 8) {
-//                                                Text("Step \(step.stepNumber)")
-//                                                    .font(.headline)
-//                                                    .strikethrough(checkedSteps.contains(step.stepNumber))
-//                                                    .foregroundStyle(checkedSteps.contains(step.stepNumber) ? .secondary : .primary)
+                                                //                                                Text("Step \(step.stepNumber)")
+                                                //                                                    .font(.headline)
+                                                //                                                    .strikethrough(checkedSteps.contains(step.stepNumber))
+                                                //                                                    .foregroundStyle(checkedSteps.contains(step.stepNumber) ? .secondary : .primary)
                                                 
                                                 Text(step.instruction)
                                                     .font(.body)
@@ -125,10 +125,10 @@ struct RecipeDetailView: View {
                                         // Step ingredients with sub-checkboxes
                                         if !step.ingredients.isEmpty {
                                             VStack(alignment: .leading, spacing: 8) {
-//                                                Text("Ingredients for this step:")
-//                                                    .font(.subheadline)
-//                                                    .foregroundStyle(.secondary)
-//                                                    .padding(.leading, 44) // Align with step content
+                                                //                                                Text("Ingredients for this step:")
+                                                //                                                    .font(.subheadline)
+                                                //                                                    .foregroundStyle(.secondary)
+                                                //                                                    .padding(.leading, 44) // Align with step content
                                                 
                                                 ForEach(Array(step.ingredients.enumerated()), id: \.offset) { ingredientIndex, ingredient in
                                                     let checkboxKey = "\(step.stepNumber)-\(ingredientIndex)"
@@ -263,9 +263,9 @@ struct RecipeDetailView: View {
             }
         }
         .navigationTitle(displayedRecipe.name)
-        #if os(iOS)
+#if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
-        #endif
+#endif
         .ignoresSafeArea(edges: .top)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
@@ -349,7 +349,7 @@ struct RecipeDetailView: View {
         let success = await model.deleteRecipeWithUIFeedback(id: recipe.id)
         isDeleting = false
         printD("deleteRecipe: Deletion completed. Success: \(success)")
-
+        
         if success {
             printD("deleteRecipe: Dismissing view after successful deletion")
             dismiss()
@@ -366,10 +366,10 @@ struct RecipeDetailView: View {
                                     with: "",
                                     options: .regularExpression)
         }
-
+        
         // 2) Plain-text fallback: TAB + ◦ + TAB + text
         let plain = items.map { "\t◦\t\($0)" }.joined(separator: "\n")
-
+        
         // 3) Build RTF with a bullet list
         let attr = NSMutableAttributedString()
         let list = NSTextList(markerFormat: .disc, options: 0)
@@ -383,8 +383,8 @@ struct RecipeDetailView: View {
             from: NSRange(location: 0, length: attr.length),
             documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf]
         )
-
-        #if os(iOS)
+        
+#if os(iOS)
         // Put RTF and plain text into a *single* pasteboard item so iOS sees both
         if let rtfData {
             UIPasteboard.general.setItems([
@@ -400,14 +400,14 @@ struct RecipeDetailView: View {
             // Fallback to plain text only
             UIPasteboard.general.string = plain
         }
-        #elseif os(macOS)
+#elseif os(macOS)
         let pb = NSPasteboard.general
         pb.clearContents()
         let item = NSPasteboardItem()
         if let rtfData { item.setData(rtfData, forType: .rtf) }
         item.setString(plain, forType: .string)
         pb.writeObjects([item])
-        #endif
+#endif
     }
     
 }
@@ -415,12 +415,12 @@ struct RecipeDetailView: View {
 extension Notification.Name {
     static let recipeDeleted = Notification.Name("recipeDeleted")
     static let recipeUpdated = Notification.Name("recipeUpdated")
-    #if os(macOS)
+#if os(macOS)
     static let refreshRequested = Notification.Name("refreshRequested")
     static let shareURLCopied = Notification.Name("shareURLCopied")
-    #endif
+#endif
     static let recipesRefreshed = Notification.Name("recipesRefreshed")
     static let sourcesRefreshed = Notification.Name("sourcesRefreshed")
     static let shareRevokedToast = Notification.Name("shareRevokedToast")
-
+    
 }

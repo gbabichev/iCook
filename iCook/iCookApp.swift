@@ -14,7 +14,7 @@ import UniformTypeIdentifiers
 
 @main
 struct iCookApp: App {
-
+    
     @StateObject private var model = AppViewModel()
 #if os(macOS)
     @State private var isExporting = false
@@ -22,7 +22,7 @@ struct iCookApp: App {
     @State private var exportDocument = RecipeExportDocument()
     @State private var showAbout = false
 #endif
-
+    
     var body: some Scene {
         WindowGroup {
             ZStack {
@@ -32,7 +32,7 @@ struct iCookApp: App {
                         // Handle CloudKit share links
                         handleCloudKitShareLink(url)
                     }
-
+                
 #if os(macOS)
                 if model.isImporting {
                     Color.black.opacity(0.25)
@@ -48,51 +48,51 @@ struct iCookApp: App {
 #endif
             }
 #if os(macOS)
-                .fileExporter(
-                    isPresented: $isExporting,
-                    document: exportDocument,
-                    contentType: RecipeExportConstants.contentType,
-                    defaultFilename: "RecipesExport.icookexport"
-                ) { result in
-                    switch result {
-                    case .success(let url):
-                        showAlert(title: "Export Complete", message: "Recipes saved to \(url.lastPathComponent).")
-                    case .failure(let error):
-                        showAlert(title: "Export Failed", message: error.localizedDescription)
-                    }
+            .fileExporter(
+                isPresented: $isExporting,
+                document: exportDocument,
+                contentType: RecipeExportConstants.contentType,
+                defaultFilename: "RecipesExport.icookexport"
+            ) { result in
+                switch result {
+                case .success(let url):
+                    showAlert(title: "Export Complete", message: "Recipes saved to \(url.lastPathComponent).")
+                case .failure(let error):
+                    showAlert(title: "Export Failed", message: error.localizedDescription)
                 }
-                .fileImporter(
-                    isPresented: $isImporting,
-                    allowedContentTypes: [RecipeExportConstants.contentType, .json],
-                    allowsMultipleSelection: false
-                ) { result in
-                    switch result {
-                    case .success(let urls):
-                        guard let url = urls.first else { return }
-                        Task {
-                            let canAccess = url.startAccessingSecurityScopedResource()
-                            defer {
-                                if canAccess { url.stopAccessingSecurityScopedResource() }
-                            }
-                            let success = await model.importRecipes(from: url)
-                            await MainActor.run {
-                                if success {
-                                    showAlert(title: "Import Complete", message: "Recipes were imported successfully.")
-                                } else if let message = model.error {
-                                    showAlert(title: "Import Failed", message: message)
-                                }
+            }
+            .fileImporter(
+                isPresented: $isImporting,
+                allowedContentTypes: [RecipeExportConstants.contentType, .json],
+                allowsMultipleSelection: false
+            ) { result in
+                switch result {
+                case .success(let urls):
+                    guard let url = urls.first else { return }
+                    Task {
+                        let canAccess = url.startAccessingSecurityScopedResource()
+                        defer {
+                            if canAccess { url.stopAccessingSecurityScopedResource() }
+                        }
+                        let success = await model.importRecipes(from: url)
+                        await MainActor.run {
+                            if success {
+                                showAlert(title: "Import Complete", message: "Recipes were imported successfully.")
+                            } else if let message = model.error {
+                                showAlert(title: "Import Failed", message: message)
                             }
                         }
-                    case .failure(let error):
-                        showAlert(title: "Import Failed", message: error.localizedDescription)
                     }
+                case .failure(let error):
+                    showAlert(title: "Import Failed", message: error.localizedDescription)
                 }
+            }
 #endif
-                #if os(macOS)
-                .sheet(isPresented: $showAbout) {
-                    AboutView()
-                }
-                #endif
+#if os(macOS)
+            .sheet(isPresented: $showAbout) {
+                AboutView()
+            }
+#endif
         }
 #if os(macOS)
         .commands {
@@ -103,7 +103,7 @@ struct iCookApp: App {
                     Label("About iCook", systemImage: "info.circle")
                 }
             }
-
+            
             CommandGroup(replacing: .newItem) {
                 Button {
                     NSApp.sendAction(#selector(NSApplication.newWindowForTab(_:)), to: nil, from: nil)
@@ -111,7 +111,7 @@ struct iCookApp: App {
                     Label("New Window", systemImage: "plus.square.on.square")
                 }
                 .keyboardShortcut("n", modifiers: .command)
-
+                
                 Button {
                     Task {
                         await refreshCurrentView()
@@ -121,15 +121,15 @@ struct iCookApp: App {
                     Label("Refresh", systemImage: "arrow.clockwise")
                 }
                 .keyboardShortcut("r", modifiers: .command)
-
+                
                 Divider()
-
+                
                 Button {
                     exportRecipes()
                 } label: {
                     Label("Export Recipes…", systemImage: "square.and.arrow.up")
                 }
-
+                
                 Button {
                     importRecipes()
                 } label: {
@@ -139,7 +139,7 @@ struct iCookApp: App {
         }
 #endif
     }
-
+    
     private func handleCloudKitShareLink(_ url: URL) {
         Task {
             printD("Processing CloudKit share link: \(url)")
@@ -157,7 +157,7 @@ struct iCookApp: App {
     private func refreshCurrentView() async {
         // Refresh categories
         await model.loadCategories()
-
+        
         // Refresh random recipes for home view
         await model.loadRandomRecipes()
         
@@ -165,7 +165,7 @@ struct iCookApp: App {
         NotificationCenter.default.post(name: .refreshRequested, object: nil)
     }
 #endif
-
+    
 #if os(macOS)
     private func exportRecipes() {
         Task {
@@ -184,11 +184,11 @@ struct iCookApp: App {
             }
         }
     }
-
+    
     private func importRecipes() {
         isImporting = true
     }
-
+    
     private func showAlert(title: String, message: String) {
         let alert = NSAlert()
         alert.messageText = title

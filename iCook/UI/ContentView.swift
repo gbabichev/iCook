@@ -5,7 +5,7 @@ import CloudKit
 
 struct ContentView: View {
     @EnvironmentObject private var model: AppViewModel
-
+    
     @State private var preferredColumn: NavigationSplitViewColumn = .detail
     @State private var selectedCategoryID: CKRecord.ID?
     @State private var isShowingHome = true
@@ -15,7 +15,7 @@ struct ContentView: View {
     @State private var navPath = NavigationPath()
     @State private var didRestoreLastViewed = false
     @State private var suppressResetOnSourceChange = false
-
+    
     var body: some View {
         NavigationSplitView(preferredCompactColumn: $preferredColumn) {
             VStack(spacing: 0) {
@@ -33,7 +33,7 @@ struct ContentView: View {
                     .padding(.vertical, 8)
                     .background(Color.orange.opacity(0.1))
                 }
-
+                
                 // Category list
                 CategoryList(
                     selection: $selectedCategoryID,
@@ -93,8 +93,8 @@ struct ContentView: View {
         }
         .alert("Error",
                isPresented: .init(
-                   get: { model.error != nil },
-                   set: { if !$0 { model.error = nil } }
+                get: { model.error != nil },
+                set: { if !$0 { model.error = nil } }
                ),
                actions: { Button("OK") { model.error = nil } },
                message: { Text(model.error ?? "") }
@@ -112,14 +112,14 @@ struct ContentView: View {
             guard !didRestoreLastViewed,
                   let saved = model.loadLastViewedRecipeID(),
                   model.currentSource?.id == saved.sourceID else { return }
-
+            
             if let catID = saved.categoryID,
                let category = model.categories.first(where: { $0.id == catID }) {
                 collectionType = .category(category)
             } else {
                 collectionType = .home
             }
-
+            
             if let recipe = model.recipes.first(where: { $0.id == saved.recipeID }) ??
                 model.randomRecipes.first(where: { $0.id == saved.recipeID }) {
                 suppressResetOnSourceChange = true

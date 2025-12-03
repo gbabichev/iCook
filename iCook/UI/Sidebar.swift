@@ -18,7 +18,7 @@ struct CategoryList: View {
     @Binding var showingAddCategory: Bool
     @Binding var collectionType: RecipeCollectionType?
     @State private var showSourcesOverlay = false
-
+    
     init(
         selection: Binding<CKRecord.ID?>,
         editingCategory: Binding<Category?>,
@@ -32,15 +32,15 @@ struct CategoryList: View {
         self._showingAddCategory = showingAddCategory
         self._collectionType = collectionType
     }
-
+    
     private var homeRecipeCount: Int {
         model.recipeCounts.values.reduce(0, +)
     }
-
+    
     private func recipeCount(for category: Category) -> Int {
         model.recipeCounts[category.id] ?? 0
     }
-
+    
     private func refreshCategoriesSmooth() async {
         guard model.currentSource != nil else { return }
         let start = Date()
@@ -50,7 +50,7 @@ struct CategoryList: View {
             try? await Task.sleep(nanoseconds: UInt64((1.0 - elapsed) * 1_000_000_000))
         }
     }
-
+    
     var body: some View {
         List(selection: $collectionType) {
             // Home/Featured section
@@ -68,7 +68,7 @@ struct CategoryList: View {
                         .foregroundStyle(.secondary)
                 }
             }
-
+            
             if !model.categories.isEmpty {
                 Section("Categories") {
                     ForEach(model.categories) { category in
@@ -91,7 +91,7 @@ struct CategoryList: View {
                             } label: {
                                 Label("Edit Category", systemImage: "pencil")
                             }
-
+                            
                             Button(role: .destructive) {
                                 Task {
                                     await model.deleteCategory(id: category.id)
@@ -103,7 +103,7 @@ struct CategoryList: View {
                     }
                 }
             }
-
+            
             if model.isLoadingCategories {
                 HStack {
                     ProgressView()

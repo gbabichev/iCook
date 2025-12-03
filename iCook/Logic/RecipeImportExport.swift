@@ -27,17 +27,17 @@ struct ExportedRecipe: Codable {
 struct RecipeExportPackage: Codable {
     let categories: [ExportedCategory]
     let recipes: [ExportedRecipe]
-
+    
     enum CodingKeys: String, CodingKey {
         case categories
         case recipes
     }
-
+    
     init(sourceName: String, exportedAt: Date, categories: [ExportedCategory], recipes: [ExportedRecipe], formatVersion: Int) {
         self.categories = categories
         self.recipes = recipes
     }
-
+    
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.categories = try container.decode([ExportedCategory].self, forKey: .categories)
@@ -48,28 +48,28 @@ struct RecipeExportPackage: Codable {
 struct RecipeExportDocument: FileDocument {
     static var readableContentTypes: [UTType] { [RecipeExportConstants.contentType, .json] }
     static var writableContentTypes: [UTType] { [RecipeExportConstants.contentType, .json] }
-
+    
     var jsonData: Data
     var images: [String: Data]
-
+    
     init(data: Data = Data(), images: [String: Data] = [:]) {
         self.jsonData = data
         self.images = images
     }
-
+    
     init(configuration: ReadConfiguration) throws {
         if configuration.contentType.conforms(to: RecipeExportConstants.contentType),
            configuration.file.isDirectory {
             guard let wrappers = configuration.file.fileWrappers else {
                 throw CocoaError(.fileReadCorruptFile)
             }
-
+            
             guard let recipesWrapper = wrappers[RecipeExportConstants.recipesFileName],
                   let data = recipesWrapper.regularFileContents else {
                 throw CocoaError(.fileReadCorruptFile)
             }
             self.jsonData = data
-
+            
             var loadedImages: [String: Data] = [:]
             if let imagesWrapper = wrappers[RecipeExportConstants.imagesFolderName],
                let files = imagesWrapper.fileWrappers {
@@ -87,12 +87,12 @@ struct RecipeExportDocument: FileDocument {
             throw CocoaError(.fileReadCorruptFile)
         }
     }
-
+    
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
         var wrappers: [String: FileWrapper] = [
             RecipeExportConstants.recipesFileName: FileWrapper(regularFileWithContents: jsonData)
         ]
-
+        
         var imageWrappers: [String: FileWrapper] = [:]
         for (name, data) in images {
             imageWrappers[name] = FileWrapper(regularFileWithContents: data)
@@ -103,7 +103,7 @@ struct RecipeExportDocument: FileDocument {
         } else {
             wrappers[RecipeExportConstants.imagesFolderName] = FileWrapper(directoryWithFileWrappers: [:])
         }
-
+        
         return FileWrapper(directoryWithFileWrappers: wrappers)
     }
 }

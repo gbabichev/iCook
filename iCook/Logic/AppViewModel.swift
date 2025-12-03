@@ -13,20 +13,20 @@ final class AppViewModel: ObservableObject {
     @Published var recipeCounts: [CKRecord.ID: Int] = [:]
     @Published var isLoadingCategories = false
     @Published var isLoadingRecipes = false
-    #if os(macOS)
+#if os(macOS)
     @Published var isImporting = false
-    #endif
+#endif
     @Published var error: String?
     @Published var isOfflineMode = false
     private let lastViewedRecipeKey = "LastViewedRecipe"
-
+    
     // CloudKit manager
     let cloudKitManager = CloudKitManager.shared
-
+    
     // Source management
     @Published var currentSource: Source?
     @Published var sources: [Source] = []
-
+    
     init() {
         // Prime from cached manager state so UI doesn't start empty when offline/online
         sources = cloudKitManager.sources
@@ -38,7 +38,7 @@ final class AppViewModel: ObservableObject {
             recipes = cloudKitManager.recipes
             randomRecipes = recipes
         }
-
+        
         NotificationCenter.default.addObserver(
             forName: .recipesRefreshed,
             object: nil,
@@ -50,7 +50,7 @@ final class AppViewModel: ObservableObject {
                 self.randomRecipes = self.cloudKitManager.recipes
             }
         }
-
+        
         NotificationCenter.default.addObserver(
             forName: .sourcesRefreshed,
             object: nil,
@@ -69,11 +69,11 @@ final class AppViewModel: ObservableObject {
             }
         }
     }
-
+    
     private func refreshOfflineState() {
         isOfflineMode = !cloudKitManager.isCloudKitAvailable || cloudKitManager.isOfflineMode
     }
-
+    
     // MARK: - Source Management
     func loadSources() async {
         await cloudKitManager.loadSources()
@@ -81,7 +81,7 @@ final class AppViewModel: ObservableObject {
         currentSource = cloudKitManager.currentSource
         refreshOfflineState()
     }
-
+    
     func selectSource(_ source: Source) async {
         cloudKitManager.currentSource = source
         cloudKitManager.saveCurrentSourceID()
@@ -90,7 +90,7 @@ final class AppViewModel: ObservableObject {
         await loadRandomRecipes(skipCache: true)
         refreshOfflineState()
     }
-
+    
     func createSource(name: String) async -> Bool {
         await cloudKitManager.createSource(name: name, isPersonal: true)
         // Copy sources directly from CloudKitManager without re-querying
@@ -101,7 +101,7 @@ final class AppViewModel: ObservableObject {
         refreshOfflineState()
         return true
     }
-
+    
     func deleteSource(_ source: Source) async -> Bool {
         await cloudKitManager.deleteSource(source)
         // Copy sources directly from CloudKitManager without re-querying
@@ -111,7 +111,7 @@ final class AppViewModel: ObservableObject {
         refreshOfflineState()
         return true
     }
-    #if os (iOS)
+#if os (iOS)
     func removeSharedSourceLocally(_ source: Source) async {
         await cloudKitManager.removeSharedSourceLocally(source)
         sources = cloudKitManager.sources
@@ -129,7 +129,7 @@ final class AppViewModel: ObservableObject {
         }
         refreshOfflineState()
     }
-    #else
+#else
     func leaveSharedSource(_ source: Source) async {
         _ = await cloudKitManager.leaveSharedSource(source)
         sources = cloudKitManager.sources
@@ -147,8 +147,8 @@ final class AppViewModel: ObservableObject {
         }
         refreshOfflineState()
     }
-    #endif
-
+#endif
+    
     func acceptShareURL(_ url: URL) async -> Bool {
         let success = await cloudKitManager.acceptShare(from: url)
         sources = cloudKitManager.sources
@@ -161,12 +161,12 @@ final class AppViewModel: ObservableObject {
         }
         return success
     }
-
+    
     // MARK: - Category Management
     func loadCategories() async {
         guard let source = currentSource else { return }
         isLoadingCategories = true
-
+        
         // Keep cached categories visible; just fetch latest and then swap in
         await cloudKitManager.loadCategories(for: source)
         categories = cloudKitManager.categories
@@ -176,11 +176,11 @@ final class AppViewModel: ObservableObject {
         refreshOfflineState()
         isLoadingCategories = false
     }
-
+    
     func createCategory(name: String, icon: String) async -> Bool {
         guard let source = currentSource else { return false }
         error = nil
-
+        
         await cloudKitManager.createCategory(name: name, icon: icon, in: source)
         // Copy directly from CloudKitManager without re-querying
         categories = cloudKitManager.categories
@@ -188,15 +188,15 @@ final class AppViewModel: ObservableObject {
         refreshOfflineState()
         return error == nil
     }
-
+    
     func updateCategory(id: CKRecord.ID, name: String, icon: String) async -> Bool {
         guard let source = currentSource else { return false }
         guard let category = categories.first(where: { $0.id == id }) else { return false }
-
+        
         var updatedCategory = category
         updatedCategory.name = name
         updatedCategory.icon = icon
-
+        
         await cloudKitManager.updateCategory(updatedCategory, in: source)
         // Copy directly from CloudKitManager without re-querying
         categories = cloudKitManager.categories
@@ -204,18 +204,18 @@ final class AppViewModel: ObservableObject {
         refreshOfflineState()
         return error == nil
     }
-
+    
     func deleteCategory(id: CKRecord.ID) async {
         guard let source = currentSource else { return }
         guard let category = categories.first(where: { $0.id == id }) else { return }
-
+        
         await cloudKitManager.deleteCategory(category, in: source)
         // Copy directly from CloudKitManager without re-querying
         categories = cloudKitManager.categories
         recipeCounts = cloudKitManager.recipeCounts
         refreshOfflineState()
     }
-
+    
     // MARK: - Recipe Management
     func loadRecipesForCategory(_ categoryID: CKRecord.ID, skipCache: Bool = false) async {
         guard let source = currentSource else {
@@ -226,10 +226,10 @@ final class AppViewModel: ObservableObject {
             printD("loadRecipesForCategory: Category not found: \(categoryID)")
             return
         }
-
+        
         printD("loadRecipesForCategory: Loading recipes for \(category.name)")
         isLoadingRecipes = true
-
+        
         await cloudKitManager.loadRecipes(for: source, category: category, skipCache: skipCache)
         recipes = cloudKitManager.recipes
         // Also keep randomRecipes in sync so names stay consistent across home/category
@@ -239,13 +239,13 @@ final class AppViewModel: ObservableObject {
         refreshOfflineState()
         isLoadingRecipes = false
     }
-
+    
     func loadRandomRecipes(count: Int = 20, skipCache: Bool = false) async {
         guard let source = currentSource else { return }
         guard !isLoadingRecipes else { return }
-
+        
         isLoadingRecipes = true
-
+        
         await cloudKitManager.loadRandomRecipes(for: source, count: count, skipCache: skipCache)
         randomRecipes = cloudKitManager.recipes
         // Keep the main recipes array in sync so category views pick up latest names
@@ -254,23 +254,23 @@ final class AppViewModel: ObservableObject {
         refreshOfflineState()
         isLoadingRecipes = false
     }
-
+    
     func deleteRecipe(id: CKRecord.ID) async -> Bool {
         printD("deleteRecipe: Called with recipe ID: \(id.recordName)")
-
+        
         guard let source = currentSource else {
             printD("deleteRecipe: FAILED - No currentSource available")
             return false
         }
         printD("deleteRecipe: Found source: \(source.name)")
-
+        
         // Try to find recipe in recipes array first, then in randomRecipes
         var recipe = recipes.first(where: { $0.id == id })
         if recipe == nil {
             printD("deleteRecipe: Recipe not in recipes array, checking randomRecipes...")
             recipe = randomRecipes.first(where: { $0.id == id })
         }
-
+        
         guard let recipe = recipe else {
             printD("deleteRecipe: FAILED - Recipe not found in either recipes or randomRecipes array")
             printD("deleteRecipe: Looking for ID: \(id.recordName)")
@@ -279,11 +279,11 @@ final class AppViewModel: ObservableObject {
             return false
         }
         printD("deleteRecipe: Found recipe: \(recipe.name)")
-
+        
         printD("deleteRecipe: Calling cloudKitManager.deleteRecipe...")
         await cloudKitManager.deleteRecipe(recipe, in: source)
         printD("deleteRecipe: CloudKit deletion completed")
-
+        
         // Remove from the local recipes array immediately
         printD("deleteRecipe: Removing recipe from local arrays. Before: recipes=\(self.recipes.count), randomRecipes=\(self.randomRecipes.count)")
         self.recipes = recipes.filter { $0.id != id }
@@ -291,22 +291,22 @@ final class AppViewModel: ObservableObject {
         let oldCount = recipeCounts[recipe.categoryID, default: 1]
         recipeCounts[recipe.categoryID] = max(oldCount - 1, 0)
         printD("deleteRecipe: After removal: recipes=\(self.recipes.count), randomRecipes=\(self.randomRecipes.count)")
-
+        
         refreshOfflineState()
-
+        
         printD("deleteRecipe: Posting recipeDeleted notification")
         NotificationCenter.default.post(name: .recipeDeleted, object: id as CKRecord.ID)
         printD("deleteRecipe: Successfully deleted recipe")
         return true
     }
-
+    
     func deleteRecipeWithUIFeedback(id: CKRecord.ID) async -> Bool {
         printD("deleteRecipeWithUIFeedback: Called with recipe ID: \(id.recordName)")
         let success = await deleteRecipe(id: id)
         printD("deleteRecipeWithUIFeedback: Result - Success: \(success)")
         return success
     }
-
+    
     // MARK: - Last Viewed Recipe Persistence
     func saveLastViewedRecipe(_ recipe: Recipe) {
         let dict: [String: String] = [
@@ -322,7 +322,7 @@ final class AppViewModel: ObservableObject {
         ]
         UserDefaults.standard.set(dict, forKey: lastViewedRecipeKey)
     }
-
+    
     func loadLastViewedRecipeID() -> (recipeID: CKRecord.ID, sourceID: CKRecord.ID, categoryID: CKRecord.ID?)? {
         guard let dict = UserDefaults.standard.dictionary(forKey: lastViewedRecipeKey) as? [String: String],
               let recipeRecord = dict["recipeRecordName"],
@@ -346,7 +346,7 @@ final class AppViewModel: ObservableObject {
         }
         return (recipeID, sourceID, nil)
     }
-
+    
     func createRecipeWithSteps(
         categoryId: CKRecord.ID,
         name: String,
@@ -356,10 +356,10 @@ final class AppViewModel: ObservableObject {
         recipeSteps: [RecipeStep]?
     ) async -> Bool {
         guard let source = currentSource else { return false }
-
+        
         isLoadingRecipes = true
         defer { isLoadingRecipes = false }
-
+        
         let recordID = cloudKitManager.makeRecordID(for: source)
         let recipe = Recipe(
             id: recordID,
@@ -371,7 +371,7 @@ final class AppViewModel: ObservableObject {
             imageAsset: nil,
             recipeSteps: recipeSteps ?? []
         )
-
+        
         // Handle image if provided
         var recipeWithImage = recipe
         if let imageData = image {
@@ -380,10 +380,10 @@ final class AppViewModel: ObservableObject {
                 recipeWithImage.cachedImagePath = result.cachedPath
             }
         }
-
+        
         await cloudKitManager.createRecipe(recipeWithImage, in: source)
         error = cloudKitManager.error
-
+        
         // Add recipe directly to local array without re-querying CloudKit
         // (newly created recipe won't be indexed in CloudKit immediately)
         if error == nil {
@@ -397,15 +397,15 @@ final class AppViewModel: ObservableObject {
             // Also add to random recipes
             self.randomRecipes = (randomRecipes + [recipeWithImage]).sorted { $0.lastModified > $1.lastModified }
             recipeCounts[categoryId, default: 0] += 1
-
+            
             // Small delay to ensure UI updates before sheet dismisses
             try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 second
         }
-
+        
         refreshOfflineState()
         return error == nil
     }
-
+    
     func updateRecipeWithSteps(
         id: CKRecord.ID,
         categoryId: CKRecord.ID?,
@@ -419,24 +419,24 @@ final class AppViewModel: ObservableObject {
             printD("DEBUG: updateRecipeWithSteps failed - no currentSource")
             return false
         }
-
+        
         // If recipes array is empty, reload them
         if recipes.isEmpty {
             printD("DEBUG: Recipes array is empty, reloading for source: \(source.name)")
             await cloudKitManager.loadRecipes(for: source, category: nil)
             recipes = cloudKitManager.recipes
         }
-
+        
         guard let recipe = recipes.first(where: { $0.id == id }) else {
             printD("DEBUG: updateRecipeWithSteps failed - recipe not found. ID: \(id.recordName), recipes count: \(recipes.count)")
             printD("DEBUG: Available recipe IDs: \(recipes.map { $0.id.recordName })")
             printD("DEBUG: currentSource: \(source.name), isPersonal: \(source.isPersonal)")
             return false
         }
-
+        
         isLoadingRecipes = true
         defer { isLoadingRecipes = false }
-
+        
         var updatedRecipe = recipe
         updatedRecipe.lastModified = Date()
         if let name = name { updatedRecipe.name = name }
@@ -444,7 +444,7 @@ final class AppViewModel: ObservableObject {
         if let details = details { updatedRecipe.details = details }
         if let categoryId = categoryId { updatedRecipe.categoryID = categoryId }
         if let recipeSteps = recipeSteps { updatedRecipe.recipeSteps = recipeSteps }
-
+        
         // Handle image if provided
         if let imageData = image {
             if let result = await cloudKitManager.saveImage(imageData, for: updatedRecipe) {
@@ -468,10 +468,10 @@ final class AppViewModel: ObservableObject {
                 }
             }
         }
-
+        
         await cloudKitManager.updateRecipe(updatedRecipe, in: source)
         error = cloudKitManager.error
-
+        
         // Update the recipe in the local array immediately
         if error == nil {
             if let categoryId = categoryId, categoryId != recipe.categoryID {
@@ -494,11 +494,11 @@ final class AppViewModel: ObservableObject {
             await loadCategories()
             await loadRecipesForCategory(updatedRecipe.categoryID, skipCache: true)
         }
-
+        
         refreshOfflineState()
         return error == nil
     }
-
+    
 #if os(macOS)
     // MARK: - Import/Export (macOS)
     func exportCurrentSourceDocument() async -> RecipeExportDocument? {
@@ -507,24 +507,24 @@ final class AppViewModel: ObservableObject {
             error = "Select a source before exporting."
             return nil
         }
-
+        
         await loadCategories()
         await cloudKitManager.loadRecipes(for: source, category: nil)
         recipes = cloudKitManager.recipes
-
+        
         let categoryLookup = Dictionary(uniqueKeysWithValues: categories.map { ($0.id, $0.name) })
-
+        
         let exportedCategories = categories
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             .map { ExportedCategory(name: $0.name, icon: $0.icon) }
-
+        
         let exportedRecipes = cloudKitManager.recipes
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             .compactMap { recipe -> (ExportedRecipe, String?, Data?)? in
                 let imageInfo = loadImageData(for: recipe)
                 let imageFilename = imageInfo?.filename
                 let imageData = imageInfo?.data
-
+                
                 let categoryName = categoryLookup[recipe.categoryID] ?? "Uncategorized"
                 let exported = ExportedRecipe(
                     name: recipe.name,
@@ -536,7 +536,7 @@ final class AppViewModel: ObservableObject {
                 )
                 return (exported, imageFilename, imageData)
             }
-
+        
         var images: [String: Data] = [:]
         let recipes = exportedRecipes.map { tuple in
             if let filename = tuple.1, let data = tuple.2 {
@@ -544,7 +544,7 @@ final class AppViewModel: ObservableObject {
             }
             return tuple.0
         }
-
+        
         let package = RecipeExportPackage(
             sourceName: source.name,
             exportedAt: Date(),
@@ -552,11 +552,11 @@ final class AppViewModel: ObservableObject {
             recipes: recipes,
             formatVersion: 1
         )
-
+        
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-
+        
         do {
             let data = try encoder.encode(package)
             return RecipeExportDocument(data: data, images: images)
@@ -565,30 +565,30 @@ final class AppViewModel: ObservableObject {
             return nil
         }
     }
-
+    
     func importRecipes(from url: URL) async -> Bool {
         error = nil
         guard let source = currentSource else {
             error = "Select a source before importing."
             return false
         }
-
+        
         isImporting = true
         defer { isImporting = false }
-
+        
         do {
             let (data, images) = try loadPackageOrJSON(at: url)
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
             let package = try decoder.decode(RecipeExportPackage.self, from: data)
-
+            
             await loadCategories()
-
+            
             var categoryIDsByName: [String: CKRecord.ID] = [:]
             for category in categories {
                 categoryIDsByName[category.name.lowercased()] = category.id
             }
-
+            
             for exportedCategory in package.categories {
                 let key = exportedCategory.name.lowercased()
                 if categoryIDsByName[key] == nil {
@@ -599,7 +599,7 @@ final class AppViewModel: ObservableObject {
                     }
                 }
             }
-
+            
             var importedCount = 0
             for recipe in package.recipes {
                 guard let categoryID = categoryIDsByName[recipe.categoryName.lowercased()] else {
@@ -617,12 +617,12 @@ final class AppViewModel: ObservableObject {
                     importedCount += 1
                 }
             }
-
+            
             if importedCount == 0 {
                 error = "No recipes were imported."
                 return false
             }
-
+            
             await cloudKitManager.loadRecipeCounts(for: source)
             recipeCounts = cloudKitManager.recipeCounts
             await loadRandomRecipes()
@@ -633,44 +633,44 @@ final class AppViewModel: ObservableObject {
             return false
         }
     }
-
+    
     private func loadImageData(for recipe: Recipe) -> (filename: String, data: Data)? {
         let fm = FileManager.default
-
+        
         if let cachedPath = recipe.cachedImagePath, fm.fileExists(atPath: cachedPath),
            let data = try? Data(contentsOf: URL(fileURLWithPath: cachedPath)) {
             let ext = URL(fileURLWithPath: cachedPath).pathExtension.isEmpty ? "jpg" : URL(fileURLWithPath: cachedPath).pathExtension
             let filename = sanitizedFileComponent("\(recipe.id.recordName).\(ext)")
             return (filename, data)
         }
-
+        
         if let assetURL = recipe.imageAsset?.fileURL,
            let data = try? Data(contentsOf: assetURL) {
             let ext = assetURL.pathExtension.isEmpty ? "jpg" : assetURL.pathExtension
             let filename = sanitizedFileComponent("\(recipe.id.recordName).\(ext)")
             return (filename, data)
         }
-
+        
         return nil
     }
-
+    
     private func sanitizedFileComponent(_ value: String) -> String {
         let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
         let scalars = value.unicodeScalars.map { allowed.contains($0) ? Character($0) : "-" }
         return String(scalars)
     }
-
+    
     private func loadPackageOrJSON(at url: URL) throws -> (Data, [String: Data]) {
         let values = try? url.resourceValues(forKeys: [.contentTypeKey])
         let isPackage = values?.contentType?.conforms(to: RecipeExportConstants.contentType) == true || url.pathExtension.lowercased() == "icookexport"
-
+        
         if !isPackage {
             return (try Data(contentsOf: url), [:])
         }
-
+        
         let recipesURL = url.appendingPathComponent(RecipeExportConstants.recipesFileName)
         let data = try Data(contentsOf: recipesURL)
-
+        
         let imagesURL = url.appendingPathComponent(RecipeExportConstants.imagesFolderName)
         var images: [String: Data] = [:]
         if FileManager.default.fileExists(atPath: imagesURL.path),
@@ -681,25 +681,25 @@ final class AppViewModel: ObservableObject {
                 }
             }
         }
-
+        
         return (data, images)
     }
 #endif
-
+    
     // MARK: - Sharing
     func isSourceShared(_ source: Source) -> Bool {
         return cloudKitManager.isSharedSource(source)
     }
-
+    
     func isSharedOwner(_ source: Source) -> Bool {
         return cloudKitManager.isSharedOwner(source)
     }
-
+    
     func canEditSource(_ source: Source) -> Bool {
         // Allow edits on shared sources once the share is read-write
         return source.isPersonal || cloudKitManager.canEditSharedSources
     }
-    #if os(iOS)
+#if os(iOS)
     func stopSharingSource(_ source: Source) async {
         let success = await cloudKitManager.stopSharingSource(source)
         if success {
@@ -707,15 +707,15 @@ final class AppViewModel: ObservableObject {
             await loadSources()
         }
     }
-    #endif
+#endif
     func debugNukeOwnedData() async {
         await cloudKitManager.debugNukeOwnedData()
         await loadSources()
     }
-
+    
     func clearErrors() {
         error = nil
         cloudKitManager.error = nil
     }
-
+    
 }

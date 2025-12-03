@@ -64,22 +64,22 @@ struct RobustAsyncImage<Content: View, Placeholder: View>: View {
                 }
                 data = fetched
             }
-
-            #if os(iOS)
+            
+#if os(iOS)
             guard let uiImage = UIImage(data: data) else {
                 throw URLError(.cannotDecodeContentData)
             }
             let image = Image(uiImage: uiImage)
-            #elseif os(macOS)
+#elseif os(macOS)
             guard let nsImage = NSImage(data: data) else {
                 throw URLError(.cannotDecodeContentData)
             }
             let image = Image(nsImage: nsImage)
-            #else
+#else
             throw URLError(.cannotDecodeContentData)
-            #endif
+#endif
             loadingState = .success(image)
-
+            
         } catch {
             if Task.isCancelled { return }
             print("Failed to load image from \(url): \(error)")

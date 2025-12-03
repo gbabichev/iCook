@@ -58,7 +58,7 @@ enum RecipeCollectionType: Hashable {
             return false
         }
     }
-
+    
     func hash(into hasher: inout Hasher) {
         switch self {
         case .home:
@@ -73,13 +73,13 @@ enum RecipeCollectionType: Hashable {
 struct RecipeCollectionView: View {
     let collectionType: RecipeCollectionType
     @EnvironmentObject private var model: AppViewModel
-
+    
     // Toolbar state - passed from parent or locally managed
     @State private var showingAddRecipe = false
     @State private var showNewSourceSheet = false
     @State private var newSourceName = ""
     @State private var isDebugOperationInProgress = false
-
+    
     // State for category-specific recipes
     @State private var categoryRecipes: [Recipe] = []
     @State private var isLoading = false
@@ -103,7 +103,7 @@ struct RecipeCollectionView: View {
     @State private var isRefreshing = false
     @State private var showRevokedToast = false
     @State private var revokedToastMessage = ""
-
+    
     
     // Adaptive columns with consistent spacing - account for spacing in minimum width
     private let columns = [GridItem(.adaptive(minimum: 190), spacing: 15)]
@@ -113,7 +113,7 @@ struct RecipeCollectionView: View {
         if showingSearchResults {
             return searchResults
         }
-
+        
         switch collectionType {
         case .home:
             return model.randomRecipes
@@ -121,15 +121,15 @@ struct RecipeCollectionView: View {
             return categoryRecipes
         }
     }
-
-//    @ViewBuilder
-//    private var offlineStatusIndicator: some View {
-//        if model.isOfflineMode {
-//            Label("Offline Mode", systemImage: "wifi.slash")
-//                .font(.caption)
-//                .foregroundStyle(.orange)
-//        }
-//    }
+    
+    //    @ViewBuilder
+    //    private var offlineStatusIndicator: some View {
+    //        if model.isOfflineMode {
+    //            Label("Offline Mode", systemImage: "wifi.slash")
+    //                .font(.caption)
+    //                .foregroundStyle(.orange)
+    //        }
+    //    }
     
     @ViewBuilder
     private var offlineStatusIndicator: some View {
@@ -162,7 +162,7 @@ struct RecipeCollectionView: View {
             return nil // Don't select here - do it in loadCategoryRecipes
         }
     }
-
+    
     // Remaining recipes (excluding featured)
     private var remainingRecipes: [Recipe] {
         if showingSearchResults {
@@ -195,15 +195,15 @@ struct RecipeCollectionView: View {
         }
         return false
     }
-
+    
     private var isSearchActive: Bool {
         showingSearchResults || !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
-
+    
     private func logSearchState(_ context: String) {
         printD("SearchState [\(context)]: text='\(searchText)', showingSearchResults=\(showingSearchResults), isSearchActive=\(isSearchActive), collectionType=\(collectionType.navigationTitle)")
     }
-
+    
     // Get category ID if viewing a category, nil if viewing home
     private var categoryIdIfApplicable: CKRecord.ID? {
         if case .category(let category) = collectionType {
@@ -211,13 +211,13 @@ struct RecipeCollectionView: View {
         }
         return nil
     }
-
+    
     private var hasActiveCollection: Bool {
         model.currentSource != nil
     }
-
+    
     // MARK: - Toolbar Views
-
+    
     private var debugMenu: some View {
         Menu {
             Section("Debug") {
@@ -226,7 +226,7 @@ struct RecipeCollectionView: View {
                 } label: {
                     Label("Print debug", systemImage: "terminal")
                 }
-
+                
                 Button(role: .destructive) {
                     isDebugOperationInProgress = true
                     Task {
@@ -241,12 +241,12 @@ struct RecipeCollectionView: View {
             Image(systemName: "ladybug")
         }
     }
-
+    
     // Initializers
     init(collectionType: RecipeCollectionType = .home) {
         self.collectionType = collectionType
     }
-        
+    
     // MARK: - Header Views
     
     @ViewBuilder
@@ -263,7 +263,7 @@ struct RecipeCollectionView: View {
                     Text(recipe.name)
                         .font(.largeTitle)
                         .fontWeight(.bold)
-
+                    
                     Text("\(recipe.recipeTime) minutes")
                         .font(.headline)
                         .opacity(0.8)
@@ -359,7 +359,7 @@ struct RecipeCollectionView: View {
     
     @ViewBuilder
     private func recipesGridSection() -> some View {
-        VStack(alignment: .leading, spacing: 16) {            
+        VStack(alignment: .leading, spacing: 16) {
             // Show grid if there are recipes, or centered no results message if searching with no results
             if !remainingRecipes.isEmpty {
                 LazyVGrid(columns: columns, spacing: 15) {
@@ -453,16 +453,16 @@ struct RecipeCollectionView: View {
         isLoading = true
         error = nil
         defer { isLoading = false }
-
+        
         await model.loadRecipesForCategory(category.id, skipCache: skipCache)
         categoryRecipes = model.recipes
-
+        
         // Select featured recipe AFTER setting categoryRecipes
         if !categoryRecipes.isEmpty {
             selectedFeaturedRecipe = categoryRecipes.randomElement()
             print("Selected featured recipe: \(selectedFeaturedRecipe?.name ?? "none")")
         }
-
+        
         if let modelError = model.error {
             self.error = modelError
         }
@@ -488,7 +488,7 @@ struct RecipeCollectionView: View {
         
         deletingRecipe = nil
     }
-
+    
     private func logImagePath(_ recipe: Recipe, context: String) {
         if let path = recipe.cachedImagePath {
             let exists = FileManager.default.fileExists(atPath: path)
@@ -512,9 +512,9 @@ struct RecipeCollectionView: View {
     @MainActor
     private func performSearch(with query: String) async {
         guard !query.isEmpty else { return }
-
+        
         showingSearchResults = true
-
+        
         // Purely local filter for speed and stability
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         let base: [Recipe]
@@ -528,26 +528,26 @@ struct RecipeCollectionView: View {
         }
         searchResults = filtered
         isSearching = false
-
+        
         if let modelError = model.error {
             print("Search error: \(modelError)")
         }
     }
     
     // MARK: - UI View
-
+    
     private var shouldShowNoSourceState: Bool {
         isHome && model.currentSource == nil && !showingSearchResults
     }
-
+    
     private var shouldShowWelcomeState: Bool {
         isHome && model.currentSource != nil && model.randomRecipes.isEmpty && !isLoading && !showingSearchResults
     }
-
+    
     private var shouldShowEmptyState: Bool {
         !isLoading && recipes.isEmpty && !(isHome && model.randomRecipes.isEmpty) && !showingSearchResults
     }
-
+    
     private var offlineNoticeSheet: some View {
         VStack(spacing: 16) {
             Image(systemName: "wifi.slash")
@@ -567,7 +567,7 @@ struct RecipeCollectionView: View {
         .padding(24)
         .frame(minWidth: 280)
     }
-
+    
     var body: some View {
         mainContent
             .applySearchModifiers(searchText: $searchText, searchTask: $searchTask, showingSearchResults: $showingSearchResults, searchResults: $searchResults)
@@ -766,12 +766,12 @@ struct RecipeCollectionView: View {
                     )
                     .accessibilityLabel("Add Recipe")
                 }
-
-                #if DEBUG
+                
+#if DEBUG
                 ToolbarItem(placement: .primaryAction) {
                     debugMenu
                 }
-                #endif
+#endif
                 
 #if os(macOS)
                 ToolbarItem(placement: .status) {
@@ -785,7 +785,7 @@ struct RecipeCollectionView: View {
                 //ToolbarSpacer(.flexible)
             }
     }
-
+    
     private var mainContent: some View {
         Group {
             if isLoading || (isCategory && featuredRecipe == nil && !categoryRecipes.isEmpty && !showingSearchResults) {
@@ -873,7 +873,7 @@ struct RecipeCollectionView: View {
 private struct ToastModifier: ViewModifier {
     @Binding var isPresented: Bool
     let message: String
-
+    
     func body(content: Content) -> some View {
         content
             .overlay(alignment: .bottom) {
@@ -918,7 +918,7 @@ extension View {
                 }
             }
     }
-
+    
     func applyNavigationModifiers(collectionType: RecipeCollectionType, showingSearchResults: Bool) -> some View {
         self
             .navigationTitle(showingSearchResults ? "Search Results" : collectionType.navigationTitle)
@@ -926,7 +926,7 @@ extension View {
             .navigationBarTitleDisplayMode(showingSearchResults ? .inline : .automatic)
 #endif
     }
-
+    
     func applyLifecycleModifiers(
         searchTask: Binding<Task<Void, Never>?>
     ) -> some View {
@@ -935,7 +935,7 @@ extension View {
                 searchTask.wrappedValue?.cancel()
             }
     }
-
+    
     func applyDataModifiers(
         categoryRecipes: Binding<[Recipe]>,
         selectedFeaturedRecipe: Binding<Recipe?>,
@@ -950,12 +950,12 @@ extension View {
             }
             .onChange(of: categoryRecipes.wrappedValue) { _, newRecipes in
                 if selectedFeaturedRecipe.wrappedValue == nil ||
-                   !newRecipes.contains(where: { $0.id == selectedFeaturedRecipe.wrappedValue?.id }) {
+                    !newRecipes.contains(where: { $0.id == selectedFeaturedRecipe.wrappedValue?.id }) {
                     selectedFeaturedRecipe.wrappedValue = newRecipes.isEmpty ? nil : newRecipes.randomElement()
                 }
             }
     }
-
+    
     func applyAlertModifiers(
         error: Binding<String?>,
         deletingRecipe: Binding<Recipe?>,
@@ -986,7 +986,7 @@ extension View {
                 }
             }
     }
-
+    
     func applySheetModifiers(
         editingRecipe: Binding<Recipe?>,
         showingAddRecipe: Binding<Bool>,

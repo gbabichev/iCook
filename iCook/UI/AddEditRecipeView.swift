@@ -719,7 +719,7 @@ struct AddEditRecipeView: View {
                 isCompressingImage = false
             }
             
-
+            
             let didStartAccess = url.startAccessingSecurityScopedResource()
             defer {
                 if didStartAccess { url.stopAccessingSecurityScopedResource() }

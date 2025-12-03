@@ -8,7 +8,7 @@ struct Source: Identifiable {
     var isPersonal: Bool // true = private DB, false = shared DB
     var owner: String // iCloud user identifier
     var lastModified: Date
-
+    
     init(id: CKRecord.ID, name: String, isPersonal: Bool, owner: String, lastModified: Date) {
         self.id = id
         self.name = name
@@ -16,7 +16,7 @@ struct Source: Identifiable {
         self.owner = owner
         self.lastModified = lastModified
     }
-
+    
     /// Convert to CloudKit CKRecord
     func toCKRecord() -> CKRecord {
         let record = CKRecord(recordType: "Source", recordID: id)
@@ -26,7 +26,7 @@ struct Source: Identifiable {
         record["lastModified"] = lastModified
         return record
     }
-
+    
     /// Create from CloudKit CKRecord
     static func from(_ record: CKRecord) -> Source? {
         guard let name = record["name"] as? String,
@@ -35,10 +35,10 @@ struct Source: Identifiable {
               let lastModified = record["lastModified"] as? Date else {
             return nil
         }
-
+        
         return Source(id: record.recordID, name: name, isPersonal: isPersonal, owner: owner, lastModified: lastModified)
     }
-
+    
     // MARK: - Manual Codable Implementation
     enum CodingKeys: String, CodingKey {
         case id
@@ -89,7 +89,7 @@ struct Category: Identifiable, Hashable {
     var name: String
     var icon: String
     var lastModified: Date
-
+    
     init(id: CKRecord.ID, sourceID: CKRecord.ID, name: String, icon: String, lastModified: Date = Date()) {
         self.id = id
         self.sourceID = sourceID
@@ -97,7 +97,7 @@ struct Category: Identifiable, Hashable {
         self.icon = icon
         self.lastModified = lastModified
     }
-
+    
     /// Convert to CloudKit CKRecord
     func toCKRecord() -> CKRecord {
         let record = CKRecord(recordType: "Category", recordID: id)
@@ -107,7 +107,7 @@ struct Category: Identifiable, Hashable {
         record["lastModified"] = lastModified
         return record
     }
-
+    
     /// Create from CloudKit CKRecord
     static func from(_ record: CKRecord) -> Category? {
         guard let name = record["name"] as? String,
@@ -115,16 +115,16 @@ struct Category: Identifiable, Hashable {
               let sourceRef = record["sourceID"] as? CKRecord.Reference else {
             return nil
         }
-
+        
         let lastModified = (record["lastModified"] as? Date) ?? Date()
         return Category(id: record.recordID, sourceID: sourceRef.recordID, name: name, icon: icon, lastModified: lastModified)
     }
-
+    
     // MARK: - Hashable
     func hash(into hasher: inout Hasher) {
         hasher.combine(id)
     }
-
+    
     static func == (lhs: Category, rhs: Category) -> Bool {
         lhs.id == rhs.id
     }
@@ -142,7 +142,7 @@ extension Category: Codable {
         case icon
         case lastModified
     }
-
+    
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id.recordName, forKey: .recordName)
@@ -155,22 +155,22 @@ extension Category: Codable {
         try container.encode(icon, forKey: .icon)
         try container.encode(lastModified, forKey: .lastModified)
     }
-
+    
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-
+        
         let recordName = try container.decode(String.self, forKey: .recordName)
         let zoneName = try container.decode(String.self, forKey: .zoneName)
         let zoneOwner = try container.decode(String.self, forKey: .zoneOwnerName)
         let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: zoneOwner)
         self.id = CKRecord.ID(recordName: recordName, zoneID: zoneID)
-
+        
         let sourceRecordName = try container.decode(String.self, forKey: .sourceRecordName)
         let sourceZoneName = try container.decode(String.self, forKey: .sourceZoneName)
         let sourceZoneOwner = try container.decode(String.self, forKey: .sourceZoneOwnerName)
         let sourceZoneID = CKRecordZone.ID(zoneName: sourceZoneName, ownerName: sourceZoneOwner)
         self.sourceID = CKRecord.ID(recordName: sourceRecordName, zoneID: sourceZoneID)
-
+        
         self.name = try container.decode(String.self, forKey: .name)
         self.icon = try container.decode(String.self, forKey: .icon)
         self.lastModified = try container.decode(Date.self, forKey: .lastModified)
@@ -182,7 +182,7 @@ struct RecipeStep: Codable, Hashable {
     var stepNumber: Int
     var instruction: String
     var ingredients: [String]
-
+    
     enum CodingKeys: String, CodingKey {
         case stepNumber = "step_number"
         case instruction
@@ -202,7 +202,7 @@ struct Recipe: Identifiable, Hashable {
     var cachedImagePath: String?
     var recipeSteps: [RecipeStep]
     var lastModified: Date
-
+    
     init(
         id: CKRecord.ID,
         sourceID: CKRecord.ID,
@@ -226,13 +226,13 @@ struct Recipe: Identifiable, Hashable {
         self.recipeSteps = recipeSteps
         self.lastModified = lastModified
     }
-
+    
     /// Computed property for backward compatibility with legacy code
     var ingredients: [String]? {
         let allIngredients = recipeSteps.flatMap { $0.ingredients }
         return allIngredients.isEmpty ? nil : Array(Set(allIngredients)).sorted()
     }
-
+    
     /// Convert to CloudKit CKRecord
     func toCKRecord() -> CKRecord {
         let record = CKRecord(recordType: "Recipe", recordID: id)
@@ -242,12 +242,12 @@ struct Recipe: Identifiable, Hashable {
         record["sourceID"] = CKRecord.Reference(recordID: sourceID, action: .deleteSelf)
         record["categoryID"] = CKRecord.Reference(recordID: categoryID, action: .none)
         record["lastModified"] = lastModified
-
+        
         // Store image asset
         if let imageAsset = imageAsset {
             record["imageAsset"] = imageAsset
         }
-
+        
         // Store recipe steps as JSON
         do {
             let stepsData = try JSONEncoder().encode(recipeSteps)
@@ -255,10 +255,10 @@ struct Recipe: Identifiable, Hashable {
         } catch {
             record["recipeSteps"] = "[]"
         }
-
+        
         return record
     }
-
+    
     /// Create from CloudKit CKRecord
     static func from(_ record: CKRecord) -> Recipe? {
         guard let name = record["name"] as? String,
@@ -267,11 +267,11 @@ struct Recipe: Identifiable, Hashable {
               let categoryRef = record["categoryID"] as? CKRecord.Reference else {
             return nil
         }
-
+        
         let details = record["details"] as? String
         let imageAsset = record["imageAsset"] as? CKAsset
         let lastModified = (record["lastModified"] as? Date) ?? Date()
-
+        
         var recipeSteps: [RecipeStep] = []
         if let stepsJSON = record["recipeSteps"] as? String,
            let stepsData = stepsJSON.data(using: .utf8) {
@@ -281,7 +281,7 @@ struct Recipe: Identifiable, Hashable {
                 printD("Failed to decode recipe steps: \(error)")
             }
         }
-
+        
         return Recipe(
             id: record.recordID,
             sourceID: sourceRef.recordID,
@@ -294,12 +294,12 @@ struct Recipe: Identifiable, Hashable {
             lastModified: lastModified
         )
     }
-
+    
     // MARK: - Hashable
     func hash(into hasher: inout Hasher) {
         hasher.combine(id)
     }
-
+    
     static func == (lhs: Recipe, rhs: Recipe) -> Bool {
         lhs.id == rhs.id
     }
@@ -323,7 +323,7 @@ extension Recipe: Codable {
         case recipeSteps
         case lastModified
     }
-
+    
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id.recordName, forKey: .recordName)
@@ -342,28 +342,28 @@ extension Recipe: Codable {
         try container.encode(recipeSteps, forKey: .recipeSteps)
         try container.encode(lastModified, forKey: .lastModified)
     }
-
+    
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-
+        
         let recordName = try container.decode(String.self, forKey: .recordName)
         let zoneName = try container.decode(String.self, forKey: .zoneName)
         let zoneOwner = try container.decode(String.self, forKey: .zoneOwnerName)
         let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: zoneOwner)
         self.id = CKRecord.ID(recordName: recordName, zoneID: zoneID)
-
+        
         let sourceRecordName = try container.decode(String.self, forKey: .sourceRecordName)
         let sourceZoneName = try container.decode(String.self, forKey: .sourceZoneName)
         let sourceZoneOwner = try container.decode(String.self, forKey: .sourceZoneOwnerName)
         let sourceZoneID = CKRecordZone.ID(zoneName: sourceZoneName, ownerName: sourceZoneOwner)
         self.sourceID = CKRecord.ID(recordName: sourceRecordName, zoneID: sourceZoneID)
-
+        
         let categoryRecordName = try container.decode(String.self, forKey: .categoryRecordName)
         let categoryZoneName = try container.decode(String.self, forKey: .categoryZoneName)
         let categoryZoneOwner = try container.decode(String.self, forKey: .categoryZoneOwnerName)
         let categoryZoneID = CKRecordZone.ID(zoneName: categoryZoneName, ownerName: categoryZoneOwner)
         self.categoryID = CKRecord.ID(recordName: categoryRecordName, zoneID: categoryZoneID)
-
+        
         self.name = try container.decode(String.self, forKey: .name)
         self.recipeTime = try container.decode(Int.self, forKey: .recipeTime)
         self.details = try container.decodeIfPresent(String.self, forKey: .details)

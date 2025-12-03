@@ -506,7 +506,7 @@ struct SourceSelector: View {
             }
         }
     }
-
+    
     /// Delegate proxy to observe stop sharing events.
     private final class SharingDelegateProxy: NSObject, UICloudSharingControllerDelegate {
         let onStopSharing: () -> Void

@@ -10,9 +10,9 @@ import SwiftUI
 struct AddCategoryView: View {
     @EnvironmentObject private var model: AppViewModel
     @Environment(\.dismiss) private var dismiss
-
+    
     let editingCategory: Category?
-
+    
     @State private var categoryName: String = ""
     @State private var selectedIcon: String = "🍴"
     @State private var isSaving = false
@@ -52,13 +52,13 @@ struct AddCategoryView: View {
                         }
                     }
                 }
-
+                
                 Section("Category Information") {
                     TextField("Category Name", text: $categoryName)
                         .disabled(!canEdit)
-                        //.textInputAutocapitalization(.words)
+                    //.textInputAutocapitalization(.words)
                 }
-
+                
                 Section("Choose an Icon") {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 8), spacing: 12) {
                         ForEach(commonIcons, id: \.self) { icon in
@@ -71,7 +71,7 @@ struct AddCategoryView: View {
                                     .background(
                                         selectedIcon == icon ?
                                         Color.accentColor.opacity(0.2) :
-                                        Color.clear
+                                            Color.clear
                                     )
                                     .cornerRadius(8)
                                     .overlay(
@@ -98,7 +98,7 @@ struct AddCategoryView: View {
                         dismiss()
                     }
                 }
-
+                
                 ToolbarItem(placement: .confirmationAction) {
                     Button(isEditing ? "Update" : "Create") {
                         Task {
@@ -116,15 +116,15 @@ struct AddCategoryView: View {
             }
             .alert("Error",
                    isPresented: .init(
-                       get: { model.error != nil },
-                       set: { if !$0 { model.error = nil } }
+                    get: { model.error != nil },
+                    set: { if !$0 { model.error = nil } }
                    ),
                    actions: { Button("OK") { model.error = nil } },
                    message: { Text(model.error ?? "") }
             )
         }
     }
-
+    
     private var canEdit: Bool {
         guard let source = model.currentSource else { return false }
         return model.canEditSource(source)
