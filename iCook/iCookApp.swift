@@ -20,6 +20,7 @@ struct iCookApp: App {
     @State private var isExporting = false
     @State private var isImporting = false
     @State private var exportDocument = RecipeExportDocument()
+    @State private var showAbout = false
 #endif
 
     var body: some Scene {
@@ -87,9 +88,22 @@ struct iCookApp: App {
                     }
                 }
 #endif
+                #if os(macOS)
+                .sheet(isPresented: $showAbout) {
+                    AboutView()
+                }
+                #endif
         }
 #if os(macOS)
         .commands {
+            CommandGroup(replacing: .appInfo) {
+                Button {
+                    showAbout = true
+                } label: {
+                    Label("About iCook", systemImage: "info.circle")
+                }
+            }
+
             CommandGroup(replacing: .newItem) {
                 Button {
                     NSApp.sendAction(#selector(NSApplication.newWindowForTab(_:)), to: nil, from: nil)
