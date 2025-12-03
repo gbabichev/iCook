@@ -245,9 +245,6 @@ class CloudKitManager: ObservableObject {
     }
 
     private func loadSharedSourceIDs() {
-        // Pull latest ubiquitous values before merging
-        NSUbiquitousKeyValueStore.default.synchronize()
-
         if let ids = UserDefaults.standard.array(forKey: sharedSourceIDsKey) as? [String] {
             sharedSourceIDs = Set(ids)
             printD("Loaded sharedSourceIDs: \(sharedSourceIDs.count) \(sharedSourceIDs)")
