@@ -327,6 +327,9 @@ struct RecipeCollectionView: View {
                         .cornerRadius(25)
                     }
                     .buttonStyle(.plain)
+                    .simultaneousGesture(TapGesture().onEnded {
+                        model.saveLastViewedRecipe(recipe)
+                    })
                 }
                 .padding(.bottom, 32)
                 .padding(.horizontal, 20)
@@ -365,6 +368,9 @@ struct RecipeCollectionView: View {
                                     .background(.ultraThinMaterial.opacity(0.8), in: Capsule())
                                 }
                                 .buttonStyle(.plain)
+                                .simultaneousGesture(TapGesture().onEnded {
+                                    model.saveLastViewedRecipe(recipe)
+                                })
                             }
                             .padding(.horizontal, 20)
                             .padding(.vertical, 16)
@@ -429,6 +435,9 @@ struct RecipeCollectionView: View {
                                 printD("[ImagePath] grid appear: \(recipe.name) path=nil")
                             }
                         }
+                        .simultaneousGesture(TapGesture().onEnded {
+                            model.saveLastViewedRecipe(recipe)
+                        })
                         .buttonStyle(.plain)
                         .contextMenu {
                             Button {

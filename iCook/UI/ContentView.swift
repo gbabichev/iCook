@@ -14,6 +14,8 @@ struct ContentView: View {
     @State private var editingCategory: Category? = nil
     @State private var collectionType: RecipeCollectionType? = .home
     @State private var navPath = NavigationPath()
+    @State private var didRestoreLastViewed = false
+    @State private var suppressResetOnSourceChange = false
 
     var body: some View {
         NavigationSplitView(preferredCompactColumn: $preferredColumn) {
@@ -58,15 +60,37 @@ struct ContentView: View {
         }
         .task {
             await model.loadSources()
-            if model.currentSource != nil {
+            if !didRestoreLastViewed,
+               let saved = model.loadLastViewedRecipeID(),
+               let source = model.sources.first(where: { $0.id == saved.sourceID }) {
+                suppressResetOnSourceChange = true
+                await model.selectSource(source)
+                if let catID = saved.categoryID,
+                   let category = model.categories.first(where: { $0.id == catID }) {
+                    collectionType = .category(category)
+                    await model.loadRecipesForCategory(catID, skipCache: true)
+                } else {
+                    collectionType = .home
+                    await model.loadRandomRecipes(skipCache: true)
+                }
+                if let recipe = model.recipes.first(where: { $0.id == saved.recipeID }) ??
+                    model.randomRecipes.first(where: { $0.id == saved.recipeID }) {
+                    navPath.append(recipe)
+                    didRestoreLastViewed = true
+                }
+            } else if model.currentSource != nil {
                 await model.loadCategories()
                 await model.loadRandomRecipes()
             }
         }
         .onChange(of: model.currentSource?.id) {
-            // Pop to root when switching collections
-            navPath = NavigationPath()
-            collectionType = .home
+            // Pop to root when switching collections unless we just restored
+            if suppressResetOnSourceChange {
+                suppressResetOnSourceChange = false
+            } else {
+                navPath = NavigationPath()
+                collectionType = .home
+            }
         }
         .alert("Error",
                isPresented: .init(
@@ -83,6 +107,26 @@ struct ContentView: View {
         .sheet(item: $editingCategory) { category in
             AddCategoryView(editingCategory: category)
                 .environmentObject(model)
+        }
+        .onAppear {
+            // Try to restore immediately from cached data to avoid visible jumps
+            guard !didRestoreLastViewed,
+                  let saved = model.loadLastViewedRecipeID(),
+                  model.currentSource?.id == saved.sourceID else { return }
+
+            if let catID = saved.categoryID,
+               let category = model.categories.first(where: { $0.id == catID }) {
+                collectionType = .category(category)
+            } else {
+                collectionType = .home
+            }
+
+            if let recipe = model.recipes.first(where: { $0.id == saved.recipeID }) ??
+                model.randomRecipes.first(where: { $0.id == saved.recipeID }) {
+                suppressResetOnSourceChange = true
+                navPath.append(recipe)
+                didRestoreLastViewed = true
+            }
         }
     }
 }

@@ -16,6 +16,7 @@ final class AppViewModel: ObservableObject {
     @Published var isImporting = false
     @Published var error: String?
     @Published var isOfflineMode = false
+    private let lastViewedRecipeKey = "LastViewedRecipe"
 
     // CloudKit manager
     let cloudKitManager = CloudKitManager.shared
@@ -314,6 +315,50 @@ final class AppViewModel: ObservableObject {
         let success = await deleteRecipe(id: id)
         printD("deleteRecipeWithUIFeedback: Result - Success: \(success)")
         return success
+    }
+
+    // MARK: - Last Viewed Recipe Persistence
+    func saveLastViewedRecipe(_ recipe: Recipe) {
+        let dict: [String: String] = [
+            "recipeRecordName": recipe.id.recordName,
+            "recipeZoneName": recipe.id.zoneID.zoneName,
+            "recipeZoneOwner": recipe.id.zoneID.ownerName,
+            "sourceRecordName": recipe.sourceID.recordName,
+            "sourceZoneName": recipe.sourceID.zoneID.zoneName,
+            "sourceZoneOwner": recipe.sourceID.zoneID.ownerName,
+            "categoryRecordName": recipe.categoryID.recordName,
+            "categoryZoneName": recipe.categoryID.zoneID.zoneName,
+            "categoryZoneOwner": recipe.categoryID.zoneID.ownerName
+        ]
+        UserDefaults.standard.set(dict, forKey: lastViewedRecipeKey)
+    }
+
+    func loadLastViewedRecipeID() -> (recipeID: CKRecord.ID, sourceID: CKRecord.ID, categoryID: CKRecord.ID?)? {
+        guard let dict = UserDefaults.standard.dictionary(forKey: lastViewedRecipeKey) as? [String: String],
+              let recipeRecord = dict["recipeRecordName"],
+              let recipeZone = dict["recipeZoneName"],
+              let recipeOwner = dict["recipeZoneOwner"],
+              let sourceRecord = dict["sourceRecordName"],
+              let sourceZone = dict["sourceZoneName"],
+              let sourceOwner = dict["sourceZoneOwner"] else {
+            return nil
+        }
+        let recipeZoneID = CKRecordZone.ID(zoneName: recipeZone, ownerName: recipeOwner)
+        let recipeID = CKRecord.ID(recordName: recipeRecord, zoneID: recipeZoneID)
+        let sourceZoneID = CKRecordZone.ID(zoneName: sourceZone, ownerName: sourceOwner)
+        let sourceID = CKRecord.ID(recordName: sourceRecord, zoneID: sourceZoneID)
+        if let catRecord = dict["categoryRecordName"],
+           let catZone = dict["categoryZoneName"],
+           let catOwner = dict["categoryZoneOwner"] {
+            let catZoneID = CKRecordZone.ID(zoneName: catZone, ownerName: catOwner)
+            let catID = CKRecord.ID(recordName: catRecord, zoneID: catZoneID)
+            return (recipeID, sourceID, catID)
+        }
+        return (recipeID, sourceID, nil)
+    }
+
+    func clearLastViewedRecipe() {
+        UserDefaults.standard.removeObject(forKey: lastViewedRecipeKey)
     }
 
     func createRecipeWithSteps(
