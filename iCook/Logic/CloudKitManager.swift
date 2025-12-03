@@ -292,6 +292,7 @@ class CloudKitManager: ObservableObject {
         saveSharedSourceIDs()
     }
 
+    #if os(iOS)
     /// Remove local shared markers for a source (used when an owner stops sharing).
     func markSourceUnshared(_ source: Source) {
         let key = cacheIdentifier(for: source.id)
@@ -317,7 +318,8 @@ class CloudKitManager: ObservableObject {
         saveSourcesLocalCache()
         saveCurrentSourceID()
     }
-
+    #endif
+    
     private func saveCategoriesLocalCache(_ categories: [Category], for source: Source) {
         let url = cacheFileURL(for: .categories, sourceID: source.id)
         do {
@@ -2050,7 +2052,7 @@ class CloudKitManager: ObservableObject {
             printD("Failed to ensure personal zone: \(error.localizedDescription)")
         }
     }
-
+    #if os(iOS)
     /// Save a share to CloudKit after user confirms via UICloudSharingController
     func saveShare(for record: CKRecord, share: CKShare) async throws -> CKShare {
         try await withCheckedThrowingContinuation { continuation in
@@ -2088,6 +2090,7 @@ class CloudKitManager: ObservableObject {
             self.privateDatabase.add(operation)
         }
     }
+    #endif
 
     /// Accept a CloudKit share link directly (useful for debug flows where the system does not handle it)
     /// - Returns: `true` on success, `false` otherwise and sets `error`
@@ -2309,7 +2312,7 @@ class CloudKitManager: ObservableObject {
 
         return allShares
     }
-
+    #if os(iOS)
     /// Stop sharing a source
     func stopSharingSource(_ source: Source) async -> Bool {
         // Only the owner can stop sharing; ensure we target the private DB share record
@@ -2342,7 +2345,8 @@ class CloudKitManager: ObservableObject {
             return false
         }
     }
-
+    #endif
+    
     /// Generate a new CKRecord.ID for the appropriate zone based on the source.
     func makeRecordID(for source: Source) -> CKRecord.ID {
         let owner = isSharedOwner(source)

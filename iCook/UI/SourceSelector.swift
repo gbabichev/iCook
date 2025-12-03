@@ -537,24 +537,7 @@ private struct MacToolbarIconButton: View {
             }
         }
     }
-#else
-    /// Present NSSharingServicePicker on macOS
-    private func presentSharingServices(with url: URL, sourceTitle: String) {
-        printD("Presenting NSSharingServicePicker with URL: \(url.absoluteString)")
 
-        let servicePicker = NSSharingServicePicker(items: [url])
-
-        // Find the share button view and present from there
-        if let window = NSApplication.shared.mainWindow,
-           let contentView = window.contentViewController?.view {
-            // Present the picker from the center of the window
-            servicePicker.show(relativeTo: NSZeroRect, of: contentView, preferredEdge: .minY)
-
-            printD("NSSharingServicePicker presented successfully")
-        } else {
-            printD("Could not find window to present from")
-        }
-    }
 #endif
 
 #if os(iOS)

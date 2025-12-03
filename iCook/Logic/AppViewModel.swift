@@ -109,7 +109,7 @@ final class AppViewModel: ObservableObject {
         refreshOfflineState()
         return true
     }
-
+    #if os (iOS)
     func removeSharedSourceLocally(_ source: Source) async {
         await cloudKitManager.removeSharedSourceLocally(source)
         sources = cloudKitManager.sources
@@ -127,7 +127,7 @@ final class AppViewModel: ObservableObject {
         }
         refreshOfflineState()
     }
-
+    #endif
     func leaveSharedSource(_ source: Source) async {
         _ = await cloudKitManager.leaveSharedSource(source)
         sources = cloudKitManager.sources
@@ -696,7 +696,7 @@ final class AppViewModel: ObservableObject {
         // Allow edits on shared sources once the share is read-write
         return source.isPersonal || cloudKitManager.canEditSharedSources
     }
-
+    #if os(iOS)
     func stopSharingSource(_ source: Source) async {
         let success = await cloudKitManager.stopSharingSource(source)
         if success {
@@ -704,7 +704,7 @@ final class AppViewModel: ObservableObject {
             await loadSources()
         }
     }
-
+    #endif
     func debugNukeOwnedData() async {
         await cloudKitManager.debugNukeOwnedData()
         await loadSources()
