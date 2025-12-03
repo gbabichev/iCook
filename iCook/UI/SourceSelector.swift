@@ -761,7 +761,7 @@ struct SourceRowWrapper: View {
                 }
             } else {
                 Button(action: onShare) {
-                    Label("Share", systemImage: "square.and.arrow.up")
+                    Label("Leave Share", systemImage: "person.crop.circle.badge.xmark")
                 }
             }
 #else
