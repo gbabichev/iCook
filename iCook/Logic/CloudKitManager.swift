@@ -99,7 +99,7 @@ class CloudKitManager: ObservableObject {
             }
         }
     }
-
+    
     private func ensureUserIdentifier() async {
         if let userIdentifier, !userIdentifier.isEmpty { return }
         do {
@@ -334,9 +334,7 @@ class CloudKitManager: ObservableObject {
         saveSourcesLocalCache()
         saveCurrentSourceID()
     }
-
-#endif
-
+    
     /// Mark a source as shared locally so UI updates immediately after saving a share.
     func markSourceShared(_ source: Source) {
         markSharedSource(id: source.id)
@@ -355,6 +353,8 @@ class CloudKitManager: ObservableObject {
         saveSourcesLocalCache()
         saveCurrentSourceID()
     }
+    
+#endif
     
     private func saveCategoriesLocalCache(_ categories: [Category], for source: Source) {
         let url = cacheFileURL(for: .categories, sourceID: source.id)
@@ -975,7 +975,7 @@ class CloudKitManager: ObservableObject {
             self.error = "Failed to delete source"
         }
     }
-
+    
     func updateSource(_ source: Source, newName: String) async {
         let trimmedName = newName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty else { return }
@@ -984,22 +984,22 @@ class CloudKitManager: ObservableObject {
             self.error = "Only collection owners can rename it."
             return
         }
-
+        
         do {
             let database = source.isPersonal || isSharedOwner(source) ? privateDatabase : sharedDatabase
             let serverRecord = try await database.record(for: source.id)
             serverRecord["name"] = trimmedName
             serverRecord["lastModified"] = Date()
-
+            
             let savedRecord = try await database.save(serverRecord)
-
+            
             if var updatedSource = Source.from(savedRecord) {
                 // Preserve shared markers for owners so UI stays in sync
                 if savedRecord.share != nil {
                     markSharedSource(id: savedRecord.recordID)
                     updatedSource.isPersonal = isSharedOwner(source)
                 }
-
+                
                 sourceCache[updatedSource.id] = updatedSource
                 self.sources = sources.map { $0.id == updatedSource.id ? updatedSource : $0 }
                 if currentSource?.id == updatedSource.id {
@@ -1196,7 +1196,7 @@ class CloudKitManager: ObservableObject {
         // Recreate cache directories
         _ = cacheDirectoryURL
         _ = imageCacheDirectory
-
+        
         // Do not recreate any default collections; user will add their own.
     }
     

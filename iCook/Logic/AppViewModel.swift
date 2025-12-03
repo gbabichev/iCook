@@ -111,7 +111,7 @@ final class AppViewModel: ObservableObject {
         refreshOfflineState()
         return true
     }
-
+    
     func renameSource(_ source: Source, newName: String) async -> Bool {
         await cloudKitManager.updateSource(source, newName: newName)
         sources = cloudKitManager.sources
@@ -705,11 +705,11 @@ final class AppViewModel: ObservableObject {
     func isSharedOwner(_ source: Source) -> Bool {
         return cloudKitManager.isSharedOwner(source)
     }
-
+    
     func canRenameSource(_ source: Source) -> Bool {
         return source.isPersonal || isSharedOwner(source)
     }
-
+#if os(iOS)
     func markSourceSharedLocally(_ source: Source) {
         cloudKitManager.markSourceShared(source)
         sources = cloudKitManager.sources
@@ -717,7 +717,7 @@ final class AppViewModel: ObservableObject {
             currentSource = current
         }
     }
-    
+#endif
     func canEditSource(_ source: Source) -> Bool {
         // Allow edits on shared sources once the share is read-write
         return source.isPersonal || cloudKitManager.canEditSharedSources

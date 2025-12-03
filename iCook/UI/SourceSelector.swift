@@ -551,17 +551,7 @@ struct SourceSelector: View {
             printD("SharingDelegateProxy: cloudSharingControllerDidSaveShare")
             onSave()
         }
-
-        func cloudSharingController(_ csc: UICloudSharingController, didSaveShare share: CKShare) {
-            printD("SharingDelegateProxy: didSaveShare callback")
-            onSave()
-        }
         
-        func cloudSharingControllerDidStopSharing(_ csc: UICloudSharingController) {
-            printD("SharingDelegateProxy: cloudSharingControllerDidStopSharing")
-            onStopSharing()
-        }
-
         func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
             printD("SharingDelegateProxy: presentationControllerDidDismiss - refreshing sources")
             onSave()
@@ -660,22 +650,23 @@ struct SourceRowWrapper: View {
     let onRename: () -> Void
     let onDelete: () -> Void
     @EnvironmentObject private var viewModel: AppViewModel
-
+    
     private var canRename: Bool {
         viewModel.canRenameSource(source)
     }
-
+    
     private var canDelete: Bool {
         viewModel.isSharedOwner(source) || source.isPersonal
     }
-
+    
+    #if os(iOS)
     private var shareLabel: String {
         if viewModel.isSharedOwner(source) {
             return viewModel.isSourceShared(source) ? "Manage Sharing" : "Share"
         }
         return viewModel.isSourceShared(source) ? "Manage Access" : "Share"
     }
-    
+    #endif
     var body: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
@@ -744,13 +735,13 @@ struct SourceRowWrapper: View {
             Button(action: onSelect) {
                 Label("Open", systemImage: "checkmark.circle")
             }
-
+            
             if canRename {
                 Button(action: onRename) {
                     Label("Rename", systemImage: "pencil")
                 }
             }
-
+            
 #if os(macOS)
             if viewModel.isSharedOwner(source), viewModel.isSourceShared(source) {
                 Button(action: onShare) {
@@ -769,7 +760,7 @@ struct SourceRowWrapper: View {
                 Label(shareLabel, systemImage: "person.2.fill")
             }
 #endif
-
+            
             if canDelete {
                 Button(role: .destructive, action: onDelete) {
                     Label("Delete", systemImage: "trash")
@@ -798,20 +789,20 @@ struct RenameSourceSheet: View {
     let source: Source
     @State private var sourceName: String
     @State private var isSaving = false
-
+    
     init(isPresented: Binding<Bool>, source: Source) {
         self._isPresented = isPresented
         self.source = source
         _sourceName = State(initialValue: source.name)
     }
-
+    
     var body: some View {
         NavigationStack {
             Form {
                 Section("Collection Name") {
                     TextField("Collection Name", text: $sourceName)
                 }
-
+                
                 Section {
                     Text("Only owners can rename a collection.")
                         .font(.caption)
@@ -829,7 +820,7 @@ struct RenameSourceSheet: View {
                         isPresented = false
                     }
                 }
-
+                
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
                         Task {
@@ -841,7 +832,7 @@ struct RenameSourceSheet: View {
             }
         }
     }
-
+    
     @MainActor
     private func save() async {
         let trimmed = sourceName.trimmingCharacters(in: .whitespacesAndNewlines)
