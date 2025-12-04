@@ -48,6 +48,9 @@ struct iCookApp: App {
 #endif
             }
 #if os(macOS)
+            .frame(minWidth: 600, minHeight: 600)
+#endif
+#if os(macOS)
             .fileExporter(
                 isPresented: $isExporting,
                 document: exportDocument,
