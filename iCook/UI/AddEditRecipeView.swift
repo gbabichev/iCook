@@ -953,18 +953,50 @@ struct StepEditView: View {
                         Text("Instructions:")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
-                        
-                        TextField("",text: .init(
-                            get: { step.instruction },
-                            set: { newValue in
-                                step = RecipeStep(
-                                    stepNumber: step.stepNumber,
-                                    instruction: newValue,
-                                    ingredients: step.ingredients
-                                )
-                            }
-                        ), axis: .vertical)
+
+//                        ZStack(alignment: .topLeading) {
+//                            TextEditor(text: .init(
+//                                get: { step.instruction },
+//                                set: { newValue in
+//                                    step = RecipeStep(
+//                                        stepNumber: step.stepNumber,
+//                                        instruction: newValue,
+//                                        ingredients: step.ingredients
+//                                    )
+//                                }
+//                            ))
+//                            .focused($isInstructionFocused)
+//#if os(iOS)
+//                            .scrollContentBackground(.hidden)
+//#endif
+//                            .frame(minHeight: 80)
+//                            .padding(4)
+//                            .overlay(
+//                                RoundedRectangle(cornerRadius: 5)
+//                                    .stroke(.black, lineWidth: 1 / 3)
+//                                    .opacity(0.3)
+//                            )
+//                        }
+//                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                        TextField(
+                            "Add instructions for this step",
+                            text: .init(
+                                get: { step.instruction },
+                                set: { newValue in
+                                    step = RecipeStep(
+                                        stepNumber: step.stepNumber,
+                                        instruction: newValue,
+                                        ingredients: step.ingredients
+                                    )
+                                }
+                            )
+                        )
                         .focused($isInstructionFocused)
+                        .textFieldStyle(.roundedBorder)
+                        .labelsHidden()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
                     }
                     
                     // Step Ingredients

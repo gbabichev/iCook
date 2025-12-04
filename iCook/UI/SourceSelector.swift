@@ -603,6 +603,7 @@ struct NewSourceSheet: View {
             Form {
                 Section("Collection Name") {
                     TextField("e.g., Family Recipes", text: $sourceName)
+                        .labelsHidden()
                 }
                 
                 Section {
