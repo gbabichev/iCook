@@ -751,6 +751,10 @@ struct SourceRowWrapper: View {
                 Button(role: .destructive, action: onStopSharing) {
                     Label("Stop Sharing", systemImage: "xmark.circle")
                 }
+            } else if source.isPersonal {
+                Button(action: onShare) {
+                    Label("Start Sharing", systemImage: "square.and.arrow.up")
+                }
             } else {
                 Button(action: onShare) {
                     Label("Leave Share", systemImage: "person.crop.circle.badge.xmark")
