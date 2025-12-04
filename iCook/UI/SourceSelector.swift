@@ -802,12 +802,7 @@ struct RenameSourceSheet: View {
             Form {
                 Section("Collection Name") {
                     TextField("Collection Name", text: $sourceName)
-                }
-                
-                Section {
-                    Text("Only owners can rename a collection.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                        .labelsHidden()
                 }
             }
             .formStyle(.grouped)
