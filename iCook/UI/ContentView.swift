@@ -13,6 +13,7 @@ struct ContentView: View {
     @State private var editingCategory: Category? = nil
     @State private var collectionType: RecipeCollectionType? = .home
     @State private var navPath = NavigationPath()
+    @State private var navStackKey = UUID().uuidString
     @State private var didRestoreLastViewed = false
     @State private var suppressResetOnSourceChange = false
     
@@ -50,6 +51,7 @@ struct ContentView: View {
             NavigationStack(path: $navPath) {
                 RecipeCollectionView(collectionType: collectionType ?? .home)
             }
+            .id(navStackKey)
 #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
 #endif
@@ -88,8 +90,24 @@ struct ContentView: View {
                 suppressResetOnSourceChange = false
             } else {
                 navPath = NavigationPath()
+                navStackKey = UUID().uuidString
                 collectionType = .home
+                selectedCategoryID = nil
+                isShowingHome = true
+                model.clearLastViewedRecipe()
             }
+        }
+        .onChange(of: model.sourceSelectionStamp) { _, _ in
+            if suppressResetOnSourceChange {
+                suppressResetOnSourceChange = false
+                return
+            }
+            navPath = NavigationPath()
+            navStackKey = UUID().uuidString
+            collectionType = .home
+            selectedCategoryID = nil
+            isShowingHome = true
+            model.clearLastViewedRecipe()
         }
         .alert("Error",
                isPresented: .init(

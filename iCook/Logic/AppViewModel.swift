@@ -26,6 +26,7 @@ final class AppViewModel: ObservableObject {
     // Source management
     @Published var currentSource: Source?
     @Published var sources: [Source] = []
+    @Published var sourceSelectionStamp = UUID()
     
     init() {
         // Prime from cached manager state so UI doesn't start empty when offline/online
@@ -86,6 +87,7 @@ final class AppViewModel: ObservableObject {
         cloudKitManager.currentSource = source
         cloudKitManager.saveCurrentSourceID()
         currentSource = source
+        sourceSelectionStamp = UUID()
         await loadCategories()
         await loadRandomRecipes(skipCache: true)
         refreshOfflineState()
@@ -739,6 +741,10 @@ final class AppViewModel: ObservableObject {
     func clearErrors() {
         error = nil
         cloudKitManager.error = nil
+    }
+    
+    func clearLastViewedRecipe() {
+        UserDefaults.standard.removeObject(forKey: lastViewedRecipeKey)
     }
     
 }
