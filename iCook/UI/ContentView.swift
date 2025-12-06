@@ -12,6 +12,7 @@ struct ContentView: View {
     @State private var showingAddCategory = false
     @State private var editingCategory: Category? = nil
     @State private var collectionType: RecipeCollectionType? = .home
+    @State private var lastCollectionType: RecipeCollectionType = .home
     @State private var navPath = NavigationPath()
     @State private var navStackKey = UUID().uuidString
     @State private var didRestoreLastViewed = false
@@ -49,7 +50,7 @@ struct ContentView: View {
         } detail: {
             // Single NavigationStack for the detail view
             NavigationStack(path: $navPath) {
-                RecipeCollectionView(collectionType: collectionType ?? .home)
+                RecipeCollectionView(collectionType: collectionType ?? lastCollectionType)
             }
             .id(navStackKey)
 #if os(iOS)
@@ -110,7 +111,7 @@ struct ContentView: View {
             model.clearLastViewedRecipe()
         }
         .alert("Error",
-               isPresented: .init(
+            isPresented: .init(
                 get: { model.error != nil },
                 set: { if !$0 { model.error = nil } }
                ),
@@ -124,6 +125,11 @@ struct ContentView: View {
         .sheet(item: $editingCategory) { category in
             AddCategoryView(editingCategory: category)
                 .environmentObject(model)
+        }
+        .onChange(of: collectionType) { _, newValue in
+            if let newValue {
+                lastCollectionType = newValue
+            }
         }
         .onAppear {
             // Try to restore immediately from cached data to avoid visible jumps

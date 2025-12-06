@@ -603,12 +603,17 @@ struct RecipeCollectionView: View {
             .onReceive(NotificationCenter.default.publisher(for: .recipeUpdated)) { notification in
                 if let updatedRecipe = notification.object as? Recipe {
                     Task { @MainActor in
-                        // Update local arrays without refetching
+                        // Update local arrays immediately, then force a fresh fetch to pick up new assets/thumbs
                         if let idx = categoryRecipes.firstIndex(where: { $0.id == updatedRecipe.id }) {
                             categoryRecipes[idx] = updatedRecipe
                         }
                         if let idx = model.randomRecipes.firstIndex(where: { $0.id == updatedRecipe.id }) {
                             model.randomRecipes[idx] = updatedRecipe
+                        }
+                        if case .category = collectionType {
+                            await refreshCategoryRecipes(skipCache: true)
+                        } else if case .home = collectionType {
+                            await loadRecipes(skipCache: true)
                         }
                     }
                 } else if let _ = notification.object as? CKRecord.ID {
@@ -944,8 +949,9 @@ extension View {
     ) -> some View {
         self
             .onChange(of: model.recipes) { _, newRecipes in
-                if case .category = collectionType {
-                    categoryRecipes.wrappedValue = newRecipes
+                if case .category(let category) = collectionType {
+                    // Keep category lists scoped to their category even when global model changes (e.g., home refresh)
+                    categoryRecipes.wrappedValue = newRecipes.filter { $0.categoryID == category.id }
                 }
             }
             .onChange(of: categoryRecipes.wrappedValue) { _, newRecipes in

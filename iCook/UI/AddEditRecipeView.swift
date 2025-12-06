@@ -679,6 +679,7 @@ struct AddEditRecipeView: View {
                         EmptyView()
                     }
                 }
+                .allowsHitTesting(false)
             }
             
             if isUploading || isCompressingImage {

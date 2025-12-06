@@ -633,6 +633,16 @@ class CloudKitManager: ObservableObject {
     func cachedImagePathForRecipe(_ recipeID: CKRecord.ID) -> String? {
         cachedImagePath(for: recipeID)
     }
+
+    /// Public helper to clear all cached image files for a recipe.
+    func purgeCachedImages(for recipeID: CKRecord.ID) {
+        removeCachedImages(for: recipeID)
+    }
+
+    /// Public helper to cache recipes for a specific scope (all or per-category).
+    func cacheRecipes(_ recipes: [Recipe], for source: Source, categoryID: CKRecord.ID?) {
+        saveRecipesLocalCache(recipes, for: source, categoryID: categoryID)
+    }
     
     private func removeCachedImage(for recipeID: CKRecord.ID) {
         removeCachedImages(for: recipeID)

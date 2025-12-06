@@ -463,25 +463,11 @@ final class AppViewModel: ObservableObject {
         
         // Handle image if provided
         if let imageData = image {
+            // Clear any old cached variants before saving a new one
+            cloudKitManager.purgeCachedImages(for: recipe.id)
             if let result = await cloudKitManager.saveImage(imageData, for: updatedRecipe) {
                 updatedRecipe.imageAsset = result.asset
-                let fm = FileManager.default
-                if let existingPath = recipe.cachedImagePath, fm.fileExists(atPath: existingPath) {
-                    try? fm.removeItem(atPath: existingPath)
-                }
-                let originalURL = URL(fileURLWithPath: result.cachedPath ?? "")
-                let ext = originalURL.pathExtension
-                let base = originalURL.deletingPathExtension().lastPathComponent
-                let version = Int(Date().timeIntervalSince1970)
-                let newName = "\(base)_v\(version).\(ext.isEmpty ? "jpg" : ext)"
-                let newURL = originalURL.deletingLastPathComponent().appendingPathComponent(newName)
-                try? fm.removeItem(at: newURL)
-                do {
-                    try fm.copyItem(at: originalURL, to: newURL)
-                    updatedRecipe.cachedImagePath = newURL.path
-                } catch {
-                    updatedRecipe.cachedImagePath = result.cachedPath
-                }
+                updatedRecipe.cachedImagePath = result.cachedPath
             }
         }
         
@@ -506,6 +492,14 @@ final class AppViewModel: ObservableObject {
             // Persist updated recipes to cache immediately to avoid stale data after relaunch
             cloudKitManager.recipes = recipes
             cloudKitManager.cacheRecipesSnapshot(recipes, for: source)
+            // Also refresh the per-category cache so thumbnails stay in sync when revisiting the list
+            let newCategoryRecipes = recipes.filter { $0.categoryID == updatedRecipe.categoryID }
+            cloudKitManager.cacheRecipes(newCategoryRecipes, for: source, categoryID: updatedRecipe.categoryID)
+            // If the category changed, refresh the old category cache as well
+            if let categoryId = categoryId, categoryId != recipe.categoryID {
+                let oldCategoryRecipes = recipes.filter { $0.categoryID == recipe.categoryID }
+                cloudKitManager.cacheRecipes(oldCategoryRecipes, for: source, categoryID: recipe.categoryID)
+            }
             // Force refresh from CloudKit to pull latest fields and bust stale cache
             await loadCategories()
             await loadRecipesForCategory(updatedRecipe.categoryID, skipCache: true)
