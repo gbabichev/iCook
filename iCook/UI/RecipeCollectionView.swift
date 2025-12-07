@@ -753,14 +753,18 @@ struct RecipeCollectionView: View {
             // Reset home featured when returning home; keep category featured intact to avoid placeholder flicker.
             selectedFeaturedRecipe = nil
             featuredHomeRecipe = model.recipes.randomElement()
-        } else {
+        } else if case .category(let category) = collectionType {
+            // Update featured recipe for the new category from existing data
             featuredHomeRecipe = nil
+            let categoryRecipes = model.recipes.filter { $0.categoryID == category.id }
+            selectedFeaturedRecipe = categoryRecipes.randomElement()
         }
         showingSearchResults = false
         searchResults = []
         searchText = ""
         searchTask?.cancel()
-        await loadRecipes()
+        // Don't reload data - it's already in model.recipes
+        // Only reload on initial load or manual refresh
     }
 
     private var deletingOverlay: some View {
