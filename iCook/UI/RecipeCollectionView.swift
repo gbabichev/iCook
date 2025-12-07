@@ -90,6 +90,8 @@ struct RecipeCollectionView: View {
     @State private var isDeleting = false
     @State private var selectedFeaturedRecipe: Recipe?
     @State private var hasLoadedInitially = false
+    @State private var isRefreshInFlight = false
+    @State private var showRefreshSpinner = false
     
     // Search state
     @State private var searchText = ""
@@ -451,7 +453,11 @@ struct RecipeCollectionView: View {
             isLoading = false
             // Kick off a background refresh of all recipes if we're not already loading
             if !model.isLoadingRecipes {
-                Task { await model.loadRandomRecipes(skipCache: skipCache) }
+                Task {
+                    showRefreshSpinner = true
+                    await model.loadRandomRecipes(skipCache: skipCache)
+                    showRefreshSpinner = false
+                }
             }
         } else {
             // Nothing cached for this category; block until we fetch
@@ -689,6 +695,9 @@ struct RecipeCollectionView: View {
     }
 
     private func handleRefresh() async {
+        guard !isRefreshInFlight else { return }
+        isRefreshInFlight = true
+        showRefreshSpinner = true
         isRefreshing = true
         let start = Date()
         if showingSearchResults {
@@ -702,6 +711,8 @@ struct RecipeCollectionView: View {
             try? await Task.sleep(nanoseconds: UInt64((0.8 - elapsed) * 1_000_000_000))
         }
         isRefreshing = false
+        showRefreshSpinner = false
+        isRefreshInFlight = false
     }
 
     private func initialLoadIfNeeded() async {
@@ -775,6 +786,14 @@ struct RecipeCollectionView: View {
     @ToolbarContentBuilder
     private func buildToolbar() -> some ToolbarContent {
         if model.isLoadingCategories {
+            ToolbarItem(placement: .navigation) {
+                Button(action: {}) {
+                    ProgressView()
+                        .scaleEffect(0.7)
+                }
+                .disabled(true)
+            }
+        } else if showRefreshSpinner {
             ToolbarItem(placement: .navigation) {
                 Button(action: {}) {
                     ProgressView()

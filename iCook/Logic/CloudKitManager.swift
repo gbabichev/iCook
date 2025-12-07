@@ -566,15 +566,12 @@ class CloudKitManager: ObservableObject {
             try data.write(to: destination, options: .atomic)
             let attrs = try FileManager.default.attributesOfItem(atPath: destination.path)
             if let size = attrs[.size] as? NSNumber, size.intValue > 0 {
-                printD("Image cache write (data) OK for \(recipeID.recordName) -> \(destination.lastPathComponent) (\(size.intValue) bytes)")
                 return destination.path
             } else {
                 try? FileManager.default.removeItem(at: destination)
-                printD("Image cache write (data) empty for \(recipeID.recordName)")
                 return cachedImagePath(for: recipeID)
             }
         } catch {
-            printD("Error caching image data: \(error.localizedDescription)")
             return cachedImagePath(for: recipeID)
         }
     }
@@ -595,15 +592,12 @@ class CloudKitManager: ObservableObject {
             // Validate non-empty file; otherwise keep existing
             let attrs = try FileManager.default.attributesOfItem(atPath: destination.path)
             if let size = attrs[.size] as? NSNumber, size.intValue > 0 {
-                printD("Image cache write OK for \(recipeID.recordName) -> \(destination.lastPathComponent) (\(size.intValue) bytes)")
                 return destination.path
             } else {
                 try? FileManager.default.removeItem(at: destination)
-                printD("Image cache write empty for \(recipeID.recordName); keeping existing")
                 return existingPath ?? cachedImagePath(for: recipeID)
             }
         } catch {
-            printD("Error caching image asset: \(error.localizedDescription)")
             return existingPath ?? cachedImagePath(for: recipeID)
         }
     }
@@ -666,11 +660,9 @@ class CloudKitManager: ObservableObject {
         if let current = recipe.cachedImagePath,
            fm.fileExists(atPath: current) {
             if current.contains("_\(token).asset") {
-                printD("Image cache reuse current for \(recipe.id.recordName): \(current)")
                 updatedRecipe.cachedImagePath = current
                 return updatedRecipe
             } else {
-                printD("Image cache outdated for \(recipe.id.recordName); purging cached images")
                 removeCachedImages(for: recipe.id)
             }
         }
@@ -678,14 +670,11 @@ class CloudKitManager: ObservableObject {
         // Cache from CloudKit asset if available
         if let asset = recipe.imageAsset,
            let localPath = cacheImageAsset(asset, for: recipe.id, versionToken: token, existingPath: nil) {
-            printD("Image cache wrote versioned for \(recipe.id.recordName): \(localPath)")
             updatedRecipe.cachedImagePath = localPath
         } else if let cachedPath = cachedImagePath(for: recipe.id, versionToken: token),
                   fm.fileExists(atPath: cachedPath) {
-            printD("Image cache found versioned for \(recipe.id.recordName): \(cachedPath)")
             updatedRecipe.cachedImagePath = cachedPath
         } else {
-            printD("Image cache missing for \(recipe.id.recordName)")
             updatedRecipe.cachedImagePath = nil
         }
         return updatedRecipe

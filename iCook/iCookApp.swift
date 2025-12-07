@@ -158,12 +158,6 @@ struct iCookApp: App {
 #if os(macOS)
     @MainActor
     private func refreshCurrentView() async {
-        // Refresh categories
-        await model.loadCategories()
-        
-        // Refresh random recipes for home view
-        await model.loadRandomRecipes(skipCache: true)
-        
         // Post a notification that other views can listen to for refresh
         NotificationCenter.default.post(name: .refreshRequested, object: nil)
     }

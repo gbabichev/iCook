@@ -151,11 +151,6 @@ struct ContentView: View {
                 didRestoreLastViewed = true
             }
         }
-#if os(macOS)
-        .onReceive(NotificationCenter.default.publisher(for: .refreshRequested)) { _ in
-            Task { await refreshActiveCollection() }
-        }
-#endif
     }
 }
 
@@ -171,18 +166,3 @@ extension Recipe {
         return asset.fileURL
     }
 }
-
-#if os(macOS)
-private extension ContentView {
-    @MainActor
-    func refreshActiveCollection() async {
-        switch collectionType ?? .home {
-        case .home:
-            await model.loadRandomRecipes(skipCache: true)
-        case .category(let category):
-            // Use the unified all-recipes loader so categories stay in sync; view filters locally.
-            await model.loadRandomRecipes(skipCache: true)
-        }
-    }
-}
-#endif
