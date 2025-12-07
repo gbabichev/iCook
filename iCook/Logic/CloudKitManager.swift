@@ -587,6 +587,10 @@ class CloudKitManager: ObservableObject {
         
         let destination = imageCacheURL(for: recipeID, versionToken: versionToken)
         do {
+            // Replace any existing versioned file to avoid "item exists" errors
+            if FileManager.default.fileExists(atPath: destination.path) {
+                try? FileManager.default.removeItem(at: destination)
+            }
             try FileManager.default.copyItem(at: sourceURL, to: destination)
             // Validate non-empty file; otherwise keep existing
             let attrs = try FileManager.default.attributesOfItem(atPath: destination.path)
