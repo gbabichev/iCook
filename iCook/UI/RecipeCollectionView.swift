@@ -894,6 +894,7 @@ struct RecipeCollectionView: View {
                             // Recipes grid section
                             recipesGridSection()
                         }
+                        .id(model.recipesRefreshTrigger)
                     }
                     .safeAreaInset(edge: .top) {
                         if isRefreshing {

@@ -13,6 +13,7 @@ final class AppViewModel: ObservableObject {
     @Published var recipeCounts: [CKRecord.ID: Int] = [:]
     @Published var isLoadingCategories = false
     @Published var isLoadingRecipes = false
+    @Published var recipesRefreshTrigger = 0
 #if os(macOS)
     @Published var isImporting = false
 #endif
@@ -278,6 +279,8 @@ final class AppViewModel: ObservableObject {
         randomRecipes = cloudKitManager.recipes
         // Keep the main recipes array in sync so category views pick up latest names
         recipes = cloudKitManager.recipes
+        // Increment trigger to force SwiftUI to detect the change
+        recipesRefreshTrigger += 1
         error = cloudKitManager.error
         refreshOfflineState()
         isLoadingRecipes = false
