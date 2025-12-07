@@ -103,6 +103,7 @@ struct RecipeCollectionView: View {
     @State private var isRefreshing = false
     @State private var showRevokedToast = false
     @State private var revokedToastMessage = ""
+    @State private var featuredHomeRecipe: Recipe?
     
     
     // Adaptive columns with consistent spacing - account for spacing in minimum width
@@ -152,7 +153,7 @@ struct RecipeCollectionView: View {
         
         switch collectionType {
         case .home:
-            return recipes.first
+            return featuredHomeRecipe ?? recipes.randomElement()
         case .category:
             // Only return the stored selection if it exists and is valid
             if let selected = selectedFeaturedRecipe,
@@ -171,7 +172,8 @@ struct RecipeCollectionView: View {
         
         switch collectionType {
         case .home:
-            return Array(recipes.dropFirst())
+            // Keep featured recipe visible in the grid as well
+            return recipes
         case .category:
             guard let featured = featuredRecipe else {
                 return recipes
@@ -440,6 +442,7 @@ struct RecipeCollectionView: View {
         
         currentLoadTask = Task {
             await model.loadRandomRecipes(skipCache: skipCache)
+            featuredHomeRecipe = model.randomRecipes.randomElement()
             try? await Task.sleep(nanoseconds: 800_000_000) // 800ms minimum refresh time
         }
         
@@ -582,213 +585,242 @@ struct RecipeCollectionView: View {
                 deletingRecipe: $deletingRecipe,
                 showingDeleteAlert: $showingDeleteAlert
             ) { recipe in
-                Task {
-                    await deleteRecipe(recipe)
-                }
+                Task { await deleteRecipe(recipe) }
             }
             .applySheetModifiers(editingRecipe: $editingRecipe, showingAddRecipe: $showingAddRecipe, showNewSourceSheet: $showNewSourceSheet, newSourceName: $newSourceName, categoryIdIfApplicable: categoryIdIfApplicable, model: model)
             .padding(.top, isSearchActive ? 0 : 0)
             .ignoresSafeArea(edges: isSearchActive ? [] : .top)
             .toast(isPresented: $showRevokedToast, message: revokedToastMessage)
-            .onReceive(NotificationCenter.default.publisher(for: .recipeDeleted)) { notification in
-                if let deletedRecipeId = notification.object as? CKRecord.ID {
-                    categoryRecipes.removeAll { $0.id == deletedRecipeId }
-                    Task {
-                        if case .category = collectionType {
-                            await refreshCategoryRecipes()
-                        }
-                    }
-                }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .recipeUpdated)) { notification in
-                if let updatedRecipe = notification.object as? Recipe {
-                    Task { @MainActor in
-                        // Update local arrays immediately, then force a fresh fetch to pick up new assets/thumbs
-                        if let idx = categoryRecipes.firstIndex(where: { $0.id == updatedRecipe.id }) {
-                            categoryRecipes[idx] = updatedRecipe
-                        }
-                        if let idx = model.randomRecipes.firstIndex(where: { $0.id == updatedRecipe.id }) {
-                            model.randomRecipes[idx] = updatedRecipe
-                        }
-                        if case .category = collectionType {
-                            await refreshCategoryRecipes(skipCache: true)
-                        } else if case .home = collectionType {
-                            await loadRecipes(skipCache: true)
-                        }
-                    }
-                } else if let _ = notification.object as? CKRecord.ID {
-                    Task { @MainActor in
-                        if case .category = collectionType {
-                            await refreshCategoryRecipes(skipCache: true)
-                        } else if case .home = collectionType {
-                            await loadRecipes(skipCache: true)
-                        }
-                    }
-                }
-            }
-            .task {
-                if !hasLoadedInitially {
-                    hasLoadedInitially = true
-                    selectedFeaturedRecipe = nil
-                    showingSearchResults = false
-                    searchResults = []
-                    searchText = ""
-                    searchTask?.cancel()
-                    await loadRecipes()
-                }
-            }
-            .onChange(of: collectionType) { _, _ in
-                Task {
-                    selectedFeaturedRecipe = nil
-                    showingSearchResults = false
-                    searchResults = []
-                    searchText = ""
-                    searchTask?.cancel()
-                    await loadRecipes()
-                }
-            }
+            .onReceive(NotificationCenter.default.publisher(for: .recipeDeleted), perform: handleRecipeDeleted)
+            .onReceive(NotificationCenter.default.publisher(for: .recipeUpdated), perform: handleRecipeUpdated)
+            .task { await initialLoadIfNeeded() }
+            .onChange(of: collectionType) { _, _ in Task { await handleCollectionTypeChange() } }
             .task(id: model.randomRecipes.count) {
                 if case .home = collectionType {
-                    // No need to reload
+                    // No need to reload; featured selection handled by changes below
                 }
             }
             .searchable(text: $searchText, placement: .toolbar, prompt: "Search recipes")
-            .onSubmit(of: .search) {
-                performSearch()
-                logSearchState("onSubmit")
-            }
+            .onSubmit(of: .search) { performSearch(); logSearchState("onSubmit") }
             .onChange(of: model.recipes) { _, newValue in
                 if let first = newValue.first {
                     logImagePath(first, context: "onChange model.recipes first")
                 }
             }
-            .onChange(of: searchText) { _, newValue in
-                let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-                if trimmed.isEmpty {
-                    showingSearchResults = false
-                    searchResults = []
-                    searchTask?.cancel()
-                    logSearchState("onChange cleared")
-                } else {
-                    showingSearchResults = true
-                    searchTask?.cancel()
-                    searchTask = Task {
-                        try? await Task.sleep(nanoseconds: 250_000_000) // 250ms debounce
-                        guard !Task.isCancelled else { return }
-                        await performSearch(with: trimmed)
-                    }
-                    logSearchState("onChange typing")
+            .onChange(of: model.randomRecipes) { _, newValue in
+                if case .home = collectionType {
+                    featuredHomeRecipe = newValue.randomElement()
                 }
             }
-            .onReceive(NotificationCenter.default.publisher(for: .shareRevokedToast)) { notification in
-                if let name = notification.object as? String {
-                    revokedToastMessage = "Collection '\(name)' was revoked"
-                } else {
-                    revokedToastMessage = "A shared collection was revoked"
-                }
-                withAnimation {
-                    showRevokedToast = true
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
-                    withAnimation {
-                        showRevokedToast = false
-                    }
+            .onChange(of: searchText, initial: false) { oldValue, newValue in
+                // oldValue unused but keeps us on the new API signature for macOS 14+
+                _ = oldValue
+                handleSearchTextChange(newValue)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .shareRevokedToast), perform: handleShareRevokedToast)
+            .refreshable { await handleRefresh() }
+            .sheet(isPresented: $showingOfflineNotice) { offlineNoticeSheet }
+            .overlay { deletingOverlay }
+            .overlay(alignment: .center) { debugOverlay }
+            .toolbar { buildToolbar() }
+    }
+
+    // MARK: - Event Handlers (extracted to simplify body)
+
+    private func handleRecipeDeleted(_ notification: Notification) {
+        if let deletedRecipeId = notification.object as? CKRecord.ID {
+            categoryRecipes.removeAll { $0.id == deletedRecipeId }
+            Task {
+                if case .category = collectionType {
+                    await refreshCategoryRecipes()
                 }
             }
-            .refreshable {
-                isRefreshing = true
-                let start = Date()
-                if showingSearchResults {
-                    performSearch()
-                } else {
+        }
+    }
+
+    private func handleRecipeUpdated(_ notification: Notification) {
+        if let updatedRecipe = notification.object as? Recipe {
+            Task { @MainActor in
+                if let idx = categoryRecipes.firstIndex(where: { $0.id == updatedRecipe.id }) {
+                    categoryRecipes[idx] = updatedRecipe
+                }
+                if let idx = model.randomRecipes.firstIndex(where: { $0.id == updatedRecipe.id }) {
+                    model.randomRecipes[idx] = updatedRecipe
+                }
+                if case .category = collectionType {
+                    await refreshCategoryRecipes(skipCache: true)
+                } else if case .home = collectionType {
                     await loadRecipes(skipCache: true)
                 }
-                let elapsed = Date().timeIntervalSince(start)
-                if elapsed < 0.8 {
-                    try? await Task.sleep(nanoseconds: UInt64((0.8 - elapsed) * 1_000_000_000))
-                }
-                isRefreshing = false
             }
-            .sheet(isPresented: $showingOfflineNotice) {
-                offlineNoticeSheet
-            }
-            .overlay {
-                if isDeleting {
-                    ZStack {
-                        Color.black.opacity(0.3)
-                            .ignoresSafeArea()
-                        VStack(spacing: 16) {
-                            ProgressView()
-                            Text("Deleting recipe...")
-                                .font(.headline)
-                        }
-                        .padding()
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-                    }
+        } else if let _ = notification.object as? CKRecord.ID {
+            Task { @MainActor in
+                if case .category = collectionType {
+                    await refreshCategoryRecipes(skipCache: true)
+                } else if case .home = collectionType {
+                    await loadRecipes(skipCache: true)
                 }
             }
-            .overlay(alignment: .center) {
-                if isDebugOperationInProgress {
-                    ZStack {
-                        Color.black.opacity(0.3)
-                            .ignoresSafeArea()
-                        VStack(spacing: 16) {
-                            ProgressView()
-                                .scaleEffect(1.5, anchor: .center)
-                            Text("Resetting sources...")
-                                .font(.headline)
-                        }
-                        .padding(32)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+        }
+    }
+
+    private func handleSearchTextChange(_ newValue: String) {
+        let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            showingSearchResults = false
+            searchResults = []
+            searchTask?.cancel()
+            logSearchState("onChange cleared")
+        } else {
+            showingSearchResults = true
+            searchTask?.cancel()
+            searchTask = Task {
+                try? await Task.sleep(nanoseconds: 250_000_000) // 250ms debounce
+                guard !Task.isCancelled else { return }
+                await performSearch(with: trimmed)
+            }
+            logSearchState("onChange typing")
+        }
+    }
+
+    private func handleShareRevokedToast(_ notification: Notification) {
+        if let name = notification.object as? String {
+            revokedToastMessage = "Collection '\(name)' was revoked"
+        } else {
+            revokedToastMessage = "A shared collection was revoked"
+        }
+        withAnimation { showRevokedToast = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+            withAnimation { showRevokedToast = false }
+        }
+    }
+
+    private func handleRefresh() async {
+        isRefreshing = true
+        let start = Date()
+        if showingSearchResults {
+            performSearch()
+        } else {
+            await loadRecipes(skipCache: true)
+        }
+        let elapsed = Date().timeIntervalSince(start)
+        if elapsed < 0.8 {
+            try? await Task.sleep(nanoseconds: UInt64((0.8 - elapsed) * 1_000_000_000))
+        }
+        isRefreshing = false
+    }
+
+    private func initialLoadIfNeeded() async {
+        if !hasLoadedInitially {
+            hasLoadedInitially = true
+            selectedFeaturedRecipe = nil
+            if case .home = collectionType {
+                featuredHomeRecipe = model.randomRecipes.randomElement()
+            }
+            showingSearchResults = false
+            searchResults = []
+            searchText = ""
+            searchTask?.cancel()
+            await loadRecipes()
+        }
+    }
+
+    private func handleCollectionTypeChange() async {
+        selectedFeaturedRecipe = nil
+        if case .home = collectionType {
+            featuredHomeRecipe = model.randomRecipes.randomElement()
+        } else {
+            featuredHomeRecipe = nil
+        }
+        showingSearchResults = false
+        searchResults = []
+        searchText = ""
+        searchTask?.cancel()
+        await loadRecipes()
+    }
+
+    private var deletingOverlay: some View {
+        Group {
+            if isDeleting {
+                ZStack {
+                    Color.black.opacity(0.3)
+                        .ignoresSafeArea()
+                    VStack(spacing: 16) {
+                        ProgressView()
+                        Text("Deleting recipe...")
+                            .font(.headline)
                     }
-                    .transition(.opacity)
+                    .padding()
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
                 }
             }
-            .toolbar {
-                if model.isLoadingCategories {
-                    ToolbarItem(placement: .navigation) {
-                        Button(action: {}) {
-                            ProgressView()
-                                .scaleEffect(0.7)
-                        }
-                        .disabled(true)
+        }
+    }
+
+    private var debugOverlay: some View {
+        Group {
+            if isDebugOperationInProgress {
+                ZStack {
+                    Color.black.opacity(0.3)
+                        .ignoresSafeArea()
+                    VStack(spacing: 16) {
+                        ProgressView()
+                            .scaleEffect(1.5, anchor: .center)
+                        Text("Resetting sources...")
+                            .font(.headline)
                     }
+                    .padding(32)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
                 }
-                
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        showingAddRecipe = true
-                    } label: {
-                        Image(systemName: "plus.circle.fill")
-                    }
-                    .disabled(model.isOfflineMode || !hasActiveCollection || model.categories.isEmpty)
-                    .help(
-                        model.isOfflineMode
-                        ? "Connect to iCloud to add recipes"
-                        : (!hasActiveCollection
-                           ? "Create a collection first"
-                           : (model.categories.isEmpty ? "Add a category first" : "Add Recipe"))
-                    )
-                    .accessibilityLabel("Add Recipe")
+                .transition(.opacity)
+            }
+        }
+    }
+
+    @ToolbarContentBuilder
+    private func buildToolbar() -> some ToolbarContent {
+        if model.isLoadingCategories {
+            ToolbarItem(placement: .navigation) {
+                Button(action: {}) {
+                    ProgressView()
+                        .scaleEffect(0.7)
                 }
-                
+                .disabled(true)
+            }
+        }
+        
+        ToolbarItem(placement: .primaryAction) {
+            Button {
+                showingAddRecipe = true
+            } label: {
+                Image(systemName: "plus.circle.fill")
+            }
+            .disabled(model.isOfflineMode || !hasActiveCollection || model.categories.isEmpty)
+            .help(
+                model.isOfflineMode
+                ? "Connect to iCloud to add recipes"
+                : (!hasActiveCollection
+                   ? "Create a collection first"
+                   : (model.categories.isEmpty ? "Add a category first" : "Add Recipe"))
+            )
+            .accessibilityLabel("Add Recipe")
+        }
+        
 #if DEBUG
-                ToolbarItem(placement: .primaryAction) {
-                    debugMenu
-                }
+        ToolbarItem(placement: .primaryAction) {
+            debugMenu
+        }
 #endif
-                
+        
 #if os(macOS)
-                ToolbarItem(placement: .status) {
-                    offlineStatusIndicator
-                }
+        ToolbarItem(placement: .status) {
+            offlineStatusIndicator
+        }
 #else
-                ToolbarItem(placement: .navigationBarLeading) {
-                    offlineStatusIndicator
-                }
+        ToolbarItem(placement: .navigationBarLeading) {
+            offlineStatusIndicator
+        }
 #endif
-                //ToolbarSpacer(.flexible)
-            }
     }
     
     private var mainContent: some View {

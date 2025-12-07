@@ -256,13 +256,13 @@ final class AppViewModel: ObservableObject {
         isLoadingRecipes = false
     }
     
-    func loadRandomRecipes(count: Int = 20, skipCache: Bool = false) async {
+    func loadRandomRecipes(skipCache: Bool = false) async {
         guard let source = currentSource else { return }
         guard !isLoadingRecipes else { return }
         
         isLoadingRecipes = true
         
-        await cloudKitManager.loadRandomRecipes(for: source, count: count, skipCache: skipCache)
+        await cloudKitManager.loadRandomRecipes(for: source, skipCache: skipCache)
         randomRecipes = cloudKitManager.recipes
         // Keep the main recipes array in sync so category views pick up latest names
         recipes = cloudKitManager.recipes

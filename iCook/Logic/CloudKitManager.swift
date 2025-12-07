@@ -1590,7 +1590,7 @@ class CloudKitManager: ObservableObject {
         recipeCache = recipeCache.filter { $0.key.zoneID != source.id.zoneID }
     }
     
-    func loadRandomRecipes(for source: Source, count: Int = 20, skipCache: Bool = false) async {
+    func loadRandomRecipes(for source: Source, skipCache: Bool = false) async {
         isLoading = true
         defer { isLoading = false }
         
@@ -1600,10 +1600,8 @@ class CloudKitManager: ObservableObject {
             removeRecipeCache(for: source)
         } else if let cachedAllRecipes = loadRecipesLocalCache(for: source, categoryID: nil),
                   !cachedAllRecipes.isEmpty {
-            // Keep existing order to avoid jarring reorders; just seed from cache if we have none
-            if recipes.isEmpty {
-                self.recipes = Array(cachedAllRecipes.prefix(count))
-            }
+            // Seed from cache to avoid empty UI while loading
+            self.recipes = cachedAllRecipes.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         }
         
         guard isCloudKitAvailable else {
@@ -1616,6 +1614,7 @@ class CloudKitManager: ObservableObject {
                 CKRecord.Reference(recordID: source.id, action: .none)
             )
             let query = CKQuery(recordType: "Recipe", predicate: predicate)
+            query.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true)]
             
             var allRecipes: [Recipe] = []
             
@@ -1643,26 +1642,15 @@ class CloudKitManager: ObservableObject {
                 }
             }
             
-            // Only randomize on first load; otherwise keep a stable order by lastModified/name
-            if recipes.isEmpty {
-                let randomized = allRecipes.shuffled()
-                saveRecipesLocalCache(randomized, for: source, categoryID: nil)
-                self.recipes = Array(randomized.prefix(count))
-            } else {
-                let stable = allRecipes.sorted { lhs, rhs in
-                    if lhs.lastModified == rhs.lastModified {
-                        return lhs.name < rhs.name
-                    }
-                    return lhs.lastModified > rhs.lastModified
-                }
-                saveRecipesLocalCache(stable, for: source, categoryID: nil)
-                self.recipes = Array(stable.prefix(count))
-                // Refresh per-category caches so names stay in sync across views
-                let sourceCategories = categories.filter { $0.sourceID == source.id }
-                for cat in sourceCategories {
-                    let filtered = stable.filter { $0.categoryID == cat.id }
-                    saveRecipesLocalCache(filtered, for: source, categoryID: cat.id)
-                }
+            // Keep a consistent alphabetical order for the list
+            let alphabetical = allRecipes.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            saveRecipesLocalCache(alphabetical, for: source, categoryID: nil)
+            self.recipes = alphabetical
+            // Refresh per-category caches so names stay in sync across views
+            let sourceCategories = categories.filter { $0.sourceID == source.id }
+            for cat in sourceCategories {
+                let filtered = alphabetical.filter { $0.categoryID == cat.id }
+                saveRecipesLocalCache(filtered, for: source, categoryID: cat.id)
             }
             markOnlineIfNeeded()
             DispatchQueue.main.async {
@@ -1671,8 +1659,7 @@ class CloudKitManager: ObservableObject {
         } catch {
             if handleOfflineFallback(for: error) {
                 if let cachedAllRecipes = loadRecipesLocalCache(for: source, categoryID: nil) {
-                    let shuffled = cachedAllRecipes.shuffled()
-                    self.recipes = Array(shuffled.prefix(count))
+                    self.recipes = cachedAllRecipes.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
                 } else {
                     self.recipes = []
                 }
@@ -1689,8 +1676,7 @@ class CloudKitManager: ObservableObject {
                     self.error = "Failed to load recipes"
                 }
                 if let cachedAllRecipes = loadRecipesLocalCache(for: source, categoryID: nil) {
-                    let shuffled = cachedAllRecipes.shuffled()
-                    self.recipes = Array(shuffled.prefix(count))
+                    self.recipes = cachedAllRecipes.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
                 } else {
                     self.recipes = []
                 }
