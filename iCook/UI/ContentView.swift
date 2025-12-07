@@ -63,22 +63,38 @@ struct ContentView: View {
         .task {
             await model.loadSources()
             if !didRestoreLastViewed,
-               let saved = model.loadLastViewedRecipeID(),
+               let saved = model.loadAppLocation(),
                let source = model.sources.first(where: { $0.id == saved.sourceID }) {
                 suppressResetOnSourceChange = true
                 await model.selectSource(source)
-                if let catID = saved.categoryID,
-                   let category = model.categories.first(where: { $0.id == catID }) {
-                    collectionType = .category(category)
-                    await model.loadRandomRecipes(skipCache: true)
-                } else {
+                await model.loadRandomRecipes(skipCache: true)
+
+                switch saved.location {
+                case .allRecipes:
                     collectionType = .home
-                    await model.loadRandomRecipes(skipCache: true)
-                }
-                if let recipe = model.recipes.first(where: { $0.id == saved.recipeID }) ??
-                    model.randomRecipes.first(where: { $0.id == saved.recipeID }) {
-                    navPath.append(recipe)
                     didRestoreLastViewed = true
+
+                case .category(let categoryID):
+                    if let category = model.categories.first(where: { $0.id == categoryID }) {
+                        collectionType = .category(category)
+                        didRestoreLastViewed = true
+                    }
+
+                case .recipe(let recipeID, let categoryID):
+                    // Set the collection type first
+                    if let catID = categoryID,
+                       let category = model.categories.first(where: { $0.id == catID }) {
+                        collectionType = .category(category)
+                    } else {
+                        collectionType = .home
+                    }
+
+                    // Then navigate to the recipe
+                    if let recipe = model.recipes.first(where: { $0.id == recipeID }) ??
+                        model.randomRecipes.first(where: { $0.id == recipeID }) {
+                        navPath.append(recipe)
+                        didRestoreLastViewed = true
+                    }
                 }
             } else if model.currentSource != nil {
                 await model.loadCategories()
@@ -129,26 +145,62 @@ struct ContentView: View {
         .onChange(of: collectionType) { _, newValue in
             if let newValue {
                 lastCollectionType = newValue
+                // Save location when collectionType changes
+                switch newValue {
+                case .home:
+                    model.saveAppLocation(.allRecipes)
+                case .category(let category):
+                    model.saveAppLocation(.category(categoryID: category.id))
+                }
+            }
+        }
+        .onChange(of: navPath.count) { oldCount, newCount in
+            // When navigating back from a recipe (path becomes empty)
+            // save the current collection type location
+            if newCount == 0 && oldCount > 0 {
+                switch collectionType {
+                case .home:
+                    model.saveAppLocation(.allRecipes)
+                case .category(let category):
+                    model.saveAppLocation(.category(categoryID: category.id))
+                case .none:
+                    model.saveAppLocation(.allRecipes)
+                }
             }
         }
         .onAppear {
             // Try to restore immediately from cached data to avoid visible jumps
             guard !didRestoreLastViewed,
-                  let saved = model.loadLastViewedRecipeID(),
+                  let saved = model.loadAppLocation(),
                   model.currentSource?.id == saved.sourceID else { return }
-            
-            if let catID = saved.categoryID,
-               let category = model.categories.first(where: { $0.id == catID }) {
-                collectionType = .category(category)
-            } else {
+
+            switch saved.location {
+            case .allRecipes:
                 collectionType = .home
-            }
-            
-            if let recipe = model.recipes.first(where: { $0.id == saved.recipeID }) ??
-                model.randomRecipes.first(where: { $0.id == saved.recipeID }) {
-                suppressResetOnSourceChange = true
-                navPath.append(recipe)
                 didRestoreLastViewed = true
+
+            case .category(let categoryID):
+                if let category = model.categories.first(where: { $0.id == categoryID }) {
+                    collectionType = .category(category)
+                    didRestoreLastViewed = true
+                }
+
+            case .recipe(let recipeID, let categoryID):
+                // Set the collection type first
+                if let catID = categoryID,
+                   let category = model.categories.first(where: { $0.id == catID }) {
+                    collectionType = .category(category)
+                } else {
+                    collectionType = .home
+                }
+
+                // Then navigate to the recipe
+                if let recipe = model.recipes.first(where: { $0.id == recipeID }) ??
+                    model.randomRecipes.first(where: { $0.id == recipeID }) {
+                    suppressResetOnSourceChange = true
+                    navPath.append(recipe)
+                    didRestoreLastViewed = true
+                }
             }
         }
     }

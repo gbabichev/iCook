@@ -20,15 +20,23 @@ final class AppViewModel: ObservableObject {
     @Published var error: String?
     @Published var isOfflineMode = false
     private let lastViewedRecipeKey = "LastViewedRecipe"
-    
+    private let appLocationKey = "AppLocation"
+
     // CloudKit manager
     let cloudKitManager = CloudKitManager.shared
-    
+
     // Source management
     @Published var currentSource: Source?
     @Published var sources: [Source] = []
     @Published var sourceSelectionStamp = UUID()
-    
+
+    // App location tracking
+    enum AppLocation {
+        case allRecipes
+        case category(categoryID: CKRecord.ID)
+        case recipe(recipeID: CKRecord.ID, categoryID: CKRecord.ID?)
+    }
+
     init() {
         // Prime from cached manager state so UI doesn't start empty when offline/online
         sources = cloudKitManager.sources
@@ -376,7 +384,95 @@ final class AppViewModel: ObservableObject {
         }
         return (recipeID, sourceID, nil)
     }
-    
+
+    // MARK: - App Location Persistence
+    func saveAppLocation(_ location: AppLocation) {
+        guard let source = currentSource else { return }
+
+        var dict: [String: String] = [
+            "sourceRecordName": source.id.recordName,
+            "sourceZoneName": source.id.zoneID.zoneName,
+            "sourceZoneOwner": source.id.zoneID.ownerName
+        ]
+
+        switch location {
+        case .allRecipes:
+            dict["locationType"] = "allRecipes"
+
+        case .category(let categoryID):
+            dict["locationType"] = "category"
+            dict["categoryRecordName"] = categoryID.recordName
+            dict["categoryZoneName"] = categoryID.zoneID.zoneName
+            dict["categoryZoneOwner"] = categoryID.zoneID.ownerName
+
+        case .recipe(let recipeID, let categoryID):
+            dict["locationType"] = "recipe"
+            dict["recipeRecordName"] = recipeID.recordName
+            dict["recipeZoneName"] = recipeID.zoneID.zoneName
+            dict["recipeZoneOwner"] = recipeID.zoneID.ownerName
+            if let categoryID = categoryID {
+                dict["categoryRecordName"] = categoryID.recordName
+                dict["categoryZoneName"] = categoryID.zoneID.zoneName
+                dict["categoryZoneOwner"] = categoryID.zoneID.ownerName
+            }
+        }
+
+        UserDefaults.standard.set(dict, forKey: appLocationKey)
+    }
+
+    func loadAppLocation() -> (location: AppLocation, sourceID: CKRecord.ID)? {
+        guard let dict = UserDefaults.standard.dictionary(forKey: appLocationKey) as? [String: String],
+              let locationType = dict["locationType"],
+              let sourceRecord = dict["sourceRecordName"],
+              let sourceZone = dict["sourceZoneName"],
+              let sourceOwner = dict["sourceZoneOwner"] else {
+            return nil
+        }
+
+        let sourceZoneID = CKRecordZone.ID(zoneName: sourceZone, ownerName: sourceOwner)
+        let sourceID = CKRecord.ID(recordName: sourceRecord, zoneID: sourceZoneID)
+
+        switch locationType {
+        case "allRecipes":
+            return (.allRecipes, sourceID)
+
+        case "category":
+            guard let catRecord = dict["categoryRecordName"],
+                  let catZone = dict["categoryZoneName"],
+                  let catOwner = dict["categoryZoneOwner"] else {
+                return nil
+            }
+            let catZoneID = CKRecordZone.ID(zoneName: catZone, ownerName: catOwner)
+            let catID = CKRecord.ID(recordName: catRecord, zoneID: catZoneID)
+            return (.category(categoryID: catID), sourceID)
+
+        case "recipe":
+            guard let recipeRecord = dict["recipeRecordName"],
+                  let recipeZone = dict["recipeZoneName"],
+                  let recipeOwner = dict["recipeZoneOwner"] else {
+                return nil
+            }
+            let recipeZoneID = CKRecordZone.ID(zoneName: recipeZone, ownerName: recipeOwner)
+            let recipeID = CKRecord.ID(recordName: recipeRecord, zoneID: recipeZoneID)
+
+            var categoryID: CKRecord.ID? = nil
+            if let catRecord = dict["categoryRecordName"],
+               let catZone = dict["categoryZoneName"],
+               let catOwner = dict["categoryZoneOwner"] {
+                let catZoneID = CKRecordZone.ID(zoneName: catZone, ownerName: catOwner)
+                categoryID = CKRecord.ID(recordName: catRecord, zoneID: catZoneID)
+            }
+            return (.recipe(recipeID: recipeID, categoryID: categoryID), sourceID)
+
+        default:
+            return nil
+        }
+    }
+
+    func clearAppLocation() {
+        UserDefaults.standard.removeObject(forKey: appLocationKey)
+    }
+
     func createRecipeWithSteps(
         categoryId: CKRecord.ID,
         name: String,
@@ -753,6 +849,7 @@ final class AppViewModel: ObservableObject {
     
     func clearLastViewedRecipe() {
         UserDefaults.standard.removeObject(forKey: lastViewedRecipeKey)
+        clearAppLocation()
     }
     
 }

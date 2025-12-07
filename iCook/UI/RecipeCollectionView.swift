@@ -276,6 +276,13 @@ struct RecipeCollectionView: View {
                     .buttonStyle(.plain)
                     .simultaneousGesture(TapGesture().onEnded {
                         model.saveLastViewedRecipe(recipe)
+                        // Save app location when navigating to recipe
+                        switch collectionType {
+                        case .home:
+                            model.saveAppLocation(.recipe(recipeID: recipe.id, categoryID: recipe.categoryID))
+                        case .category(let category):
+                            model.saveAppLocation(.recipe(recipeID: recipe.id, categoryID: category.id))
+                        }
                     })
                 }
                 .padding(.bottom, 32)
@@ -317,6 +324,13 @@ struct RecipeCollectionView: View {
                                 .buttonStyle(.plain)
                                 .simultaneousGesture(TapGesture().onEnded {
                                     model.saveLastViewedRecipe(recipe)
+                                    // Save app location when navigating to recipe
+                                    switch collectionType {
+                                    case .home:
+                                        model.saveAppLocation(.recipe(recipeID: recipe.id, categoryID: recipe.categoryID))
+                                    case .category(let category):
+                                        model.saveAppLocation(.recipe(recipeID: recipe.id, categoryID: category.id))
+                                    }
                                 })
                             }
                             .padding(.horizontal, 20)
@@ -370,6 +384,13 @@ struct RecipeCollectionView: View {
                         }
                         .simultaneousGesture(TapGesture().onEnded {
                             model.saveLastViewedRecipe(recipe)
+                            // Save app location when navigating to recipe
+                            switch collectionType {
+                            case .home:
+                                model.saveAppLocation(.recipe(recipeID: recipe.id, categoryID: recipe.categoryID))
+                            case .category(let category):
+                                model.saveAppLocation(.recipe(recipeID: recipe.id, categoryID: category.id))
+                            }
                         })
                         .buttonStyle(.plain)
                         .contextMenu {
