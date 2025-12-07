@@ -99,7 +99,6 @@ struct RecipeCollectionView: View {
     @State private var searchResults: [Recipe] = []
     @State private var isSearching = false
     @State private var showingSearchResults = false
-    @State private var isRefreshing = false
     @State private var showRevokedToast = false
     @State private var revokedToastMessage = ""
     @State private var featuredHomeRecipe: Recipe?
@@ -634,7 +633,7 @@ struct RecipeCollectionView: View {
     // MARK: - Event Handlers (extracted to simplify body)
 
     private func handleRecipeDeleted(_ notification: Notification) {
-        if let deletedRecipeId = notification.object as? CKRecord.ID {
+        if let _ = notification.object as? CKRecord.ID {
             Task {
                 if case .category = collectionType {
                     await refreshCategoryRecipes()
@@ -644,7 +643,7 @@ struct RecipeCollectionView: View {
     }
 
     private func handleRecipeUpdated(_ notification: Notification) {
-        if let updatedRecipe = notification.object as? Recipe {
+        if let _ = notification.object as? Recipe {
             Task { @MainActor in
                 if case .category = collectionType {
                     await refreshCategoryRecipes(skipCache: true)
@@ -698,7 +697,6 @@ struct RecipeCollectionView: View {
         guard !isRefreshInFlight else { return }
         isRefreshInFlight = true
         showRefreshSpinner = true
-        isRefreshing = true
         let start = Date()
         if showingSearchResults {
             performSearch()
@@ -710,7 +708,6 @@ struct RecipeCollectionView: View {
         if elapsed < 0.8 {
             try? await Task.sleep(nanoseconds: UInt64((0.8 - elapsed) * 1_000_000_000))
         }
-        isRefreshing = false
         showRefreshSpinner = false
         isRefreshInFlight = false
     }
@@ -910,11 +907,6 @@ struct RecipeCollectionView: View {
                         }
                         // Reset the scroll view when recipes change so category/home reflect updates.
                         .id(AnyHashable(model.recipesRefreshTrigger))
-                    }
-                    .safeAreaInset(edge: .top) {
-                        if isRefreshing {
-                            Color.clear.frame(height: 50)
-                        }
                     }
                 }
             }
