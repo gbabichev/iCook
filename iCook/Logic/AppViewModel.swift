@@ -48,8 +48,12 @@ final class AppViewModel: ObservableObject {
         ) { [weak self] _ in
             guard let self else { return }
             Task { @MainActor in
-                self.recipes = self.cloudKitManager.recipes
-                self.randomRecipes = self.cloudKitManager.recipes
+                // Keep the current visible recipe list in sync, but avoid no-op churn
+                // that resets view state (e.g., featured recipe flicker in categories).
+                let incoming = self.cloudKitManager.recipes
+                if !self.recipesEqual(self.recipes, incoming) {
+                    self.recipes = incoming
+                }
             }
         }
         
@@ -235,32 +239,8 @@ final class AppViewModel: ObservableObject {
     
     // MARK: - Recipe Management
     func loadRecipesForCategory(_ categoryID: CKRecord.ID, skipCache: Bool = false) async {
-        guard let source = currentSource else {
-            printD("loadRecipesForCategory: No current source")
-            return
-        }
-        guard let category = categories.first(where: { $0.id == categoryID }) else {
-            printD("loadRecipesForCategory: Category not found: \(categoryID)")
-            return
-        }
-        
-        printD("loadRecipesForCategory: Loading recipes for \(category.name)")
-        isLoadingRecipes = true
-        
-        // Immediately serve cached data if available for snappier UX
-        if !skipCache, let cached = cloudKitManager.cachedRecipes(for: source, categoryID: categoryID) {
-            recipes = cached
-            randomRecipes = cached
-        }
-        
-        await cloudKitManager.loadRecipes(for: source, category: category, skipCache: skipCache)
-        recipes = cloudKitManager.recipes
-        // Also keep randomRecipes in sync so names stay consistent across home/category
-        randomRecipes = cloudKitManager.recipes
-        error = cloudKitManager.error
-        printD("loadRecipesForCategory: Loaded \(recipes.count) recipes for \(category.name)")
-        refreshOfflineState()
-        isLoadingRecipes = false
+        // Unified path: load all recipes and filter at the view layer.
+        await loadRandomRecipes(skipCache: skipCache)
     }
     
     func loadRandomRecipes(skipCache: Bool = false) async {
@@ -276,11 +256,19 @@ final class AppViewModel: ObservableObject {
         }
         
         await cloudKitManager.loadRandomRecipes(for: source, skipCache: skipCache)
-        randomRecipes = cloudKitManager.recipes
-        // Keep the main recipes array in sync so category views pick up latest names
-        recipes = cloudKitManager.recipes
-        // Increment trigger to force SwiftUI to detect the change
-        recipesRefreshTrigger += 1
+        let fetched = cloudKitManager.recipes
+        
+        // Only bump the refresh trigger if the fetched data is meaningfully different
+        let unchanged = recipesEqual(randomRecipes, fetched)
+        
+        if !unchanged {
+            randomRecipes = fetched
+            // Keep the main recipes array in sync so category views pick up latest names
+            recipes = fetched
+            // Increment trigger to force SwiftUI to detect the change
+            recipesRefreshTrigger += 1
+        }
+        
         error = cloudKitManager.error
         refreshOfflineState()
         isLoadingRecipes = false
@@ -336,6 +324,17 @@ final class AppViewModel: ObservableObject {
         let success = await deleteRecipe(id: id)
         printD("deleteRecipeWithUIFeedback: Result - Success: \(success)")
         return success
+    }
+
+    // MARK: - Helpers
+    private func recipesEqual(_ lhs: [Recipe], _ rhs: [Recipe]) -> Bool {
+        lhs.count == rhs.count &&
+        zip(lhs, rhs).allSatisfy { first, second in
+            first.id == second.id &&
+            first.lastModified == second.lastModified &&
+            first.name == second.name &&
+            first.recipeTime == second.recipeTime
+        }
     }
     
     // MARK: - Last Viewed Recipe Persistence

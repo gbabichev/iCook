@@ -162,7 +162,7 @@ struct iCookApp: App {
         await model.loadCategories()
         
         // Refresh random recipes for home view
-        await model.loadRandomRecipes()
+        await model.loadRandomRecipes(skipCache: true)
         
         // Post a notification that other views can listen to for refresh
         NotificationCenter.default.post(name: .refreshRequested, object: nil)

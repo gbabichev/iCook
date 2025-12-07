@@ -80,12 +80,9 @@ struct RecipeCollectionView: View {
     @State private var newSourceName = ""
     @State private var isDebugOperationInProgress = false
     
-    // State for category-specific recipes
-    @State private var categoryRecipes: [Recipe] = []
     @State private var isLoading = false
     @State private var error: String?
     @State private var currentLoadTask: Task<Void, Never>?
-    @State private var refreshTrigger = UUID()
     @State private var editingRecipe: Recipe?
     @State private var deletingRecipe: Recipe?
     @State private var showingDeleteAlert = false
@@ -117,9 +114,9 @@ struct RecipeCollectionView: View {
         
         switch collectionType {
         case .home:
-            return model.randomRecipes
-        case .category:
-            return categoryRecipes
+            return model.recipes
+        case .category(let category):
+            return model.recipes.filter { $0.categoryID == category.id }
         }
     }
     
@@ -155,10 +152,10 @@ struct RecipeCollectionView: View {
         case .home:
             return featuredHomeRecipe ?? recipes.randomElement()
         case .category:
-            // Only return the stored selection if it exists and is valid
+            // Resolve the stored selection against the latest shared recipes so name/image changes show up.
             if let selected = selectedFeaturedRecipe,
-               recipes.contains(where: { $0.id == selected.id }) {
-                return selected
+               let current = recipes.first(where: { $0.id == selected.id }) {
+                return current
             }
             return nil // Don't select here - do it in loadCategoryRecipes
         }
@@ -172,7 +169,6 @@ struct RecipeCollectionView: View {
         
         switch collectionType {
         case .home:
-            // Keep featured recipe visible in the grid as well
             return recipes
         case .category:
             guard let featured = featuredRecipe else {
@@ -442,7 +438,7 @@ struct RecipeCollectionView: View {
         
         currentLoadTask = Task {
             await model.loadRandomRecipes(skipCache: skipCache)
-            featuredHomeRecipe = model.randomRecipes.randomElement()
+            featuredHomeRecipe = model.recipes.randomElement()
             try? await Task.sleep(nanoseconds: 800_000_000) // 800ms minimum refresh time
         }
         
@@ -453,17 +449,25 @@ struct RecipeCollectionView: View {
     private func loadCategoryRecipes(_ category: Category, skipCache: Bool = false) async {
         guard !Task.isCancelled else { return }
         
-        isLoading = true
         error = nil
-        defer { isLoading = false }
-        
-        await model.loadRecipesForCategory(category.id, skipCache: skipCache)
-        categoryRecipes = model.recipes
-        
-        // Select featured recipe AFTER setting categoryRecipes
-        if !categoryRecipes.isEmpty {
-            selectedFeaturedRecipe = categoryRecipes.randomElement()
-            print("Selected featured recipe: \(selectedFeaturedRecipe?.name ?? "none")")
+        // Immediately show cached data if present
+        let cached = model.recipes.filter { $0.categoryID == category.id }
+        if !cached.isEmpty {
+            selectedFeaturedRecipe = cached.randomElement()
+            isLoading = false
+            // Kick off a background refresh of all recipes if we're not already loading
+            if !model.isLoadingRecipes {
+                Task { await model.loadRandomRecipes(skipCache: skipCache) }
+            }
+        } else {
+            // Nothing cached for this category; block until we fetch
+            isLoading = true
+            defer { isLoading = false }
+            await model.loadRandomRecipes(skipCache: skipCache)
+            let fresh = model.recipes.filter { $0.categoryID == category.id }
+            if !fresh.isEmpty {
+                selectedFeaturedRecipe = fresh.randomElement()
+            }
         }
         
         if let modelError = model.error {
@@ -475,7 +479,6 @@ struct RecipeCollectionView: View {
     private func refreshCategoryRecipes(skipCache: Bool = false) async {
         guard case .category(let category) = collectionType else { return }
         await loadCategoryRecipes(category, skipCache: skipCache)
-        refreshTrigger = UUID() // Force view refresh
     }
     
     @MainActor
@@ -485,10 +488,9 @@ struct RecipeCollectionView: View {
         isDeleting = false
         
         if success {
-            // Remove from local category array for immediate UI update
-            categoryRecipes.removeAll { $0.id == recipe.id }
+            // Model.deleteRecipe already updates model.recipes; view will filter it out.
         }
-        
+
         deletingRecipe = nil
     }
     
@@ -521,10 +523,10 @@ struct RecipeCollectionView: View {
         // Purely local filter for speed and stability
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         let base: [Recipe]
-        if case .category = collectionType {
-            base = categoryRecipes
+        if case .category(let category) = collectionType {
+            base = model.recipes.filter { $0.categoryID == category.id }
         } else {
-            base = model.recipes.isEmpty ? model.randomRecipes : model.recipes
+            base = model.recipes
         }
         let filtered = base.filter { recipe in
             recipe.name.range(of: trimmed, options: [.caseInsensitive, .diacriticInsensitive]) != nil
@@ -544,11 +546,11 @@ struct RecipeCollectionView: View {
     }
     
     private var shouldShowWelcomeState: Bool {
-        isHome && model.currentSource != nil && model.randomRecipes.isEmpty && !isLoading && !showingSearchResults
+        isHome && model.currentSource != nil && model.recipes.isEmpty && !isLoading && !showingSearchResults
     }
     
     private var shouldShowEmptyState: Bool {
-        !isLoading && recipes.isEmpty && !(isHome && model.randomRecipes.isEmpty) && !showingSearchResults
+        !isLoading && recipes.isEmpty && !(isHome && model.recipes.isEmpty) && !showingSearchResults
     }
     
     private var offlineNoticeSheet: some View {
@@ -579,7 +581,6 @@ struct RecipeCollectionView: View {
                 RecipeDetailView(recipe: recipe)
             }
             .applyLifecycleModifiers(searchTask: $searchTask)
-            .applyDataModifiers(categoryRecipes: $categoryRecipes, selectedFeaturedRecipe: $selectedFeaturedRecipe, model: model, collectionType: collectionType)
             .applyAlertModifiers(
                 error: $error,
                 deletingRecipe: $deletingRecipe,
@@ -593,9 +594,14 @@ struct RecipeCollectionView: View {
             .toast(isPresented: $showRevokedToast, message: revokedToastMessage)
             .onReceive(NotificationCenter.default.publisher(for: .recipeDeleted), perform: handleRecipeDeleted)
             .onReceive(NotificationCenter.default.publisher(for: .recipeUpdated), perform: handleRecipeUpdated)
+#if os(macOS)
+            .onReceive(NotificationCenter.default.publisher(for: .refreshRequested)) { _ in
+                Task { await handleRefresh() }
+            }
+#endif
             .task { await initialLoadIfNeeded() }
             .onChange(of: collectionType) { _, _ in Task { await handleCollectionTypeChange() } }
-            .task(id: model.randomRecipes.count) {
+            .task(id: model.recipes.count) {
                 if case .home = collectionType {
                     // No need to reload; featured selection handled by changes below
                 }
@@ -607,7 +613,7 @@ struct RecipeCollectionView: View {
                     logImagePath(first, context: "onChange model.recipes first")
                 }
             }
-            .onChange(of: model.randomRecipes) { _, newValue in
+            .onChange(of: model.recipes) { _, newValue in
                 if case .home = collectionType {
                     featuredHomeRecipe = newValue.randomElement()
                 }
@@ -629,7 +635,6 @@ struct RecipeCollectionView: View {
 
     private func handleRecipeDeleted(_ notification: Notification) {
         if let deletedRecipeId = notification.object as? CKRecord.ID {
-            categoryRecipes.removeAll { $0.id == deletedRecipeId }
             Task {
                 if case .category = collectionType {
                     await refreshCategoryRecipes()
@@ -641,12 +646,6 @@ struct RecipeCollectionView: View {
     private func handleRecipeUpdated(_ notification: Notification) {
         if let updatedRecipe = notification.object as? Recipe {
             Task { @MainActor in
-                if let idx = categoryRecipes.firstIndex(where: { $0.id == updatedRecipe.id }) {
-                    categoryRecipes[idx] = updatedRecipe
-                }
-                if let idx = model.randomRecipes.firstIndex(where: { $0.id == updatedRecipe.id }) {
-                    model.randomRecipes[idx] = updatedRecipe
-                }
                 if case .category = collectionType {
                     await refreshCategoryRecipes(skipCache: true)
                 } else if case .home = collectionType {
@@ -701,7 +700,8 @@ struct RecipeCollectionView: View {
         if showingSearchResults {
             performSearch()
         } else {
-            await loadRecipes(skipCache: true)
+            // Unified refresh: always load all recipes; categories filter locally.
+            await loadHomeRecipes(skipCache: true)
         }
         let elapsed = Date().timeIntervalSince(start)
         if elapsed < 0.8 {
@@ -715,7 +715,7 @@ struct RecipeCollectionView: View {
             hasLoadedInitially = true
             selectedFeaturedRecipe = nil
             if case .home = collectionType {
-                featuredHomeRecipe = model.randomRecipes.randomElement()
+                featuredHomeRecipe = model.recipes.randomElement()
             }
             showingSearchResults = false
             searchResults = []
@@ -726,9 +726,10 @@ struct RecipeCollectionView: View {
     }
 
     private func handleCollectionTypeChange() async {
-        selectedFeaturedRecipe = nil
         if case .home = collectionType {
-            featuredHomeRecipe = model.randomRecipes.randomElement()
+            // Reset home featured when returning home; keep category featured intact to avoid placeholder flicker.
+            selectedFeaturedRecipe = nil
+            featuredHomeRecipe = model.recipes.randomElement()
         } else {
             featuredHomeRecipe = nil
         }
@@ -825,7 +826,7 @@ struct RecipeCollectionView: View {
     
     private var mainContent: some View {
         Group {
-            if isLoading || (isCategory && featuredRecipe == nil && !categoryRecipes.isEmpty && !showingSearchResults) {
+            if isLoading || (isCategory && featuredRecipe == nil && !recipes.isEmpty && !showingSearchResults) {
                 // Show loading spinner while data is loading OR while featured recipe is being selected (for categories)
                 VStack(spacing: 16) {
                     ProgressView()
@@ -894,7 +895,8 @@ struct RecipeCollectionView: View {
                             // Recipes grid section
                             recipesGridSection()
                         }
-                        .id(model.recipesRefreshTrigger)
+                        // Reset the scroll view when recipes change so category/home reflect updates.
+                        .id(AnyHashable(model.recipesRefreshTrigger))
                     }
                     .safeAreaInset(edge: .top) {
                         if isRefreshing {
@@ -971,27 +973,6 @@ extension View {
         self
             .onDisappear {
                 searchTask.wrappedValue?.cancel()
-            }
-    }
-    
-    func applyDataModifiers(
-        categoryRecipes: Binding<[Recipe]>,
-        selectedFeaturedRecipe: Binding<Recipe?>,
-        model: AppViewModel,
-        collectionType: RecipeCollectionType
-    ) -> some View {
-        self
-            .onChange(of: model.recipes) { _, newRecipes in
-                if case .category(let category) = collectionType {
-                    // Keep category lists scoped to their category even when global model changes (e.g., home refresh)
-                    categoryRecipes.wrappedValue = newRecipes.filter { $0.categoryID == category.id }
-                }
-            }
-            .onChange(of: categoryRecipes.wrappedValue) { _, newRecipes in
-                if selectedFeaturedRecipe.wrappedValue == nil ||
-                    !newRecipes.contains(where: { $0.id == selectedFeaturedRecipe.wrappedValue?.id }) {
-                    selectedFeaturedRecipe.wrappedValue = newRecipes.isEmpty ? nil : newRecipes.randomElement()
-                }
             }
     }
     

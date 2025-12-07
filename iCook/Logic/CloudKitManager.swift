@@ -1600,8 +1600,7 @@ class CloudKitManager: ObservableObject {
         defer { isLoading = false }
         
         if skipCache {
-            // Purge caches so we fetch fresh content/images
-            recipes.removeAll()
+            // Purge caches so we fetch fresh content/images, but keep current UI data visible.
             removeRecipeCache(for: source)
         } else if let cachedAllRecipes = loadRecipesLocalCache(for: source, categoryID: nil),
                   !cachedAllRecipes.isEmpty {
