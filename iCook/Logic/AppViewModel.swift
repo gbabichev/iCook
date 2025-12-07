@@ -246,6 +246,12 @@ final class AppViewModel: ObservableObject {
         printD("loadRecipesForCategory: Loading recipes for \(category.name)")
         isLoadingRecipes = true
         
+        // Immediately serve cached data if available for snappier UX
+        if !skipCache, let cached = cloudKitManager.cachedRecipes(for: source, categoryID: categoryID) {
+            recipes = cached
+            randomRecipes = cached
+        }
+        
         await cloudKitManager.loadRecipes(for: source, category: category, skipCache: skipCache)
         recipes = cloudKitManager.recipes
         // Also keep randomRecipes in sync so names stay consistent across home/category
@@ -261,6 +267,12 @@ final class AppViewModel: ObservableObject {
         guard !isLoadingRecipes else { return }
         
         isLoadingRecipes = true
+        
+        // Serve cached all-recipes immediately for snappier home load
+        if !skipCache, let cached = cloudKitManager.cachedRecipes(for: source, categoryID: nil) {
+            randomRecipes = cached
+            recipes = cached
+        }
         
         await cloudKitManager.loadRandomRecipes(for: source, skipCache: skipCache)
         randomRecipes = cloudKitManager.recipes

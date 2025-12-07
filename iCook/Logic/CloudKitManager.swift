@@ -634,6 +634,11 @@ class CloudKitManager: ObservableObject {
         cachedImagePath(for: recipeID)
     }
 
+    /// Public helper to retrieve cached recipes for a source/category without hitting network.
+    func cachedRecipes(for source: Source, categoryID: CKRecord.ID?) -> [Recipe]? {
+        loadRecipesLocalCache(for: source, categoryID: categoryID)
+    }
+
     /// Public helper to clear all cached image files for a recipe.
     func purgeCachedImages(for recipeID: CKRecord.ID) {
         removeCachedImages(for: recipeID)
