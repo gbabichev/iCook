@@ -114,9 +114,11 @@ struct RecipeCollectionView: View {
         
         switch collectionType {
         case .home:
-            return model.recipes
+            return model.recipes.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         case .category(let category):
-            return model.recipes.filter { $0.categoryID == category.id }
+            return model.recipes
+                .filter { $0.categoryID == category.id }
+                .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         }
     }
     
@@ -167,15 +169,7 @@ struct RecipeCollectionView: View {
             return recipes
         }
         
-        switch collectionType {
-        case .home:
-            return recipes
-        case .category:
-            guard let featured = featuredRecipe else {
-                return recipes
-            }
-            return recipes.filter { $0.id != featured.id }
-        }
+        return recipes
     }
     
     // Check if we're showing a category
