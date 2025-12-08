@@ -7,9 +7,45 @@
 
 import SwiftUI
 import CloudKit
+import Combine
 #if os(macOS)
 import AppKit
 import UniformTypeIdentifiers
+#endif
+
+#if os(macOS)
+final class MacAppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
+    @Published var pendingImportURL: URL?
+    var onOpenExport: ((URL) -> Void)?
+    
+    func application(_ application: NSApplication, open urls: [URL]) {
+        guard let url = urls.first, shouldHandle(url: url) else { return }
+        deliver(url)
+    }
+    
+    func application(_ sender: NSApplication, openFile filename: String) -> Bool {
+        let url = URL(fileURLWithPath: filename)
+        guard shouldHandle(url: url) else { return false }
+        deliver(url)
+        return true
+    }
+    
+    private func shouldHandle(url: URL) -> Bool {
+        if let type = try? url.resourceValues(forKeys: [.contentTypeKey]).contentType,
+           type.conforms(to: RecipeExportConstants.contentType) {
+            return true
+        }
+        return url.pathExtension.lowercased() == "icookexport"
+    }
+    
+    private func deliver(_ url: URL) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.pendingImportURL = url
+            self.onOpenExport?(url)
+        }
+    }
+}
 #endif
 
 @main
@@ -17,6 +53,7 @@ struct iCookApp: App {
     
     @StateObject private var model = AppViewModel()
 #if os(macOS)
+    @NSApplicationDelegateAdaptor(MacAppDelegate.self) private var appDelegate
     @State private var isExporting = false
     @State private var isImporting = false
     @State private var exportDocument = RecipeExportDocument()
@@ -29,9 +66,28 @@ struct iCookApp: App {
                 ContentView()
                     .environmentObject(model)
                     .onOpenURL { url in
-                        // Handle CloudKit share links
-                        handleCloudKitShareLink(url)
+                        // Handle export bundles or CloudKit share links
+                        if isExportURL(url) {
+                            handleOpenedExport(url)
+                        } else {
+                            handleCloudKitShareLink(url)
+                        }
                     }
+#if os(macOS)
+                    .onAppear {
+                        appDelegate.onOpenExport = { url in
+                            handleOpenedExport(url)
+                        }
+                        if let pending = appDelegate.pendingImportURL {
+                            appDelegate.pendingImportURL = nil
+                            handleOpenedExport(pending)
+                        }
+                    }
+                    .onReceive(appDelegate.$pendingImportURL.compactMap { $0 }) { url in
+                        appDelegate.pendingImportURL = nil
+                        handleOpenedExport(url)
+                    }
+#endif
                 
 #if os(macOS)
                 if model.isImporting {
@@ -144,6 +200,8 @@ struct iCookApp: App {
     }
     
     private func handleCloudKitShareLink(_ url: URL) {
+        // Only process real CloudKit share URLs; ignore local file/document opens
+        guard !url.isFileURL else { return }
         Task {
             printD("Processing CloudKit share link: \(url)")
             let success = await model.acceptShareURL(url)
@@ -184,6 +242,31 @@ struct iCookApp: App {
     
     private func importRecipes() {
         isImporting = true
+    }
+    
+    private func handleOpenedExport(_ url: URL) {
+        Task {
+            let canAccess = url.startAccessingSecurityScopedResource()
+            defer {
+                if canAccess { url.stopAccessingSecurityScopedResource() }
+            }
+            let success = await model.importRecipes(from: url)
+            await MainActor.run {
+                if success {
+                    showAlert(title: "Import Complete", message: "Recipes were imported successfully.")
+                } else if let message = model.error {
+                    showAlert(title: "Import Failed", message: message)
+                }
+            }
+        }
+    }
+    
+    private func isExportURL(_ url: URL) -> Bool {
+        if let type = try? url.resourceValues(forKeys: [.contentTypeKey]).contentType,
+           type.conforms(to: RecipeExportConstants.contentType) {
+            return true
+        }
+        return url.isFileURL && url.pathExtension.lowercased() == "icookexport"
     }
     
     private func showAlert(title: String, message: String) {
