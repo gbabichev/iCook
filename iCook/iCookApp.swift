@@ -8,9 +8,9 @@
 import SwiftUI
 import CloudKit
 import Combine
+import UniformTypeIdentifiers
 #if os(macOS)
 import AppKit
-import UniformTypeIdentifiers
 #endif
 
 #if os(macOS)
@@ -58,10 +58,10 @@ struct iCookApp: App {
     @State private var isImporting = false
     @State private var exportDocument = RecipeExportDocument()
     @State private var showAbout = false
+#endif
     @State private var importPreview: AppViewModel.ImportPreview?
     @State private var selectedImportIndices: Set<Int> = []
     @State private var securityScopedImportURL: URL?
-#endif
     
     var body: some Scene {
         WindowGroup {
@@ -69,7 +69,6 @@ struct iCookApp: App {
                 ContentView()
                     .environmentObject(model)
                     .onOpenURL { url in
-                        // Handle export bundles or CloudKit share links
                         if isExportURL(url) {
                             handleOpenedExport(url)
                         } else {
@@ -92,7 +91,6 @@ struct iCookApp: App {
                     }
 #endif
                 
-#if os(macOS)
                 if model.isImporting {
                     Color.black.opacity(0.25)
                         .ignoresSafeArea()
@@ -104,7 +102,6 @@ struct iCookApp: App {
                     .padding(16)
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
                 }
-#endif
             }
 #if os(macOS)
             .frame(minWidth: 600, minHeight: 600)
@@ -150,6 +147,18 @@ struct iCookApp: App {
                     onCancel: { cancelImportPreview() },
                     onImport: { confirmImportSelection() }
                 )
+            }
+#else
+            .sheet(item: $importPreview) { preview in
+                ImportPreviewSheet(
+                    preview: preview,
+                    selectedIndices: $selectedImportIndices,
+                    onSelectAll: { selectedImportIndices = Set(preview.package.recipes.indices) },
+                    onDeselectAll: { selectedImportIndices.removeAll() },
+                    onCancel: { cancelImportPreview() },
+                    onImport: { confirmImportSelection() }
+                )
+                .presentationDetents([.medium, .large])
             }
 #endif
         }
@@ -213,7 +222,6 @@ struct iCookApp: App {
         }
     }
     
-#if os(macOS)
     private func presentImportPreview(for url: URL) {
         Task {
             let canAccess = url.startAccessingSecurityScopedResource()
@@ -225,9 +233,11 @@ struct iCookApp: App {
                     securityScopedImportURL = canAccess ? url : nil
                 } else {
                     if canAccess { url.stopAccessingSecurityScopedResource() }
+#if os(macOS)
                     if let message = model.error {
                         showAlert(title: "Import Failed", message: message)
                     }
+#endif
                 }
             }
         }
@@ -240,11 +250,13 @@ struct iCookApp: App {
         Task {
             let success = await model.importRecipes(from: preview, selectedRecipes: selectedRecipes)
             await MainActor.run {
+#if os(macOS)
                 if success {
                     showAlert(title: "Import Complete", message: "Recipes were imported successfully.")
                 } else if let message = model.error {
                     showAlert(title: "Import Failed", message: message)
                 }
+#endif
                 cleanupImportPreview()
                 if let securedURL {
                     securedURL.stopAccessingSecurityScopedResource()
@@ -266,14 +278,13 @@ struct iCookApp: App {
         securityScopedImportURL = nil
     }
     
+#if os(macOS)
     @MainActor
     private func refreshCurrentView() async {
         // Post a notification that other views can listen to for refresh
         NotificationCenter.default.post(name: .refreshRequested, object: nil)
     }
-#endif
     
-#if os(macOS)
     private func exportRecipes() {
         Task {
             await MainActor.run {
@@ -296,6 +307,14 @@ struct iCookApp: App {
         isImporting = true
     }
     
+    private func showAlert(title: String, message: String) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.runModal()
+    }
+#endif
+    
     private func handleOpenedExport(_ url: URL) {
         presentImportPreview(for: url)
     }
@@ -307,12 +326,4 @@ struct iCookApp: App {
         }
         return url.isFileURL && url.pathExtension.lowercased() == "icookexport"
     }
-    
-    private func showAlert(title: String, message: String) {
-        let alert = NSAlert()
-        alert.messageText = title
-        alert.informativeText = message
-        alert.runModal()
-    }
-#endif
 }

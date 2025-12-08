@@ -1,9 +1,7 @@
 import Foundation
 import Combine
 import CloudKit
-#if os(macOS)
 import UniformTypeIdentifiers
-#endif
 
 @MainActor
 final class AppViewModel: ObservableObject {
@@ -14,10 +12,7 @@ final class AppViewModel: ObservableObject {
     @Published var isLoadingCategories = false
     @Published var isLoadingRecipes = false
     @Published var recipesRefreshTrigger = 0
-#if os(macOS)
     @Published var isImporting = false
-#endif
-    
     struct ImportPreview: Identifiable {
         var id: URL { url }
         let url: URL
@@ -147,7 +142,7 @@ final class AppViewModel: ObservableObject {
         refreshOfflineState()
         return cloudKitManager.error == nil
     }
-#if os (macOS)
+#if os(macOS)
     func leaveSharedSource(_ source: Source) async {
         _ = await cloudKitManager.leaveSharedSource(source)
         sources = cloudKitManager.sources
@@ -587,7 +582,7 @@ final class AppViewModel: ObservableObject {
     }
     
 #if os(macOS)
-    // MARK: - Import/Export (macOS)
+    // MARK: - Export (macOS)
     func exportCurrentSourceDocument() async -> RecipeExportDocument? {
         error = nil
         guard let source = currentSource else {
@@ -649,7 +644,9 @@ final class AppViewModel: ObservableObject {
             return nil
         }
     }
+#endif
     
+    // MARK: - Import
     func importRecipes(from url: URL) async -> Bool {
         guard let preview = loadImportPreview(from: url) else { return false }
         return await importRecipes(from: preview, selectedRecipes: preview.package.recipes)
@@ -668,7 +665,6 @@ final class AppViewModel: ObservableObject {
         }
     }
     
-#if os(macOS)
     func importRecipes(from preview: ImportPreview, selectedRecipes: [ExportedRecipe]) async -> Bool {
         error = nil
         guard let source = currentSource else {
@@ -731,8 +727,8 @@ final class AppViewModel: ObservableObject {
         refreshOfflineState()
         return true
     }
-#endif
     
+#if os(macOS)
     private func loadImageData(for recipe: Recipe) -> (filename: String, data: Data)? {
         let fm = FileManager.default
         
@@ -758,6 +754,7 @@ final class AppViewModel: ObservableObject {
         let scalars = value.unicodeScalars.map { allowed.contains($0) ? Character($0) : "-" }
         return String(scalars)
     }
+#endif
     
     private func loadPackageOrJSON(at url: URL) throws -> (Data, [String: Data]) {
         let values = try? url.resourceValues(forKeys: [.contentTypeKey])
@@ -783,7 +780,6 @@ final class AppViewModel: ObservableObject {
         
         return (data, images)
     }
-#endif
     
     // MARK: - Sharing
     func isSourceShared(_ source: Source) -> Bool {

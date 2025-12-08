@@ -1,5 +1,3 @@
-#if os(macOS)
-
 import SwiftUI
 
 struct ImportPreviewSheet: View {
@@ -42,13 +40,20 @@ struct ImportPreviewSheet: View {
                                             .foregroundStyle(.secondary)
                                     }
                                 }
+#if os(macOS)
                                 .toggleStyle(.checkbox)
+#endif
                             }
                         }
                     }
                 }
             }
+#if os(iOS)
+            .listStyle(.insetGrouped)
+#endif
+#if os(macOS)
             .frame(minHeight: 320)
+#endif
             
             HStack {
                 Button("Cancel", action: onCancel)
@@ -59,7 +64,9 @@ struct ImportPreviewSheet: View {
             }
         }
         .padding(20)
+#if os(macOS)
         .frame(minWidth: 520, minHeight: 480)
+#endif
     }
     
     private var groupedByCategory: [String: [(offset: Int, element: ExportedRecipe)]] {
@@ -85,5 +92,3 @@ struct ImportPreviewSheet: View {
         )
     }
 }
-
-#endif

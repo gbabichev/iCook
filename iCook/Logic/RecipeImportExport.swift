@@ -1,5 +1,3 @@
-#if os(macOS)
-
 import Foundation
 import SwiftUI
 import UniformTypeIdentifiers
@@ -107,4 +105,3 @@ struct RecipeExportDocument: FileDocument {
         return FileWrapper(directoryWithFileWrappers: wrappers)
     }
 }
-#endif
