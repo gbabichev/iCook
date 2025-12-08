@@ -58,6 +58,9 @@ struct iCookApp: App {
     @State private var isImporting = false
     @State private var exportDocument = RecipeExportDocument()
     @State private var showAbout = false
+    @State private var importPreview: AppViewModel.ImportPreview?
+    @State private var selectedImportIndices: Set<Int> = []
+    @State private var securityScopedImportURL: URL?
 #endif
     
     var body: some Scene {
@@ -128,20 +131,7 @@ struct iCookApp: App {
                 switch result {
                 case .success(let urls):
                     guard let url = urls.first else { return }
-                    Task {
-                        let canAccess = url.startAccessingSecurityScopedResource()
-                        defer {
-                            if canAccess { url.stopAccessingSecurityScopedResource() }
-                        }
-                        let success = await model.importRecipes(from: url)
-                        await MainActor.run {
-                            if success {
-                                showAlert(title: "Import Complete", message: "Recipes were imported successfully.")
-                            } else if let message = model.error {
-                                showAlert(title: "Import Failed", message: message)
-                            }
-                        }
-                    }
+                    presentImportPreview(for: url)
                 case .failure(let error):
                     showAlert(title: "Import Failed", message: error.localizedDescription)
                 }
@@ -150,6 +140,16 @@ struct iCookApp: App {
 #if os(macOS)
             .sheet(isPresented: $showAbout) {
                 AboutView()
+            }
+            .sheet(item: $importPreview) { preview in
+                ImportPreviewSheet(
+                    preview: preview,
+                    selectedIndices: $selectedImportIndices,
+                    onSelectAll: { selectedImportIndices = Set(preview.package.recipes.indices) },
+                    onDeselectAll: { selectedImportIndices.removeAll() },
+                    onCancel: { cancelImportPreview() },
+                    onImport: { confirmImportSelection() }
+                )
             }
 #endif
         }
@@ -214,6 +214,58 @@ struct iCookApp: App {
     }
     
 #if os(macOS)
+    private func presentImportPreview(for url: URL) {
+        Task {
+            let canAccess = url.startAccessingSecurityScopedResource()
+            let preview = model.loadImportPreview(from: url)
+            await MainActor.run {
+                if let preview {
+                    importPreview = preview
+                    selectedImportIndices = Set(preview.package.recipes.indices)
+                    securityScopedImportURL = canAccess ? url : nil
+                } else {
+                    if canAccess { url.stopAccessingSecurityScopedResource() }
+                    if let message = model.error {
+                        showAlert(title: "Import Failed", message: message)
+                    }
+                }
+            }
+        }
+    }
+    
+    private func confirmImportSelection() {
+        guard let preview = importPreview else { return }
+        let selectedRecipes = selectedImportIndices.sorted().map { preview.package.recipes[$0] }
+        let securedURL = securityScopedImportURL
+        Task {
+            let success = await model.importRecipes(from: preview, selectedRecipes: selectedRecipes)
+            await MainActor.run {
+                if success {
+                    showAlert(title: "Import Complete", message: "Recipes were imported successfully.")
+                } else if let message = model.error {
+                    showAlert(title: "Import Failed", message: message)
+                }
+                cleanupImportPreview()
+                if let securedURL {
+                    securedURL.stopAccessingSecurityScopedResource()
+                }
+            }
+        }
+    }
+    
+    private func cancelImportPreview() {
+        if let securedURL = securityScopedImportURL {
+            securedURL.stopAccessingSecurityScopedResource()
+        }
+        cleanupImportPreview()
+    }
+    
+    private func cleanupImportPreview() {
+        importPreview = nil
+        selectedImportIndices.removeAll()
+        securityScopedImportURL = nil
+    }
+    
     @MainActor
     private func refreshCurrentView() async {
         // Post a notification that other views can listen to for refresh
@@ -245,20 +297,7 @@ struct iCookApp: App {
     }
     
     private func handleOpenedExport(_ url: URL) {
-        Task {
-            let canAccess = url.startAccessingSecurityScopedResource()
-            defer {
-                if canAccess { url.stopAccessingSecurityScopedResource() }
-            }
-            let success = await model.importRecipes(from: url)
-            await MainActor.run {
-                if success {
-                    showAlert(title: "Import Complete", message: "Recipes were imported successfully.")
-                } else if let message = model.error {
-                    showAlert(title: "Import Failed", message: message)
-                }
-            }
-        }
+        presentImportPreview(for: url)
     }
     
     private func isExportURL(_ url: URL) -> Bool {

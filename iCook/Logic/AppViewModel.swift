@@ -17,6 +17,13 @@ final class AppViewModel: ObservableObject {
 #if os(macOS)
     @Published var isImporting = false
 #endif
+    
+    struct ImportPreview: Identifiable {
+        var id: URL { url }
+        let url: URL
+        let package: RecipeExportPackage
+        let images: [String: Data]
+    }
     @Published var error: String?
     @Published var isOfflineMode = false
     private let lastViewedRecipeKey = "LastViewedRecipe"
@@ -644,6 +651,25 @@ final class AppViewModel: ObservableObject {
     }
     
     func importRecipes(from url: URL) async -> Bool {
+        guard let preview = loadImportPreview(from: url) else { return false }
+        return await importRecipes(from: preview, selectedRecipes: preview.package.recipes)
+    }
+    
+    func loadImportPreview(from url: URL) -> ImportPreview? {
+        do {
+            let (data, images) = try loadPackageOrJSON(at: url)
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            let package = try decoder.decode(RecipeExportPackage.self, from: data)
+            return ImportPreview(url: url, package: package, images: images)
+        } catch {
+            self.error = "Failed to read import file: \(error.localizedDescription)"
+            return nil
+        }
+    }
+    
+#if os(macOS)
+    func importRecipes(from preview: ImportPreview, selectedRecipes: [ExportedRecipe]) async -> Bool {
         error = nil
         guard let source = currentSource else {
             error = "Select a source before importing."
@@ -653,63 +679,59 @@ final class AppViewModel: ObservableObject {
         isImporting = true
         defer { isImporting = false }
         
-        do {
-            let (data, images) = try loadPackageOrJSON(at: url)
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
-            let package = try decoder.decode(RecipeExportPackage.self, from: data)
-            
-            await loadCategories()
-            
-            var categoryIDsByName: [String: CKRecord.ID] = [:]
-            for category in categories {
-                categoryIDsByName[category.name.lowercased()] = category.id
-            }
-            
-            for exportedCategory in package.categories {
-                let key = exportedCategory.name.lowercased()
-                if categoryIDsByName[key] == nil {
-                    let created = await createCategory(name: exportedCategory.name, icon: exportedCategory.icon)
-                    if created,
-                       let newCategory = categories.first(where: { $0.name.caseInsensitiveCompare(exportedCategory.name) == .orderedSame }) {
-                        categoryIDsByName[key] = newCategory.id
-                    }
+        let package = preview.package
+        let images = preview.images
+        
+        await loadCategories()
+        
+        var categoryIDsByName: [String: CKRecord.ID] = [:]
+        for category in categories {
+            categoryIDsByName[category.name.lowercased()] = category.id
+        }
+        
+        let selectedCategoryNames = Set(selectedRecipes.map { $0.categoryName.lowercased() })
+        
+        for exportedCategory in package.categories where selectedCategoryNames.contains(exportedCategory.name.lowercased()) {
+            let key = exportedCategory.name.lowercased()
+            if categoryIDsByName[key] == nil {
+                let created = await createCategory(name: exportedCategory.name, icon: exportedCategory.icon)
+                if created,
+                   let newCategory = categories.first(where: { $0.name.caseInsensitiveCompare(exportedCategory.name) == .orderedSame }) {
+                    categoryIDsByName[key] = newCategory.id
                 }
             }
-            
-            var importedCount = 0
-            for recipe in package.recipes {
-                guard let categoryID = categoryIDsByName[recipe.categoryName.lowercased()] else {
-                    continue
-                }
-                let created = await createRecipeWithSteps(
-                    categoryId: categoryID,
-                    name: recipe.name,
-                    recipeTime: recipe.recipeTime,
-                    details: recipe.details,
-                    image: recipe.imageFilename.flatMap { images[$0] },
-                    recipeSteps: recipe.recipeSteps
-                )
-                if created {
-                    importedCount += 1
-                }
+        }
+        
+        var importedCount = 0
+        for recipe in selectedRecipes {
+            guard let categoryID = categoryIDsByName[recipe.categoryName.lowercased()] else {
+                continue
             }
-            
-            if importedCount == 0 {
-                error = "No recipes were imported."
-                return false
+            let created = await createRecipeWithSteps(
+                categoryId: categoryID,
+                name: recipe.name,
+                recipeTime: recipe.recipeTime,
+                details: recipe.details,
+                image: recipe.imageFilename.flatMap { images[$0] },
+                recipeSteps: recipe.recipeSteps
+            )
+            if created {
+                importedCount += 1
             }
-            
-            await cloudKitManager.loadRecipeCounts(for: source)
-            recipeCounts = cloudKitManager.recipeCounts
-            await loadRandomRecipes()
-            refreshOfflineState()
-            return true
-        } catch {
-            self.error = "Failed to import recipes: \(error.localizedDescription)"
+        }
+        
+        if importedCount == 0 {
+            error = "No recipes were imported."
             return false
         }
+        
+        await cloudKitManager.loadRecipeCounts(for: source)
+        recipeCounts = cloudKitManager.recipeCounts
+        await loadRandomRecipes()
+        refreshOfflineState()
+        return true
     }
+#endif
     
     private func loadImageData(for recipe: Recipe) -> (filename: String, data: Data)? {
         let fm = FileManager.default
