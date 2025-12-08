@@ -600,7 +600,7 @@ struct RecipeCollectionView: View {
     var body: some View {
         mainContent
             .applySearchModifiers(searchText: $searchText, searchTask: $searchTask, showingSearchResults: $showingSearchResults, searchResults: $searchResults)
-            //.applyNavigationModifiers(collectionType: collectionType, showingSearchResults: showingSearchResults)
+            .applyNavigationModifiers(collectionType: collectionType, showingSearchResults: showingSearchResults)
             .navigationDestination(for: Recipe.self) { recipe in
                 RecipeDetailView(recipe: recipe)
             }
@@ -997,13 +997,13 @@ extension View {
             }
     }
     
-//    func applyNavigationModifiers(collectionType: RecipeCollectionType, showingSearchResults: Bool) -> some View {
-//        self
-//            .navigationTitle(showingSearchResults ? "Search Results" : collectionType.navigationTitle)
-//#if os(iOS)
-//            .navigationBarTitleDisplayMode(showingSearchResults ? .inline : .automatic)
-//#endif
-//    }
+    func applyNavigationModifiers(collectionType: RecipeCollectionType, showingSearchResults: Bool) -> some View {
+        self
+            .navigationTitle(showingSearchResults ? "Search Results" : collectionType.navigationTitle)
+#if os(iOS)
+            .navigationBarTitleDisplayMode(showingSearchResults ? .inline : .inline)
+#endif
+    }
     
     func applyLifecycleModifiers(
         searchTask: Binding<Task<Void, Never>?>
