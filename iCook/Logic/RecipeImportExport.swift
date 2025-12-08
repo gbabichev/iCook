@@ -31,11 +31,12 @@ struct RecipeExportPackage: Codable {
         case recipes
     }
     
+    #if os(macOS)
     init(categories: [ExportedCategory], recipes: [ExportedRecipe]) {
         self.categories = categories
         self.recipes = recipes
     }
-    
+    #endif
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.categories = try container.decode([ExportedCategory].self, forKey: .categories)
@@ -43,6 +44,7 @@ struct RecipeExportPackage: Codable {
     }
 }
 
+#if os(macOS)
 struct RecipeExportDocument: FileDocument {
     static var readableContentTypes: [UTType] { [RecipeExportConstants.contentType, .json] }
     static var writableContentTypes: [UTType] { [RecipeExportConstants.contentType, .json] }
@@ -105,3 +107,4 @@ struct RecipeExportDocument: FileDocument {
         return FileWrapper(directoryWithFileWrappers: wrappers)
     }
 }
+#endif

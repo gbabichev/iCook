@@ -647,11 +647,6 @@ final class AppViewModel: ObservableObject {
 #endif
     
     // MARK: - Import
-    func importRecipes(from url: URL) async -> Bool {
-        guard let preview = loadImportPreview(from: url) else { return false }
-        return await importRecipes(from: preview, selectedRecipes: preview.package.recipes)
-    }
-    
     func loadImportPreview(from url: URL) -> ImportPreview? {
         do {
             let (data, images) = try loadPackageOrJSON(at: url)
@@ -806,6 +801,7 @@ final class AppViewModel: ObservableObject {
         // Allow edits on shared sources once the share is read-write
         return source.isPersonal || cloudKitManager.canEditSharedSources
     }
+#if os(macOS)
     func stopSharingSource(_ source: Source) async {
         let success = await cloudKitManager.stopSharingSource(source)
         if success {
@@ -813,6 +809,7 @@ final class AppViewModel: ObservableObject {
             await loadSources()
         }
     }
+#endif
     func debugNukeOwnedData() async {
         await cloudKitManager.debugNukeOwnedData()
         await loadSources()
