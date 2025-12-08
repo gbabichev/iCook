@@ -89,6 +89,11 @@ struct ContentView: View {
                         collectionType = .home
                     }
 
+                    #if os(iOS)
+                    // On iOS, give NavigationStack time to initialize after collectionType changes
+                    try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 second
+                    #endif
+
                     // Then navigate to the recipe
                     if let recipe = model.recipes.first(where: { $0.id == recipeID }) ??
                         model.randomRecipes.first(where: { $0.id == recipeID }) {
@@ -197,9 +202,19 @@ struct ContentView: View {
                 // Then navigate to the recipe
                 if let recipe = model.recipes.first(where: { $0.id == recipeID }) ??
                     model.randomRecipes.first(where: { $0.id == recipeID }) {
+                    #if os(iOS)
+                    // On iOS, delay navigation to allow NavigationStack to initialize
+                    Task {
+                        try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 second
+                        suppressResetOnSourceChange = true
+                        navPath.append(recipe)
+                        didRestoreLastViewed = true
+                    }
+                    #else
                     suppressResetOnSourceChange = true
                     navPath.append(recipe)
                     didRestoreLastViewed = true
+                    #endif
                 }
             }
         }
