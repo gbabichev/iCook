@@ -1692,11 +1692,10 @@ class CloudKitManager: ObservableObject {
             existingRecord["categoryID"] = CKRecord.Reference(recordID: recipe.categoryID, action: .none)
             existingRecord["lastModified"] = recipe.lastModified
             
-            // Handle image asset
+            // Handle image asset: only update when we have a new asset. Avoid clearing an existing
+            // CloudKit asset unless we explicitly support image removal (not currently exposed).
             if let imageAsset = recipe.imageAsset {
                 existingRecord["imageAsset"] = imageAsset
-            } else {
-                existingRecord["imageAsset"] = nil
             }
             
             // Handle recipe steps
