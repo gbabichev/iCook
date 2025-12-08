@@ -188,6 +188,13 @@ struct RecipeCollectionView: View {
         }
         return false
     }
+
+    private func categoryName(for recipe: Recipe) -> String? {
+        if case .category(let category) = collectionType {
+            return category.name
+        }
+        return model.categories.first(where: { $0.id == recipe.categoryID })?.name
+    }
     
     private var isSearchActive: Bool {
         showingSearchResults || !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -381,7 +388,11 @@ struct RecipeCollectionView: View {
                 LazyVGrid(columns: columns, spacing: 15) {
                     ForEach(Array(remainingRecipes.enumerated()), id: \.element.id) { index, recipe in
                         NavigationLink(value: recipe) {
-                            RecipeLargeButtonWithState(recipe: recipe, index: index)
+                            RecipeLargeButtonWithState(
+                                recipe: recipe,
+                                categoryName: categoryName(for: recipe),
+                                index: index
+                            )
                         }
                         .onAppear {
                             if let path = recipe.cachedImagePath {

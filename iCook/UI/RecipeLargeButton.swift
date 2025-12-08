@@ -99,6 +99,7 @@ struct RobustAsyncImage<Content: View, Placeholder: View>: View {
 // Updated RecipeLargeButtonWithState using the robust image loader
 struct RecipeLargeButtonWithState: View {
     let recipe: Recipe
+    let categoryName: String?
     let index: Int
     
     @State private var shouldLoadImage = false
@@ -145,9 +146,15 @@ struct RecipeLargeButtonWithState: View {
                     .font(.headline)
                     .lineLimit(2)
                 
-                Text("\(recipe.recipeTime) min")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                if let categoryName {
+                    Text("\(recipe.recipeTime) min • \(categoryName)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("\(recipe.recipeTime) min")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
