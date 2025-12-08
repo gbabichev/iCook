@@ -110,7 +110,7 @@ struct RecipeCollectionView: View {
     // Computed property to get the appropriate recipe list
     private var recipes: [Recipe] {
         if showingSearchResults {
-            return searchResults
+            return filteredRecipes(for: searchText)
         }
         
         switch collectionType {
@@ -524,6 +524,22 @@ struct RecipeCollectionView: View {
     }
     
     // MARK: - Search Logic
+
+    private func filteredRecipes(for query: String) -> [Recipe] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+
+        let base: [Recipe]
+        if case .category(let category) = collectionType {
+            base = model.recipes.filter { $0.categoryID == category.id }
+        } else {
+            base = model.recipes
+        }
+
+        return base.filter { recipe in
+            recipe.name.range(of: trimmed, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+        }
+    }
     
     private func performSearch() {
         let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -539,26 +555,14 @@ struct RecipeCollectionView: View {
         guard !query.isEmpty else { return }
         
         showingSearchResults = true
-        
-        // Purely local filter for speed and stability
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        let base: [Recipe]
-        if case .category(let category) = collectionType {
-            base = model.recipes.filter { $0.categoryID == category.id }
-        } else {
-            base = model.recipes
-        }
-        let filtered = base.filter { recipe in
-            recipe.name.range(of: trimmed, options: [.caseInsensitive, .diacriticInsensitive]) != nil
-        }
-        searchResults = filtered
+        searchResults = filteredRecipes(for: query)
         isSearching = false
         
         if let modelError = model.error {
             print("Search error: \(modelError)")
         }
     }
-    
+
     // MARK: - UI View
     
     private var shouldShowNoSourceState: Bool {
@@ -696,7 +700,10 @@ struct RecipeCollectionView: View {
             searchTask = Task {
                 try? await Task.sleep(nanoseconds: 250_000_000) // 250ms debounce
                 guard !Task.isCancelled else { return }
-                await performSearch(with: trimmed)
+                await MainActor.run {
+                    searchResults = filteredRecipes(for: trimmed)
+                    isSearching = false
+                }
             }
             logSearchState("onChange typing")
         }
@@ -920,6 +927,7 @@ struct RecipeCollectionView: View {
                             recipesGridSection()
                         }
                     }
+                    .id(AnyHashable(model.recipesRefreshTrigger))
                 } else {
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 16) {

@@ -568,6 +568,8 @@ final class AppViewModel: ObservableObject {
                 let oldCategoryRecipes = recipes.filter { $0.categoryID == recipe.categoryID }
                 cloudKitManager.cacheRecipes(oldCategoryRecipes, for: source, categoryID: recipe.categoryID)
             }
+            // Nudge the UI to rebuild lists (including search views) with the latest recipe metadata
+            recipesRefreshTrigger += 1
             // Force refresh from CloudKit to pull latest fields and bust stale cache
             await loadCategories()
             await loadRecipesForCategory(skipCache: true)
