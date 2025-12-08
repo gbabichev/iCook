@@ -288,13 +288,22 @@ struct RecipeCollectionView: View {
                 .padding(.bottom, 32)
                 .padding(.horizontal, 20)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                #if os(iOS)
+                .frame(height: 450)
+                #else
                 .frame(height: 300)
+                #endif
                 
             case .success(let image):
                 image
                     .resizable()
                     .aspectRatio(contentMode: .fill)
+                    #if os(iOS)
+                    // Taller frame on iOS - image maintains natural proportions
+                    .frame(minWidth: 0, maxWidth: .infinity, minHeight: 100, maxHeight: 400)
+                    #else
                     .frame(minWidth: 0, maxWidth: .infinity, minHeight: 100, maxHeight: 350)
+                    #endif
                     .clipped()
                     .ignoresSafeArea(edges: .top)
                     .backgroundExtensionEffect()
@@ -640,6 +649,15 @@ struct RecipeCollectionView: View {
             .onChange(of: model.recipes) { _, newValue in
                 if case .home = collectionType {
                     featuredHomeRecipe = newValue.randomElement()
+                } else if case .category(let category) = collectionType {
+                    // Ensure the category view has a featured recipe once data arrives
+                    let categoryRecipes = newValue.filter { $0.categoryID == category.id }
+                    if let selected = selectedFeaturedRecipe,
+                       categoryRecipes.contains(where: { $0.id == selected.id }) == false {
+                        selectedFeaturedRecipe = categoryRecipes.randomElement()
+                    } else if selectedFeaturedRecipe == nil {
+                        selectedFeaturedRecipe = categoryRecipes.randomElement()
+                    }
                 }
             }
             .onChange(of: searchText, initial: false) { oldValue, newValue in
