@@ -305,36 +305,6 @@ class CloudKitManager: ObservableObject {
     }
     
 #if os(iOS)
-    /// Remove local shared markers for a source (used when an owner stops sharing).
-    func markSourceUnshared(_ source: Source) {
-        let key = cacheIdentifier(for: source.id)
-        printD("Marking source as unshared: \(source.name) (key=\(key)) before=\(sharedSourceIDs.count)")
-        sharedSourceIDs.remove(key)
-        if isSharedOwner(source) {
-            recentlyUnsharedIDs.remove(key)
-        } else {
-            recentlyUnsharedIDs.insert(key)
-        }
-        saveSharedSourceIDs()
-        printD("After unmark: sharedSourceIDs count=\(sharedSourceIDs.count)")
-        
-        // Flip local source objects to personal so UI/state stay consistent
-        sources = sources.map { src in
-            if src.id == source.id {
-                var updated = src
-                updated.isPersonal = true
-                return updated
-            }
-            return src
-        }
-        sourceCache[source.id]?.isPersonal = true
-        if let current = currentSource, current.id == source.id {
-            currentSource?.isPersonal = true
-        }
-        saveSourcesLocalCache()
-        saveCurrentSourceID()
-    }
-    
     /// Mark a source as shared locally so UI updates immediately after saving a share.
     func markSourceShared(_ source: Source) {
         markSharedSource(id: source.id)
@@ -2383,7 +2353,6 @@ class CloudKitManager: ObservableObject {
             return false
         }
     }
-    
     /// Generate a new CKRecord.ID for the appropriate zone based on the source.
     func makeRecordID(for source: Source) -> CKRecord.ID {
         let owner = isSharedOwner(source)

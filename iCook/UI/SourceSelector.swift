@@ -304,9 +304,11 @@ struct SourceSelector: View {
                                     }
                                 },
                                 onStopSharing: {
+                                    #if os(macOS)
                                     Task {
                                         await viewModel.stopSharingSource(source)
                                     }
+                                    #endif
                                 },
                                 onRename: {
                                     beginRenaming(source)
@@ -502,18 +504,8 @@ struct SourceSelector: View {
             topController = presented
         }
         
-        // Install delegate proxy so we can detect stop-sharing and update state
-        let isOwner = viewModel.isSharedOwner(source)
+        // Install delegate proxy so we can detect save events and update state
         let proxy = SharingDelegateProxy(
-            onStopSharing: {
-                Task {
-                    if isOwner {
-                        await viewModel.stopSharingSource(source)
-                    } else {
-                        await viewModel.removeSharedSourceLocally(source)
-                    }
-                }
-            },
             onSave: {
                 // Optimistically mark as shared so UI updates immediately
                 viewModel.markSourceSharedLocally(source)
@@ -535,11 +527,9 @@ struct SourceSelector: View {
     
     /// Delegate proxy to observe stop sharing events.
     private final class SharingDelegateProxy: NSObject, UICloudSharingControllerDelegate, UIAdaptivePresentationControllerDelegate {
-        let onStopSharing: () -> Void
         let onSave: () -> Void
-        
-        init(onStopSharing: @escaping () -> Void, onSave: @escaping () -> Void) {
-            self.onStopSharing = onStopSharing
+
+        init(onSave: @escaping () -> Void) {
             self.onSave = onSave
         }
         
@@ -647,7 +637,7 @@ struct SourceRowWrapper: View {
     let isSelected: Bool
     let onSelect: () -> Void
     let onShare: () -> Void
-    let onStopSharing: () -> Void
+    let onStopSharing: (() -> Void)?
     let onRename: () -> Void
     let onDelete: () -> Void
     @EnvironmentObject private var viewModel: AppViewModel
@@ -748,7 +738,7 @@ struct SourceRowWrapper: View {
                 Button(action: onShare) {
                     Label("Copy Share URL", systemImage: "link")
                 }
-                Button(role: .destructive, action: onStopSharing) {
+                Button(role: .destructive, action: onStopSharing ?? {}) {
                     Label("Stop Sharing", systemImage: "xmark.circle")
                 }
             } else if source.isPersonal {

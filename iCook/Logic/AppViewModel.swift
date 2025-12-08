@@ -140,25 +140,7 @@ final class AppViewModel: ObservableObject {
         refreshOfflineState()
         return cloudKitManager.error == nil
     }
-#if os (iOS)
-    func removeSharedSourceLocally(_ source: Source) async {
-        await cloudKitManager.removeSharedSourceLocally(source)
-        sources = cloudKitManager.sources
-        if currentSource?.id == source.id {
-            currentSource = sources.first
-            cloudKitManager.saveCurrentSourceID()
-            if let newSource = currentSource {
-                await selectSource(newSource)
-                return
-            } else {
-                categories.removeAll()
-                recipes.removeAll()
-                recipeCounts.removeAll()
-            }
-        }
-        refreshOfflineState()
-    }
-#else
+#if os (macOS)
     func leaveSharedSource(_ source: Source) async {
         _ = await cloudKitManager.leaveSharedSource(source)
         sources = cloudKitManager.sources
@@ -246,7 +228,7 @@ final class AppViewModel: ObservableObject {
     }
     
     // MARK: - Recipe Management
-    func loadRecipesForCategory(_ categoryID: CKRecord.ID, skipCache: Bool = false) async {
+    func loadRecipesForCategory(skipCache: Bool = false) async {
         // Unified path: load all recipes and filter at the view layer.
         await loadRandomRecipes(skipCache: skipCache)
     }
@@ -359,30 +341,6 @@ final class AppViewModel: ObservableObject {
             "categoryZoneOwner": recipe.categoryID.zoneID.ownerName
         ]
         UserDefaults.standard.set(dict, forKey: lastViewedRecipeKey)
-    }
-    
-    func loadLastViewedRecipeID() -> (recipeID: CKRecord.ID, sourceID: CKRecord.ID, categoryID: CKRecord.ID?)? {
-        guard let dict = UserDefaults.standard.dictionary(forKey: lastViewedRecipeKey) as? [String: String],
-              let recipeRecord = dict["recipeRecordName"],
-              let recipeZone = dict["recipeZoneName"],
-              let recipeOwner = dict["recipeZoneOwner"],
-              let sourceRecord = dict["sourceRecordName"],
-              let sourceZone = dict["sourceZoneName"],
-              let sourceOwner = dict["sourceZoneOwner"] else {
-            return nil
-        }
-        let recipeZoneID = CKRecordZone.ID(zoneName: recipeZone, ownerName: recipeOwner)
-        let recipeID = CKRecord.ID(recordName: recipeRecord, zoneID: recipeZoneID)
-        let sourceZoneID = CKRecordZone.ID(zoneName: sourceZone, ownerName: sourceOwner)
-        let sourceID = CKRecord.ID(recordName: sourceRecord, zoneID: sourceZoneID)
-        if let catRecord = dict["categoryRecordName"],
-           let catZone = dict["categoryZoneName"],
-           let catOwner = dict["categoryZoneOwner"] {
-            let catZoneID = CKRecordZone.ID(zoneName: catZone, ownerName: catOwner)
-            let catID = CKRecord.ID(recordName: catRecord, zoneID: catZoneID)
-            return (recipeID, sourceID, catID)
-        }
-        return (recipeID, sourceID, nil)
     }
 
     // MARK: - App Location Persistence
@@ -612,7 +570,7 @@ final class AppViewModel: ObservableObject {
             }
             // Force refresh from CloudKit to pull latest fields and bust stale cache
             await loadCategories()
-            await loadRecipesForCategory(updatedRecipe.categoryID, skipCache: true)
+            await loadRecipesForCategory(skipCache: true)
         }
         
         refreshOfflineState()
@@ -831,9 +789,7 @@ final class AppViewModel: ObservableObject {
     func stopSharingSource(_ source: Source) async {
         let success = await cloudKitManager.stopSharingSource(source)
         if success {
-#if os(iOS)
-            cloudKitManager.markSourceUnshared(source)
-#endif
+
             await loadSources()
         }
     }
