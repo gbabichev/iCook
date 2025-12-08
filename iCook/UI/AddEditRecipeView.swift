@@ -131,6 +131,19 @@ struct AddEditRecipeView: View {
                             Text("Recipe Steps")
                                 .font(.headline)
                             Spacer()
+                            if !recipeSteps.isEmpty {
+                                Button("Collapse All") {
+                                    collapseAllSteps()
+                                }
+                                .buttonStyle(.bordered)
+                                .disabled(!canEdit)
+                                
+                                Button("Expand All") {
+                                    expandAllSteps()
+                                }
+                                .buttonStyle(.bordered)
+                                .disabled(!canEdit)
+                            }
                             Button("Add Step") {
                                 addNewStep()
                             }
@@ -330,6 +343,14 @@ struct AddEditRecipeView: View {
     }
     
     // MARK: - Step Management
+    
+    private func expandAllSteps() {
+        expandedSteps = Set(recipeSteps.map(\.stepNumber))
+    }
+    
+    private func collapseAllSteps() {
+        expandedSteps.removeAll()
+    }
     
     private func addNewStep() {
         let newStepNumber = (recipeSteps.map(\.stepNumber).max() ?? 0) + 1
@@ -630,6 +651,7 @@ struct AddEditRecipeView: View {
                             .frame(height: 200)
                             .clipped()
                             .cornerRadius(8)
+                            .allowsHitTesting(false)
                     } else {
                         placeholderImageView
                     }
@@ -641,13 +663,14 @@ struct AddEditRecipeView: View {
                             .frame(height: 200)
                             .clipped()
                             .cornerRadius(8)
+                            .allowsHitTesting(false)
                             .zIndex(0)
                     } else {
                         placeholderImageView
                     }
 #endif
                 }
-            }else if let imagePath = existingImagePath {
+            } else if let imagePath = existingImagePath {
                 AsyncImage(url: URL(fileURLWithPath: imagePath)) { phase in
                     switch phase {
                     case .success(let image):
@@ -657,6 +680,7 @@ struct AddEditRecipeView: View {
                             .frame(height: 200)
                             .clipped()
                             .cornerRadius(8)
+                            .allowsHitTesting(false)
                             .zIndex(0)
                     case .failure(_):
                         Rectangle()

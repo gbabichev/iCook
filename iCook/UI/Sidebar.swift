@@ -18,6 +18,7 @@ struct CategoryList: View {
     @Binding var showingAddCategory: Bool
     @Binding var collectionType: RecipeCollectionType?
     @State private var showSourcesOverlay = false
+    @State private var deleteAlertMessage: String?
     
     init(
         selection: Binding<CKRecord.ID?>,
@@ -93,8 +94,13 @@ struct CategoryList: View {
                             }
                             
                             Button(role: .destructive) {
-                                Task {
-                                    await model.deleteCategory(id: category.id)
+                                let count = recipeCount(for: category)
+                                if count > 0 {
+                                    deleteAlertMessage = "Move or delete the \(count == 1 ? "recipe" : "recipes") in '\(category.name)' before deleting the category."
+                                } else {
+                                    Task {
+                                        await model.deleteCategory(id: category.id)
+                                    }
                                 }
                             } label: {
                                 Label("Delete Category", systemImage: "trash")
@@ -149,11 +155,11 @@ struct CategoryList: View {
                 } label: {
                     Image(systemName: "plus")
                 }
-                .disabled(model.isOfflineMode || model.currentSource == nil)
-                .accessibilityLabel("Add Category")
-            }
-        }
-        .sheet(isPresented: $showSourcesOverlay) {
+                            .disabled(model.isOfflineMode || model.currentSource == nil)
+                            .accessibilityLabel("Add Category")
+                        }
+                    }
+                    .sheet(isPresented: $showSourcesOverlay) {
             SourceSelector()
                 .environmentObject(model)
 #if os(macOS)
@@ -171,6 +177,16 @@ struct CategoryList: View {
             case .none:
                 break
             }
+        }
+        .alert("Cannot Delete Category", isPresented: .init(
+            get: { deleteAlertMessage != nil },
+            set: { if !$0 { deleteAlertMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) {
+                deleteAlertMessage = nil
+            }
+        } message: {
+            Text(deleteAlertMessage ?? "")
         }
     }
 }
