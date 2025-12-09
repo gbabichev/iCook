@@ -305,12 +305,7 @@ struct RecipeCollectionView: View {
                 image
                     .resizable()
                     .aspectRatio(contentMode: .fill)
-                    #if os(iOS)
-                    // Taller frame on iOS - image maintains natural proportions
-                    .frame(minWidth: 0, maxWidth: .infinity, minHeight: 100, maxHeight: 400)
-                    #else
                     .frame(minWidth: 0, maxWidth: .infinity, minHeight: 100, maxHeight: 350)
-                    #endif
                     .clipped()
                     .ignoresSafeArea(edges: .top)
                     .backgroundExtensionEffect()
