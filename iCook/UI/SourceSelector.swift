@@ -769,9 +769,10 @@ struct SourceRowWrapper: View {
                     Label("Delete", systemImage: "trash")
                 }
             } else {
-                Button(role: .destructive, action: onShare) {
-                    Label("Manage", systemImage: "person.crop.circle.badge.xmark")
+                Button(action: onShare) {
+                    Label("Manage", systemImage: "person.crop.circle.badge.checkmark")
                 }
+                .tint(.blue)
             }
         }
 #endif
