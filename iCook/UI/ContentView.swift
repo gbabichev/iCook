@@ -5,6 +5,7 @@ import CloudKit
 
 struct ContentView: View {
     @EnvironmentObject private var model: AppViewModel
+    @AppStorage("HasSeenTutorial") private var hasSeenTutorial = false
     
     @State private var preferredColumn: NavigationSplitViewColumn = .detail
     @State private var selectedCategoryID: CKRecord.ID?
@@ -17,6 +18,7 @@ struct ContentView: View {
     @State private var navStackKey = UUID().uuidString
     @State private var didRestoreLastViewed = false
     @State private var suppressResetOnSourceChange = false
+    @State private var showingTutorial = false
     
     var body: some View {
         NavigationSplitView(preferredCompactColumn: $preferredColumn) {
@@ -143,6 +145,13 @@ struct ContentView: View {
             AddCategoryView()
                 .environmentObject(model)
         }
+        .sheet(isPresented: $showingTutorial) {
+            TutorialView {
+                hasSeenTutorial = true
+                showingTutorial = false
+            }
+            .interactiveDismissDisabled(true)
+        }
         .sheet(item: $editingCategory) { category in
             AddCategoryView(editingCategory: category)
                 .environmentObject(model)
@@ -173,8 +182,14 @@ struct ContentView: View {
                 }
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .showTutorial)) { _ in
+            showingTutorial = true
+        }
         .onAppear {
             // Try to restore immediately from cached data to avoid visible jumps
+            if !hasSeenTutorial {
+                showingTutorial = true
+            }
             guard !didRestoreLastViewed,
                   let saved = model.loadAppLocation(),
                   model.currentSource?.id == saved.sourceID else { return }

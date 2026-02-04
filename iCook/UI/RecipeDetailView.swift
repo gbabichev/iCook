@@ -422,5 +422,6 @@ extension Notification.Name {
     static let recipesRefreshed = Notification.Name("recipesRefreshed")
     static let sourcesRefreshed = Notification.Name("sourcesRefreshed")
     static let shareRevokedToast = Notification.Name("shareRevokedToast")
+    static let showTutorial = Notification.Name("showTutorial")
     
 }

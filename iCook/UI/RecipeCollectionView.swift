@@ -227,6 +227,12 @@ struct RecipeCollectionView: View {
                     Label("Print debug", systemImage: "terminal")
                 }
                 
+                Button {
+                    NotificationCenter.default.post(name: .showTutorial, object: nil)
+                } label: {
+                    Label("Show Tutorial", systemImage: "sparkles")
+                }
+                
                 Button(role: .destructive) {
                     isDebugOperationInProgress = true
                     Task {
