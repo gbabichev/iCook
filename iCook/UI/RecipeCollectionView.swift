@@ -751,6 +751,12 @@ struct RecipeCollectionView: View {
         isRefreshInFlight = true
         showRefreshSpinner = true
         let start = Date()
+        if model.isOfflineMode {
+            showingOfflineNotice = true
+            showRefreshSpinner = false
+            isRefreshInFlight = false
+            return
+        }
         if showingSearchResults {
             performSearch()
         } else {
