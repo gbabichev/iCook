@@ -48,7 +48,7 @@ struct ContentView: View {
                 )
             }
             .navigationSplitViewColumnWidth(min: 250, ideal: 250, max: 400)
-            .navigationTitle("iCook") //sidebar title on iOS
+            //.navigationTitle("iCook") //sidebar title on iOS
         } detail: {
             // Single NavigationStack for the detail view
             NavigationStack(path: $navPath) {

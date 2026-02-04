@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>iCook - Support</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background-color: #f8f9fa;
+        }
+        
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            text-align: center;
+            padding: 40px 20px;
+            margin-bottom: 40px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+        
+        h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            font-weight: 300;
+        }
+        
+        .subtitle {
+            font-size: 1.2em;
+            opacity: 0.9;
+        }
+        
+        .support-section {
+            background: white;
+            margin-bottom: 30px;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            border-left: 4px solid #667eea;
+        }
+        
+        h2 {
+            color: #667eea;
+            margin-bottom: 20px;
+            font-size: 1.8em;
+            font-weight: 600;
+        }
+        
+        h3 {
+            color: #555;
+            margin-bottom: 15px;
+            margin-top: 25px;
+            font-size: 1.3em;
+        }
+        
+        .contact-info {
+            background: #f8f9ff;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        
+        .contact-method {
+            display: flex;
+            align-items: center;
+            margin-bottom: 15px;
+            padding: 15px;
+            background: white;
+            border-radius: 8px;
+            border: 1px solid #e9ecef;
+        }
+        
+        .contact-icon {
+            width: 40px;
+            height: 40px;
+            background: #667eea;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 15px;
+            color: white;
+            font-weight: bold;
+        }
+        
+        .faq-item {
+            margin-bottom: 25px;
+            padding: 20px;
+            background: #f8f9ff;
+            border-radius: 8px;
+            border-left: 3px solid #667eea;
+        }
+        
+        .faq-question {
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 1.1em;
+        }
+        
+        .faq-answer {
+            color: #666;
+            line-height: 1.6;
+        }
+        
+        a {
+            color: #667eea;
+            text-decoration: none;
+        }
+        
+        a:hover {
+            text-decoration: underline;
+        }
+        
+        .app-info {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            text-align: center;
+        }
+        
+        .response-time {
+            background: #e8f5e8;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 15px;
+            border-left: 4px solid #28a745;
+        }
+        
+        footer {
+            text-align: center;
+            margin-top: 50px;
+            padding: 20px;
+            color: #666;
+            font-size: 0.9em;
+        }
+        
+        @media (max-width: 600px) {
+            .container {
+                padding: 10px;
+            }
+            
+            header {
+                padding: 30px 15px;
+            }
+            
+            h1 {
+                font-size: 2em;
+            }
+            
+            .support-section {
+                padding: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>iCook</h1>
+            <p class="subtitle">Support & Help Center</p>
+        </header>
+
+        <div class="support-section">
+            <h2>📧 Contact Support</h2>
+            <p>Need help with iCook? I'm here to assist you! Please reach out using any of the methods below:</p>
+            
+            <div class="contact-info">
+                <div class="contact-method">
+                    <div class="contact-icon">📧</div>
+                    <div>
+                        <strong>Email Support</strong><br>
+                        <a href="mailto:george@babichevit.com">george@babichevit.com</a>
+                    </div>
+                </div>
+                
+                <div class="contact-method">
+                    <div class="contact-icon">🐛</div>
+                    <div>
+                        <strong>Bug Reports & Feature Requests</strong><br>
+                        <a href="https://github.com/gbabichev/iCook/issues" target="_blank">GitHub Issues</a>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="response-time">
+                <strong>⏱️ Response Time:</strong> We typically respond to support requests within 24-48 hours.
+            </div>
+        </div>
+
+        <div class="support-section">
+            <h2>❓ Frequently Asked Questions</h2>
+
+            <div class="faq-item">
+                <div class="faq-question">How do I create a new recipe in iCook?</div>
+                <div class="faq-answer">Tap the "+" button to add a recipe. You can enter the recipe name, time, details, steps, and add a photo.</div>
+            </div>
+
+            <div class="faq-item">
+                <div class="faq-question">How do I organize recipes with categories?</div>
+                <div class="faq-answer">Create categories to group recipes (Breakfast, Dinner, Desserts, etc.). Use the Categories list in the sidebar to add, rename, or remove categories.</div>
+            </div>
+
+            <div class="faq-item">
+                <div class="faq-question">How do I add steps and ingredients?</div>
+                <div class="faq-answer">Open a recipe, then add steps under Recipe Steps. Each step can include its own ingredients. You can reorder steps or collapse/expand them as you edit.</div>
+            </div>
+
+            <div class="faq-item">
+                <div class="faq-question">How do I share a collection?</div>
+                <div class="faq-answer">Open Collections, tap Share on a collection, and invite people. You can manage or stop sharing at any time.</div>
+            </div>
+
+            <div class="faq-item">
+                <div class="faq-question">Is iCook free to use?</div>
+                <div class="faq-answer">Yes. iCook is free with no ads or tracking.</div>
+            </div>
+
+            <div class="faq-item">
+                <div class="faq-question">Will my recipes sync across my devices?</div>
+                <div class="faq-answer">Yes. iCook uses iCloud to keep your recipes and collections in sync across iPhone, iPad, and Mac.</div>
+            </div>
+        </div>
+
+        <div class="support-section">
+            <h2>🔧 Troubleshooting</h2>
+
+            <h3>iCloud Sync Issues</h3>
+            <p>If your recipes aren't syncing across devices:</p>
+            <ul style="margin-left: 20px; margin-top: 10px;">
+                <li>Ensure you're signed in to the same iCloud account on all devices</li>
+                <li>Check that iCloud Drive is enabled in Settings > [Your Name] > iCloud</li>
+                <li>Make sure you have enough iCloud storage available</li>
+                <li>Restart the app or your device if sync seems stuck</li>
+            </ul>
+
+            <h3>Recipes Not Appearing</h3>
+            <p>If you can't find your recipes:</p>
+            <ul style="margin-left: 20px; margin-top: 10px;">
+                <li>Check if the recipe is in a different category or collection</li>
+                <li>Use search to locate a recipe by name</li>
+                <li>Make sure you’re viewing the right collection</li>
+            </ul>
+
+            <h3>Performance or Freezing</h3>
+            <p>If iCook seems slow or unresponsive:</p>
+            <ul style="margin-left: 20px; margin-top: 10px;">
+                <li>Close and reopen the app</li>
+                <li>Restart your device</li>
+                <li>Update iCook to the latest version from the App Store</li>
+            </ul>
+        </div>
+
+        <div class="support-section">
+            <h2>📱 App Information</h2>
+            <div class="app-info">
+                <p><strong>Compatibility:</strong> iOS 26.0+, iPadOS 26.0+, macOS 26.0+</p>
+                <p><strong>Developer:</strong> George Babichev</p>
+            </div>
+        </div>
+
+        <div class="support-section">
+            <h2>💡 Feature Requests</h2>
+            <p>Have an idea for improving iCook? We'd love to hear from you! Create an issue on the <a href="https://github.com/gbabichev/iCook" target="_blank">GitHub repository</a>.</p>
+        </div>
+
+        <div class="support-section">
+            <h2>More Apps</h2>
+            <p>Check out more apps on my website: <a href="https://georgebabichev.com">George Babichev</a></p>
+        </div>        
+
+        <footer>
+            <p>&copy; 2026 George Babichev. All rights reserved.</p>
+        </footer>
+    </div>
+</body>
+</html>

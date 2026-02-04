@@ -887,9 +887,9 @@ struct RecipeCollectionView: View {
         }
         
 #if DEBUG
-        ToolbarItem(placement: .primaryAction) {
-            debugMenu
-        }
+//        ToolbarItem(placement: .primaryAction) {
+//            debugMenu
+//        }
 #endif
         
 #if os(macOS)
