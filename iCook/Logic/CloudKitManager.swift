@@ -11,6 +11,7 @@ import AppKit
 struct ImageSaveResult {
     let asset: CKAsset
     let cachedPath: String?
+    let tempURL: URL
 }
 
 @MainActor
@@ -1751,7 +1752,7 @@ class CloudKitManager: ObservableObject {
             printD("Image asset created: \(tempURL)")
             let token = versionToken(for: recipe.lastModified)
             let cachedPath = cacheImageData(imageData, for: recipe.id, versionToken: token)
-            return ImageSaveResult(asset: asset, cachedPath: cachedPath)
+            return ImageSaveResult(asset: asset, cachedPath: cachedPath, tempURL: tempURL)
         } catch {
             printD("Error saving image: \(error.localizedDescription)")
             self.error = "Failed to save image"

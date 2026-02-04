@@ -477,11 +477,13 @@ final class AppViewModel: ObservableObject {
         )
         
         // Handle image if provided
+        var tempImageURL: URL?
         var recipeWithImage = recipe
         if let imageData = image {
             if let result = await cloudKitManager.saveImage(imageData, for: recipe) {
                 recipeWithImage.imageAsset = result.asset
                 recipeWithImage.cachedImagePath = result.cachedPath
+                tempImageURL = result.tempURL
             }
         }
         
@@ -491,6 +493,9 @@ final class AppViewModel: ObservableObject {
         // Add recipe directly to local array without re-querying CloudKit
         // (newly created recipe won't be indexed in CloudKit immediately)
         if error == nil {
+            if let tempImageURL {
+                try? FileManager.default.removeItem(at: tempImageURL)
+            }
             printD("Recipe created successfully, adding to local list")
             let newRecipes = (recipes + [recipeWithImage]).sorted { $0.lastModified > $1.lastModified }
             printD("Before: recipes.count = \(recipes.count)")
@@ -550,12 +555,14 @@ final class AppViewModel: ObservableObject {
         if let recipeSteps = recipeSteps { updatedRecipe.recipeSteps = recipeSteps }
         
         // Handle image if provided
+        var tempImageURL: URL?
         if let imageData = image {
             // Clear any old cached variants before saving a new one
             cloudKitManager.purgeCachedImages(for: recipe.id)
             if let result = await cloudKitManager.saveImage(imageData, for: updatedRecipe) {
                 updatedRecipe.imageAsset = result.asset
                 updatedRecipe.cachedImagePath = result.cachedPath
+                tempImageURL = result.tempURL
             }
         }
         
@@ -564,6 +571,9 @@ final class AppViewModel: ObservableObject {
         
         // Update the recipe in the local array immediately
         if error == nil {
+            if let tempImageURL {
+                try? FileManager.default.removeItem(at: tempImageURL)
+            }
             if let categoryId = categoryId, categoryId != recipe.categoryID {
                 let oldID = recipe.categoryID
                 let newID = categoryId
