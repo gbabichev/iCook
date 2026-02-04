@@ -127,28 +127,32 @@ struct AddEditRecipeView: View {
                 Section {
                     VStack(alignment: .leading, spacing: 16) {
                         
-                        HStack {
+                        VStack(alignment: .leading, spacing: 8) {
                             Text("Recipe Steps")
                                 .font(.headline)
-                            Spacer()
-                            if !recipeSteps.isEmpty {
-                                Button("Collapse All") {
-                                    collapseAllSteps()
+                            
+                            HStack {
+                                if !recipeSteps.isEmpty {
+                                    Button("Collapse All") {
+                                        collapseAllSteps()
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .disabled(!canEdit)
+                                    
+                                    Button("Expand All") {
+                                        expandAllSteps()
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .disabled(!canEdit)
+                                }
+                                Button("Add Step") {
+                                    addNewStep()
                                 }
                                 .buttonStyle(.bordered)
                                 .disabled(!canEdit)
                                 
-                                Button("Expand All") {
-                                    expandAllSteps()
-                                }
-                                .buttonStyle(.bordered)
-                                .disabled(!canEdit)
+                                Spacer()
                             }
-                            Button("Add Step") {
-                                addNewStep()
-                            }
-                            .buttonStyle(.bordered)
-                            .disabled(!canEdit)
                         }
                         
                         if recipeSteps.isEmpty {
