@@ -13,6 +13,7 @@ final class AppViewModel: ObservableObject {
     @Published var isLoadingRecipes = false
     @Published var recipesRefreshTrigger = 0
     @Published var isImporting = false
+    @Published var isAcceptingShare = false
     struct ImportPreview: Identifiable {
         var id: URL { url }
         let url: URL
@@ -163,14 +164,33 @@ final class AppViewModel: ObservableObject {
 #endif
     
     func acceptShareURL(_ url: URL) async -> Bool {
+        isAcceptingShare = true
+        defer { isAcceptingShare = false }
         let success = await cloudKitManager.acceptShare(from: url)
         sources = cloudKitManager.sources
         currentSource = cloudKitManager.currentSource
         refreshOfflineState()
         if success, let source = currentSource {
-            await loadCategories()
-            await loadRandomRecipes()
+            await selectSource(source)
             printD("DEBUG: Loaded categories and random recipes for shared source \(source.name)")
+        } else {
+            error = cloudKitManager.error
+        }
+        return success
+    }
+    
+    func acceptShareMetadata(_ metadata: CKShare.Metadata) async -> Bool {
+        isAcceptingShare = true
+        defer { isAcceptingShare = false }
+        let success = await cloudKitManager.acceptShare(metadata: metadata)
+        sources = cloudKitManager.sources
+        currentSource = cloudKitManager.currentSource
+        refreshOfflineState()
+        if success, let source = currentSource {
+            await selectSource(source)
+            printD("DEBUG: Loaded categories and random recipes for shared source \(source.name)")
+        } else {
+            error = cloudKitManager.error
         }
         return success
     }

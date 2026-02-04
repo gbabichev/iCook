@@ -2111,6 +2111,20 @@ class CloudKitManager: ObservableObject {
         printD("Attempting to accept share from URL: \(url.absoluteString)")
         do {
             let metadata = try await fetchShareMetadata(for: url)
+            return await acceptShare(metadata: metadata)
+        } catch {
+            let message = error.localizedDescription
+            printD("Failed to accept share: \(message)")
+            await MainActor.run {
+                self.error = "Failed to accept share: \(message)"
+            }
+            return false
+        }
+    }
+    
+    /// Accept a CloudKit share via metadata (used by system share handoff)
+    func acceptShare(metadata: CKShare.Metadata) async -> Bool {
+        do {
             try await acceptShare(with: metadata)
             let sharedSource = await fetchSharedSource(using: metadata)
             await loadSources()
@@ -2131,11 +2145,11 @@ class CloudKitManager: ObservableObject {
             }
             updateSharedEditabilityFlag()
             
-            printD("Share accepted successfully via manual flow")
+            printD("Share accepted successfully via metadata flow")
             return true
         } catch {
             let message = error.localizedDescription
-            printD("Failed to accept share: \(message)")
+            printD("Failed to accept share via metadata: \(message)")
             await MainActor.run {
                 self.error = "Failed to accept share: \(message)"
             }

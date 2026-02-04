@@ -17,16 +17,35 @@ import AppKit
 final class MacAppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     @Published var pendingImportURL: URL?
     var onOpenExport: ((URL) -> Void)?
+    var onOpenShare: ((URL) -> Void)?
+    var onAcceptShare: ((CKShare.Metadata) -> Void)?
     
     func application(_ application: NSApplication, open urls: [URL]) {
-        guard let url = urls.first, shouldHandle(url: url) else { return }
-        deliver(url)
+        guard let url = urls.first else { return }
+        if shouldHandle(url: url) {
+            deliver(url)
+        } else {
+            DispatchQueue.main.async { [weak self] in
+                self?.onOpenShare?(url)
+            }
+        }
+    }
+
+    func application(_ application: NSApplication, userDidAcceptCloudKitShareWith metadata: CKShare.Metadata) {
+        DispatchQueue.main.async { [weak self] in
+            self?.onAcceptShare?(metadata)
+        }
     }
     
     func application(_ sender: NSApplication, openFile filename: String) -> Bool {
         let url = URL(fileURLWithPath: filename)
-        guard shouldHandle(url: url) else { return false }
-        deliver(url)
+        if shouldHandle(url: url) {
+            deliver(url)
+            return true
+        }
+        DispatchQueue.main.async { [weak self] in
+            self?.onOpenShare?(url)
+        }
         return true
     }
     
@@ -48,6 +67,44 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
 }
 #endif
 
+#if os(iOS)
+final class IOSAppDelegate: NSObject, UIApplicationDelegate, ObservableObject {
+    var onAcceptShare: ((CKShare.Metadata) -> Void)?
+    
+    func application(_ application: UIApplication, userDidAcceptCloudKitShareWith metadata: CKShare.Metadata) {
+        DispatchQueue.main.async { [weak self] in
+            self?.onAcceptShare?(metadata)
+        }
+    }
+    
+    func application(_ application: UIApplication,
+                     configurationForConnecting connectingSceneSession: UISceneSession,
+                     options: UIScene.ConnectionOptions) -> UISceneConfiguration {
+        let config = UISceneConfiguration(name: "Default Configuration", sessionRole: connectingSceneSession.role)
+        config.delegateClass = IOSSceneDelegate.self
+        return config
+    }
+}
+
+final class IOSSceneDelegate: NSObject, UIWindowSceneDelegate {
+    func windowScene(_ windowScene: UIWindowScene, userDidAcceptCloudKitShareWith metadata: CKShare.Metadata) {
+        NotificationCenter.default.post(name: .cloudKitShareAccepted, object: metadata)
+    }
+    
+    func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
+        guard let url = URLContexts.first?.url else { return }
+        NotificationCenter.default.post(name: .cloudKitShareURLReceived, object: url)
+    }
+    
+    func scene(_ scene: UIScene, continue userActivity: NSUserActivity) {
+        if userActivity.activityType == NSUserActivityTypeBrowsingWeb,
+           let url = userActivity.webpageURL {
+            NotificationCenter.default.post(name: .cloudKitShareURLReceived, object: url)
+        }
+    }
+}
+#endif
+
 @main
 struct iCookApp: App {
     
@@ -58,6 +115,9 @@ struct iCookApp: App {
     @State private var isImporting = false
     @State private var exportDocument = RecipeExportDocument()
     @State private var showAbout = false
+#endif
+#if os(iOS)
+    @UIApplicationDelegateAdaptor(IOSAppDelegate.self) private var iosAppDelegate
 #endif
     @State private var importPreview: AppViewModel.ImportPreview?
     @State private var selectedImportIndices: Set<Int> = []
@@ -75,10 +135,23 @@ struct iCookApp: App {
                             handleCloudKitShareLink(url)
                         }
                     }
+                    .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
+                        if let url = activity.webpageURL {
+                            handleCloudKitShareLink(url)
+                        }
+                    }
 #if os(macOS)
                     .onAppear {
                         appDelegate.onOpenExport = { url in
                             handleOpenedExport(url)
+                        }
+                        appDelegate.onOpenShare = { url in
+                            handleCloudKitShareLink(url)
+                        }
+                        appDelegate.onAcceptShare = { metadata in
+                            Task {
+                                _ = await model.acceptShareMetadata(metadata)
+                            }
                         }
                         if let pending = appDelegate.pendingImportURL {
                             appDelegate.pendingImportURL = nil
@@ -90,6 +163,25 @@ struct iCookApp: App {
                         handleOpenedExport(url)
                     }
 #endif
+#if os(iOS)
+                    .onAppear {
+                        iosAppDelegate.onAcceptShare = { metadata in
+                            Task {
+                                _ = await model.acceptShareMetadata(metadata)
+                            }
+                        }
+                    }
+                    .onReceive(NotificationCenter.default.publisher(for: .cloudKitShareAccepted)) { note in
+                        if let metadata = note.object as? CKShare.Metadata {
+                            Task { _ = await model.acceptShareMetadata(metadata) }
+                        }
+                    }
+                    .onReceive(NotificationCenter.default.publisher(for: .cloudKitShareURLReceived)) { note in
+                        if let url = note.object as? URL {
+                            handleCloudKitShareLink(url)
+                        }
+                    }
+#endif
                 
                 if model.isImporting {
                     Color.black.opacity(0.25)
@@ -97,6 +189,18 @@ struct iCookApp: App {
                     VStack(spacing: 12) {
                         ProgressView()
                         Text("Importing recipes…")
+                            .font(.headline)
+                    }
+                    .padding(16)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                }
+                
+                if model.isAcceptingShare {
+                    Color.black.opacity(0.25)
+                        .ignoresSafeArea()
+                    VStack(spacing: 12) {
+                        ProgressView()
+                        Text("Loading shared collection…")
                             .font(.headline)
                     }
                     .padding(16)
