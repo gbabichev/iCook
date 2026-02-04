@@ -1150,10 +1150,15 @@ struct CameraInfo: Identifiable, Hashable {
     let displayName: String
     let position: AVCaptureDevice.Position
     let zoomLabel: String
+    let zoomFactor: CGFloat?
+    let isVirtualZoom: Bool
+    let zoomSortValue: CGFloat
     
     init(device: AVCaptureDevice) {
         self.device = device
         self.position = device.position
+        self.zoomFactor = nil
+        self.isVirtualZoom = false
         
         // Map device types to zoom-style labels for familiarity
         let basePosition = position == .front ? "Front" : "Back"
@@ -1161,25 +1166,53 @@ struct CameraInfo: Identifiable, Hashable {
         case .builtInUltraWideCamera:
             self.zoomLabel = "0.5x"
             self.displayName = "\(basePosition) 0.5x"
+            self.zoomSortValue = 0.5
         case .builtInWideAngleCamera:
             self.zoomLabel = "1x"
             self.displayName = "\(basePosition) 1x"
+            self.zoomSortValue = 1.0
         case .builtInTelephotoCamera:
             self.zoomLabel = "2x"
             self.displayName = "\(basePosition) 2x"
+            self.zoomSortValue = 2.0
         case .builtInDualCamera:
             self.zoomLabel = "1x"
             self.displayName = "\(basePosition) 1x (Dual)"
+            self.zoomSortValue = 1.0
         case .builtInDualWideCamera:
             self.zoomLabel = "0.5/1x"
             self.displayName = "\(basePosition) 0.5/1x"
+            self.zoomSortValue = 1.0
         case .builtInTripleCamera:
             self.zoomLabel = "0.5/1/2x"
             self.displayName = "\(basePosition) 0.5/1/2x"
+            self.zoomSortValue = 1.0
         default:
             self.zoomLabel = "1x"
             self.displayName = "\(basePosition) 1x"
+            self.zoomSortValue = 1.0
         }
+    }
+    
+    init(device: AVCaptureDevice, zoomFactor: CGFloat) {
+        self.device = device
+        self.position = device.position
+        self.zoomFactor = zoomFactor
+        self.isVirtualZoom = true
+        
+        let basePosition = position == .front ? "Front" : "Back"
+        let label = Self.formatZoomLabel(zoomFactor)
+        self.zoomLabel = label
+        self.displayName = "\(basePosition) \(label)"
+        self.zoomSortValue = zoomFactor
+    }
+    
+    fileprivate static func formatZoomLabel(_ factor: CGFloat) -> String {
+        let rounded = (Double(factor) * 10).rounded() / 10
+        if rounded.truncatingRemainder(dividingBy: 1) == 0 {
+            return "\(Int(rounded))x"
+        }
+        return "\(rounded)x"
     }
 }
 
@@ -1204,10 +1237,11 @@ struct CameraView: View {
                         } label: {
                             Image(systemName: "xmark")
                                 .font(.headline)
+                                .frame(width: 44, height: 44)
                         }
                         .foregroundColor(.white)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 8)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 4)
                         .background(
                             Capsule()
                                 .fill(Color.black.opacity(0.4))
@@ -1500,6 +1534,28 @@ struct CameraPreview: UIViewRepresentable {
     
 }
 
+#if os(iOS)
+private enum DeviceModel {
+    static func supportsDigital2x() -> Bool {
+        let id = modelIdentifier()
+        printD("Camera model identifier: \(id)")
+        // Allowlist: iPhone 17+ family; denylist older 13 family which reports 2.0 without real 2x.
+        if id.hasPrefix("iPhone13,") { return false }
+        return id.hasPrefix("iPhone17,") || id.hasPrefix("iPhone18,") || id.hasPrefix("iPhone19,")
+    }
+    
+    private static func modelIdentifier() -> String {
+        var systemInfo = utsname()
+        uname(&systemInfo)
+        let mirror = Mirror(reflecting: systemInfo.machine)
+        return mirror.children.compactMap { element in
+            guard let value = element.value as? Int8, value != 0 else { return nil }
+            return String(UnicodeScalar(UInt8(value)))
+        }.joined()
+    }
+}
+#endif
+
 // MARK: - Camera Manager (Modernized)
 // MARK: - Camera Manager (Fixed)
 @MainActor
@@ -1540,19 +1596,61 @@ class CameraManager: NSObject, ObservableObject {
             return info
         }
         
+        // Add synthetic zoom options based on the best available back camera device
+        let preferredVirtualTypes: [AVCaptureDevice.DeviceType] = [
+            .builtInTripleCamera,
+            .builtInDualWideCamera,
+            .builtInDualCamera
+        ]
+        let virtualBackDevice = discoverySession.devices.first(where: { $0.position == .back && preferredVirtualTypes.contains($0.deviceType) })
+        if let virtualBackDevice {
+            let hasTelephoto = virtualBackDevice.constituentDevices.contains { $0.deviceType == .builtInTelephotoCamera }
+            let switchOvers = virtualBackDevice.virtualDeviceSwitchOverVideoZoomFactors.map { CGFloat(truncating: $0) }
+            let maxZoom = virtualBackDevice.activeFormat.videoMaxZoomFactor
+            let qualityMaxZoom = maxZoom
+            printD("Camera virtual zoom thresholds: switchOvers=\(switchOvers), maxZoom=\(maxZoom), qualityMax=\(qualityMaxZoom)")
+            
+            // If no telephoto, only expose 2x on models that are known to have a real-ish 2x crop lens.
+            let allowDigital2x = !hasTelephoto && DeviceModel.supportsDigital2x()
+            let epsilon: CGFloat = 0.01
+            let filteredSwitchOvers = switchOvers.filter { zoom in
+                guard zoom >= 1.0 && zoom <= (qualityMaxZoom + epsilon) else { return false }
+                if hasTelephoto { return true }
+                return allowDigital2x && abs(zoom - 2.0) < 0.01
+            }
+            
+            if filteredSwitchOvers.isEmpty && !hasTelephoto && !allowDigital2x {
+                printD("Camera virtual zoom thresholds: switchOvers skipped (no telephoto, digital 2x not enabled for model)")
+            }
+            
+            for zoom in filteredSwitchOvers where zoom <= maxZoom {
+                let label = CameraInfo.formatZoomLabel(zoom)
+                let alreadyHas = availableCameras.contains { $0.position == .back && $0.zoomLabel == label }
+                if !alreadyHas {
+                    let synthetic = CameraInfo(device: virtualBackDevice, zoomFactor: zoom)
+                    availableCameras.append(synthetic)
+                    printD("Camera synthesized: label=\(synthetic.zoomLabel), name=\(synthetic.displayName)")
+                }
+            }
+        }
+        
         // Sort cameras: back cameras first, then by type preference
         availableCameras.sort { camera1, camera2 in
             if camera1.position != camera2.position {
                 return camera1.position == .back
             }
             
+            if camera1.zoomSortValue != camera2.zoomSortValue {
+                return camera1.zoomSortValue < camera2.zoomSortValue
+            }
+            
             let typeOrder: [AVCaptureDevice.DeviceType] = [
+                .builtInUltraWideCamera,
+                .builtInWideAngleCamera,
+                .builtInTelephotoCamera,
                 .builtInTripleCamera,
                 .builtInDualWideCamera,
-                .builtInDualCamera,
-                .builtInWideAngleCamera,
-                .builtInUltraWideCamera,
-                .builtInTelephotoCamera
+                .builtInDualCamera
             ]
             let index1 = typeOrder.firstIndex(of: camera1.device.deviceType) ?? typeOrder.count
             let index2 = typeOrder.firstIndex(of: camera2.device.deviceType) ?? typeOrder.count
@@ -1589,6 +1687,17 @@ class CameraManager: NSObject, ObservableObject {
             seen.insert(key)
             return true
         }
+
+        // Ensure currentCamera still exists after dedup; fall back to best available back camera.
+        if let current = currentCamera,
+           !availableCameras.contains(where: { $0.id == current.id }) {
+            if let backPreferred = availableCameras.first(where: { $0.position == .back && $0.zoomSortValue == 1.0 }) ??
+                availableCameras.first(where: { $0.position == .back }) {
+                currentCamera = backPreferred
+            } else {
+                currentCamera = availableCameras.first
+            }
+        }
     }
     
     func requestPermission() {
@@ -1623,30 +1732,39 @@ class CameraManager: NSObject, ObservableObject {
     }
     
     func switchToCamera(_ cameraInfo: CameraInfo) {
-        guard cameraInfo.id != currentCamera?.id else { return }
+        if cameraInfo.id == currentCamera?.id {
+            applyZoom(cameraInfo.zoomFactor, to: cameraInfo.device)
+            return
+        }
         
         session.beginConfiguration()
         
-        // Remove current input
-        if let currentInput = videoDeviceInput {
-            session.removeInput(currentInput)
-        }
-        
-        // Add new input
         do {
-            let newInput = try AVCaptureDeviceInput(device: cameraInfo.device)
-            if session.canAddInput(newInput) {
-                session.addInput(newInput)
-                videoDeviceInput = newInput
+            if cameraInfo.device == currentCamera?.device {
+                applyZoom(cameraInfo.zoomFactor, to: cameraInfo.device)
                 currentCamera = cameraInfo
+            } else {
+                // Remove current input
+                if let currentInput = videoDeviceInput {
+                    session.removeInput(currentInput)
+                }
                 
-                // Don't create rotation coordinator here - let the preview handle it
-                // The coordinator needs the preview layer reference
-                rotationCoordinator = nil
-                
-                // Update flash mode based on new camera capabilities
-                if !cameraInfo.device.hasFlash && flashMode != .off {
-                    flashMode = .off
+                // Add new input
+                let newInput = try AVCaptureDeviceInput(device: cameraInfo.device)
+                if session.canAddInput(newInput) {
+                    session.addInput(newInput)
+                    videoDeviceInput = newInput
+                    currentCamera = cameraInfo
+                    applyZoom(cameraInfo.zoomFactor, to: cameraInfo.device)
+                    
+                    // Don't create rotation coordinator here - let the preview handle it
+                    // The coordinator needs the preview layer reference
+                    rotationCoordinator = nil
+                    
+                    // Update flash mode based on new camera capabilities
+                    if !cameraInfo.device.hasFlash && flashMode != .off {
+                        flashMode = .off
+                    }
                 }
             }
         } catch {
@@ -1661,6 +1779,19 @@ class CameraManager: NSObject, ObservableObject {
         
         // Notify that the device changed
         NotificationCenter.default.post(name: .cameraDeviceChanged, object: cameraInfo)
+    }
+
+    private func applyZoom(_ zoomFactor: CGFloat?, to device: AVCaptureDevice) {
+        let target = zoomFactor ?? 1.0
+        do {
+            try device.lockForConfiguration()
+            let maxZoom = device.activeFormat.videoMaxZoomFactor
+            let clamped = max(1.0, min(target, maxZoom))
+            device.videoZoomFactor = clamped
+            device.unlockForConfiguration()
+        } catch {
+            print("Error setting zoom: \(error)")
+        }
     }
     
     func flipToOppositePosition() {
