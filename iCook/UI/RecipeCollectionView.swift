@@ -422,6 +422,7 @@ struct RecipeCollectionView: View {
                             } label: {
                                 Label("Delete Recipe", systemImage: "trash")
                             }
+                            .disabled(model.isOfflineMode)
                         }
                     }
                 }

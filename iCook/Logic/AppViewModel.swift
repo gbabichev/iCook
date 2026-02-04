@@ -269,6 +269,13 @@ final class AppViewModel: ObservableObject {
     func deleteRecipe(id: CKRecord.ID) async -> Bool {
         printD("deleteRecipe: Called with recipe ID: \(id.recordName)")
         
+        refreshOfflineState()
+        if isOfflineMode {
+            error = "You're offline. Deleting recipes is disabled."
+            printD("deleteRecipe: FAILED - Offline mode")
+            return false
+        }
+        
         guard let source = currentSource else {
             printD("deleteRecipe: FAILED - No currentSource available")
             return false
@@ -292,8 +299,13 @@ final class AppViewModel: ObservableObject {
         printD("deleteRecipe: Found recipe: \(recipe.name)")
         
         printD("deleteRecipe: Calling cloudKitManager.deleteRecipe...")
-        await cloudKitManager.deleteRecipe(recipe, in: source)
+        let deleted = await cloudKitManager.deleteRecipe(recipe, in: source)
         printD("deleteRecipe: CloudKit deletion completed")
+        if !deleted {
+            error = cloudKitManager.error
+            refreshOfflineState()
+            return false
+        }
         
         // Remove from the local recipes array immediately
         printD("deleteRecipe: Removing recipe from local arrays. Before: recipes=\(self.recipes.count), randomRecipes=\(self.randomRecipes.count)")
@@ -301,6 +313,12 @@ final class AppViewModel: ObservableObject {
         randomRecipes.removeAll { $0.id == id }
         let oldCount = recipeCounts[recipe.categoryID, default: 1]
         recipeCounts[recipe.categoryID] = max(oldCount - 1, 0)
+        
+        // Persist updated caches so deleted recipes don't reappear offline
+        cloudKitManager.recipes = recipes
+        cloudKitManager.cacheRecipesSnapshot(recipes, for: source)
+        let categoryRecipes = recipes.filter { $0.categoryID == recipe.categoryID }
+        cloudKitManager.cacheRecipes(categoryRecipes, for: source, categoryID: recipe.categoryID)
         printD("deleteRecipe: After removal: recipes=\(self.recipes.count), randomRecipes=\(self.randomRecipes.count)")
         
         refreshOfflineState()

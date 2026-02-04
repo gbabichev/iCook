@@ -717,6 +717,7 @@ struct SourceRowWrapper: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
+                .disabled(viewModel.isOfflineMode)
             }
 #endif
         }
@@ -760,6 +761,7 @@ struct SourceRowWrapper: View {
                 Button(role: .destructive, action: onDelete) {
                     Label("Delete", systemImage: "trash")
                 }
+                .disabled(viewModel.isOfflineMode)
             }
         }
 #if os(iOS)
@@ -768,6 +770,7 @@ struct SourceRowWrapper: View {
                 Button(role: .destructive, action: onDelete) {
                     Label("Delete", systemImage: "trash")
                 }
+                .disabled(viewModel.isOfflineMode)
             } else {
                 Button(action: onShare) {
                     Label("Manage", systemImage: "person.crop.circle.badge.checkmark")

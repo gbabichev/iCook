@@ -1723,7 +1723,7 @@ class CloudKitManager: ObservableObject {
         }
     }
     
-    func deleteRecipe(_ recipe: Recipe, in source: Source) async {
+    func deleteRecipe(_ recipe: Recipe, in source: Source) async -> Bool {
         do {
             let database = source.isPersonal ? privateDatabase : sharedDatabase
             try await database.deleteRecord(withID: recipe.id)
@@ -1731,9 +1731,11 @@ class CloudKitManager: ObservableObject {
             removeCachedImage(for: recipe.id)
             printD("Recipe deleted: \(recipe.name)")
             await loadRecipeCounts(for: source)
+            return true
         } catch {
             printD("Error deleting recipe: \(error.localizedDescription)")
             self.error = "Failed to delete recipe"
+            return false
         }
     }
     

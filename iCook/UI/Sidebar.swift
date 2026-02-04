@@ -92,6 +92,7 @@ struct CategoryList: View {
                             } label: {
                                 Label("Edit Category", systemImage: "pencil")
                             }
+                            .disabled(model.isOfflineMode)
                             
                             Button(role: .destructive) {
                                 let count = recipeCount(for: category)
@@ -105,6 +106,7 @@ struct CategoryList: View {
                             } label: {
                                 Label("Delete Category", systemImage: "trash")
                             }
+                            .disabled(model.isOfflineMode)
                         }
                     }
                 }
