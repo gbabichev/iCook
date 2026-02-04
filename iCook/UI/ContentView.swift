@@ -5,6 +5,9 @@ import CloudKit
 
 struct ContentView: View {
     @EnvironmentObject private var model: AppViewModel
+    #if os(iOS)
+    private let isPhone = UIDevice.current.userInterfaceIdiom == .phone
+    #endif
     @AppStorage("HasSeenTutorial") private var hasSeenTutorial = false
     
     @State private var preferredColumn: NavigationSplitViewColumn = .detail
@@ -48,7 +51,9 @@ struct ContentView: View {
                 )
             }
             .navigationSplitViewColumnWidth(min: 250, ideal: 250, max: 400)
-            //.navigationTitle("iCook") //sidebar title on iOS
+#if os(iOS)
+            .navigationTitle(isPhone ? "iCook" : "")
+#endif
         } detail: {
             // Single NavigationStack for the detail view
             NavigationStack(path: $navPath) {
