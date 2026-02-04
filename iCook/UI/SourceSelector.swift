@@ -505,12 +505,22 @@ struct SourceSelector: View {
         }
         
         // Install delegate proxy so we can detect save events and update state
+        let isOwner = viewModel.isSharedOwner(source) || source.isPersonal
         let proxy = SharingDelegateProxy(
             onSave: {
                 // Optimistically mark as shared so UI updates immediately
                 viewModel.markSourceSharedLocally(source)
                 Task {
                     await viewModel.loadSources()
+                }
+            },
+            onStop: {
+                Task {
+                    if isOwner {
+                        await viewModel.loadSources()
+                    } else {
+                        await viewModel.cloudKitManager.removeSharedSourceLocally(source)
+                    }
                 }
             }
         )
@@ -528,9 +538,12 @@ struct SourceSelector: View {
     /// Delegate proxy to observe stop sharing events.
     private final class SharingDelegateProxy: NSObject, UICloudSharingControllerDelegate, UIAdaptivePresentationControllerDelegate {
         let onSave: () -> Void
+        let onStop: () -> Void
+        private var didStopSharing = false
 
-        init(onSave: @escaping () -> Void) {
+        init(onSave: @escaping () -> Void, onStop: @escaping () -> Void) {
             self.onSave = onSave
+            self.onStop = onStop
         }
         
         func cloudSharingController(_ csc: UICloudSharingController, failedToSaveShareWithError error: Error) {
@@ -542,9 +555,17 @@ struct SourceSelector: View {
             onSave()
         }
         
+        func cloudSharingControllerDidStopSharing(_ csc: UICloudSharingController) {
+            printD("SharingDelegateProxy: cloudSharingControllerDidStopSharing")
+            didStopSharing = true
+            onStop()
+        }
+        
         func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
             printD("SharingDelegateProxy: presentationControllerDidDismiss - refreshing sources")
-            onSave()
+            if !didStopSharing {
+                onSave()
+            }
         }
         
         func itemTitle(for csc: UICloudSharingController) -> String? {

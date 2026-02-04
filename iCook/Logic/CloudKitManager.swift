@@ -1070,6 +1070,7 @@ class CloudKitManager: ObservableObject {
         if isSharedOwner(source) && source.isPersonal {
             return
         }
+        let wasCurrent = currentSource?.id == source.id
         // Attempt to delete the shared zone for this user so it disappears on all devices for this account
         do {
             try await sharedDatabase.deleteRecordZone(withID: source.id.zoneID)
@@ -1088,11 +1089,20 @@ class CloudKitManager: ObservableObject {
         DispatchQueue.main.async {
             NotificationCenter.default.post(name: .sourcesRefreshed, object: nil)
         }
-        if currentSource?.id == source.id {
+        if wasCurrent {
             currentSource = sources.first
             saveCurrentSourceID()
         }
         printD("Removed shared source locally: \(source.name)")
+        
+        if wasCurrent {
+            categories.removeAll()
+            recipes.removeAll()
+            recipeCounts.removeAll()
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: .recipesRefreshed, object: nil)
+            }
+        }
     }
     
 #if os(macOS)

@@ -83,6 +83,19 @@ final class AppViewModel: ObservableObject {
                 } else {
                     self.currentSource = nil
                 }
+                
+                if let current = self.currentSource {
+                    self.cloudKitManager.loadCachedData(for: current)
+                    self.categories = self.cloudKitManager.categories
+                    self.recipeCounts = self.cloudKitManager.recipeCounts
+                    self.recipes = self.cloudKitManager.recipes
+                    self.randomRecipes = self.cloudKitManager.recipes
+                } else {
+                    self.categories.removeAll()
+                    self.recipes.removeAll()
+                    self.randomRecipes.removeAll()
+                    self.recipeCounts.removeAll()
+                }
             }
         }
     }
