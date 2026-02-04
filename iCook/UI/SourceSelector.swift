@@ -87,6 +87,18 @@ struct SourceSelector: View {
             ZStack {
                 sourcesListView
                 
+                if isPreparingShare {
+                    Color.black.opacity(0.2)
+                        .ignoresSafeArea()
+                    VStack(spacing: 12) {
+                        ProgressView()
+                        Text("Preparing share…")
+                            .font(.headline)
+                    }
+                    .padding(16)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                }
+                
                 // Alerts and sheets
                 if showShareSuccess {
                     Color.clear
@@ -407,7 +419,6 @@ struct SourceSelector: View {
     
     private func shareSource(for source: Source) async {
         isPreparingShare = true
-        defer { isPreparingShare = false }
         
         printD("Getting share URL for source: \(source.name)")
         
@@ -417,6 +428,7 @@ struct SourceSelector: View {
            let shareController = await viewModel.cloudKitManager.existingSharingController(for: source) {
             await MainActor.run {
                 presentUICloudSharingController(shareController, source: source)
+                isPreparingShare = false
             }
             return
         }
@@ -426,12 +438,14 @@ struct SourceSelector: View {
            let controller = await viewModel.cloudKitManager.participantSharingController(for: source) {
             await MainActor.run {
                 presentUICloudSharingController(controller, source: source)
+                isPreparingShare = false
             }
             return
         }
         
         viewModel.cloudKitManager.prepareSharingController(for: source) { controller in
             Task { @MainActor in
+                isPreparingShare = false
                 if let controller {
                     presentUICloudSharingController(controller, source: source)
                 } else {
@@ -446,6 +460,7 @@ struct SourceSelector: View {
         if !viewModel.isSharedOwner(source), viewModel.cloudKitManager.isSharedSource(source) {
             printD("macOS collaborator leave flow for source: \(source.name)")
             await viewModel.leaveSharedSource(source)
+            isPreparingShare = false
             return
         }
         
@@ -476,12 +491,14 @@ struct SourceSelector: View {
                     await viewModel.loadSources()
                 }
             }
+            isPreparingShare = false
         } else {
             await MainActor.run {
                 printD("Failed to get share URL")
                 shareSuccessMessage = "Failed to get share URL: \(viewModel.cloudKitManager.error ?? "Unknown error")"
                 showShareSuccess = true
             }
+            isPreparingShare = false
         }
 #endif
     }
