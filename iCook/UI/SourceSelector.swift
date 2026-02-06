@@ -663,7 +663,25 @@ struct SourceSelector: View {
         }
         
         func sharingService(_ sharingService: NSSharingService, didFailToShareItems items: [Any], error: Error) {
+            if isUserCancellation(error) {
+                printD("macOS CloudKit sharing dismissed by user")
+                return
+            }
             onDidFail(error)
+        }
+
+        private func isUserCancellation(_ error: Error) -> Bool {
+            if let ckError = error as? CKError, ckError.code == .operationCancelled {
+                return true
+            }
+            let nsError = error as NSError
+            if nsError.domain == NSCocoaErrorDomain, nsError.code == NSUserCancelledError {
+                return true
+            }
+            if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorCancelled {
+                return true
+            }
+            return false
         }
         
         func itemTitle(for service: NSSharingService) -> String {
