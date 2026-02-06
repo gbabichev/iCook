@@ -24,13 +24,14 @@ Offline behavior:
 
 Camera lens selection (iOS):
 - Physical lens discovery via AVCaptureDevice.
-- Some devices report a 2.0 switch‑over without a true telephoto.
 - Current behavior:
-  - Use `virtualDeviceSwitchOverVideoZoomFactors` from virtual back camera.
-  - Only allow “digital 2x” for allowlisted models (iPhone 17+), explicitly deny iPhone 13.
+  - Compute per-lens zoom labels from field-of-view ratios (relative to the wide camera), instead of hardcoded telephoto=2x.
+  - Use `virtualDeviceSwitchOverVideoZoomFactors` from virtual back camera and add boosted tele presets (e.g. 8x) when supported by quality zoom thresholds.
+  - Include `.builtInTrueDepthCamera` in discovery.
   - If `currentCamera` is removed by dedup, reset to a valid back camera.
-  - Tap targets: camera close “X” uses 44x44 frame.
-- Debug log printed: `Camera model identifier: ...`
+- Implementation location: `iCook/UI/AddEditRecipeCamera+iOS.swift` (kept out of cross-platform `AddEditRecipeView.swift`).
+- Tap targets: camera close “X” uses 44x44 frame.
+- Debug log printed: `Camera options finalized: back=[...] front=[...]`.
 
 UI notes:
 - Tutorial is first‑launch only (debug menu can show it).
