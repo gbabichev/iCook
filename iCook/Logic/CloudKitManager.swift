@@ -37,6 +37,8 @@ class CloudKitManager: ObservableObject {
     private var userIdentifier: String? = UserDefaults.standard.string(forKey: "iCloudUserID")
     private let personalZoneID = CKRecordZone.ID(zoneName: "PersonalSources", ownerName: CKCurrentUserDefaultName)
     private lazy var personalZone: CKRecordZone = CKRecordZone(zoneID: personalZoneID)
+    private var hasEnsuredPersonalZone = false
+    private var ensurePersonalZoneTask: Task<Void, Never>?
     
     // Caches
     private var sourceCache: [CKRecord.ID: Source] = [:]
@@ -70,31 +72,60 @@ class CloudKitManager: ObservableObject {
         // Load from local cache immediately
         loadSourcesLocalCache()
         Task {
-            await ensurePersonalZoneExists()
             await setupiCloudUser()
-            await loadSources()
+            if isCloudKitAvailable {
+                await ensurePersonalZoneExists()
+            }
         }
     }
     
     // MARK: - Setup
     private func setupiCloudUser() async {
         do {
+            let status = try await container.accountStatus()
+            guard status == .available else {
+                isCloudKitAvailable = false
+                switch status {
+                case .noAccount:
+                    self.error = "iCloud not available. Using local storage only."
+                case .restricted:
+                    self.error = "iCloud access is restricted for this account."
+                case .couldNotDetermine:
+                    self.error = "Could not determine iCloud account status."
+                case .temporarilyUnavailable:
+                    self.error = "iCloud is temporarily unavailable."
+                case .available:
+                    self.error = nil
+                @unknown default:
+                    self.error = "iCloud not available. Using local storage only."
+                }
+                printD("CloudKit unavailable due to account status: \(status.rawValue)")
+                return
+            }
+        } catch {
+            printD("Failed to get iCloud account status: \(error.localizedDescription)")
+            if let ckError = error as? CKError, ckError.code == .notAuthenticated {
+                isCloudKitAvailable = false
+                self.error = "iCloud not available. Using local storage only."
+                return
+            }
+        }
+        
+        do {
             let userRecord = try await container.userRecordID()
             userIdentifier = userRecord.recordName
             UserDefaults.standard.set(userRecord.recordName, forKey: "iCloudUserID")
             isCloudKitAvailable = true
+            self.error = nil
             printD("iCloud user authenticated successfully")
         } catch {
-            let errorDesc = error.localizedDescription
-            printD("Error setting up iCloud user: \(errorDesc)")
-            
-            // Check if this is an auth error (not signed in)
-            if errorDesc.contains("authenticated account") ||
-                errorDesc.contains("iCloud account") ||
-                errorDesc.contains("No iCloud") {
+            printD("Error setting up iCloud user: \(error.localizedDescription)")
+            if let ckError = error as? CKError, ckError.code == .notAuthenticated {
                 isCloudKitAvailable = false
                 printD("CloudKit unavailable: User not signed into iCloud. Using local-only mode.")
                 self.error = "iCloud not available. Using local storage only."
+            } else if handleOfflineFallback(for: error) {
+                self.error = "Network unavailable. Using cached data."
             } else {
                 self.error = "Failed to connect to iCloud"
             }
@@ -654,6 +685,12 @@ class CloudKitManager: ObservableObject {
     // MARK: - Source Management
     func loadSources() async {
         isLoading = true
+        isCollectingSharedKeys = true
+        collectedSharedKeys.removeAll()
+        defer {
+            isLoading = false
+            isCollectingSharedKeys = false
+        }
         
         // Keep any locally cached shared sources so we don't drop them if SharedDB queries fail
         let cachedSharedSources = sources.filter { !$0.isPersonal }
@@ -665,12 +702,15 @@ class CloudKitManager: ObservableObject {
         }
         
         do {
-            // Begin collecting shared keys for this load pass
-            isCollectingSharedKeys = true
-            collectedSharedKeys.removeAll()
-            
             // Load personal sources from private database
-            let personalSources = try await fetchSourcesFromDatabase(privateDatabase, isPersonal: true)
+            let personalSources: [Source]
+            do {
+                personalSources = try await fetchSourcesFromDatabase(privateDatabase, isPersonal: true)
+            } catch let ckError as CKError where ckError.code == .zoneNotFound {
+                printD("Personal zone missing during loadSources, recreating and retrying once")
+                await ensurePersonalZoneExists()
+                personalSources = try await fetchSourcesFromDatabase(privateDatabase, isPersonal: true)
+            }
             
             var allSources = personalSources
             
@@ -690,8 +730,10 @@ class CloudKitManager: ObservableObject {
                 let zoneSources = await fetchSharedSourcesViaZones()
                 sharedSources.append(contentsOf: zoneSources)
                 if sharedSources.isEmpty {
-                    let shareSources = await fetchSharedSourcesViaShares()
-                    sharedSources.append(contentsOf: shareSources)
+                    // Disabled: this shared DB query path produces a known
+                    // "SharedDB does not support Zone Wide queries" error.
+                    // let shareSources = await fetchSharedSourcesViaShares()
+                    // sharedSources.append(contentsOf: shareSources)
                 }
             }
             allSources.append(contentsOf: sharedSources)
@@ -847,8 +889,6 @@ class CloudKitManager: ObservableObject {
             }
             // If no sources exist yet, simply stay empty and wait for user to create one
         }
-        isLoading = false
-        isCollectingSharedKeys = false
     }
     
     private func fetchSourcesFromDatabase(_ database: CKDatabase, isPersonal: Bool) async throws -> [Source] {
@@ -881,8 +921,16 @@ class CloudKitManager: ObservableObject {
         }
     }
     
-    func createSource(name: String, isPersonal: Bool = true) async {
+    func createSource(name: String, isPersonal: Bool = true) async -> Bool {
+        error = nil
         await ensureUserIdentifier()
+        // First-launch users can attempt creation before startup setup finishes.
+        // Re-run auth setup to avoid a race with iCloud account initialization.
+        await setupiCloudUser()
+        guard isCloudKitAvailable else {
+            self.error = "iCloud not available. Sign in to iCloud and try again."
+            return false
+        }
         if isPersonal {
             await ensurePersonalZoneExists()
         }
@@ -916,14 +964,29 @@ class CloudKitManager: ObservableObject {
                         currentSource = savedSource
                     }
                     printD("Source created: \(savedSource.name)")
+                    return true
                 }
+                self.error = "Failed to decode created source record"
+                return false
             } catch {
                 printD("Error creating source: \(error.localizedDescription)")
                 if let ckError = error as? CKError {
                     printD("CKError code: \(ckError.errorCode)")
                     printD("CKError description: \(ckError.errorUserInfo)")
+                    switch ckError.code {
+                    case .notAuthenticated:
+                        self.error = "iCloud account not authenticated. Open Settings and sign in to iCloud."
+                    case .permissionFailure:
+                        self.error = "iCloud permission denied for this account."
+                    case .quotaExceeded:
+                        self.error = "iCloud storage quota exceeded for this account."
+                    default:
+                        self.error = "Failed to create source"
+                    }
+                } else {
+                    self.error = "Failed to create source"
                 }
-                self.error = "Failed to create source"
+                return false
             }
         } else {
             // CloudKit not available, save locally only
@@ -935,6 +998,7 @@ class CloudKitManager: ObservableObject {
                 currentSource = source
             }
             printD("Source created locally: \(source.name)")
+            return true
         }
     }
     
@@ -2058,22 +2122,42 @@ class CloudKitManager: ObservableObject {
 #endif
     
     private func ensurePersonalZoneExists() async {
-        do {
-            let existingZones = try await privateDatabase.allRecordZones()
-            if existingZones.contains(where: { $0.zoneID == personalZoneID }) {
-                printD("Personal zone already exists: \(personalZoneID.zoneName)")
-                return
-            }
-        } catch {
-            printD("Failed to fetch record zones: \(error.localizedDescription)")
+        if hasEnsuredPersonalZone { return }
+        if let inFlight = ensurePersonalZoneTask {
+            await inFlight.value
+            return
         }
         
-        do {
-            _ = try await privateDatabase.modifyRecordZones(saving: [personalZone], deleting: [])
-            printD("Created personal zone: \(personalZoneID.zoneName)")
-        } catch {
-            printD("Failed to ensure personal zone: \(error.localizedDescription)")
+        let task = Task { @MainActor in
+            do {
+                let existingZones = try await privateDatabase.allRecordZones()
+                if existingZones.contains(where: { $0.zoneID == personalZoneID }) {
+                    hasEnsuredPersonalZone = true
+                    printD("Personal zone already exists: \(personalZoneID.zoneName)")
+                    return
+                }
+            } catch {
+                printD("Failed to fetch record zones: \(error.localizedDescription)")
+            }
+            
+            do {
+                _ = try await privateDatabase.modifyRecordZones(saving: [personalZone], deleting: [])
+                hasEnsuredPersonalZone = true
+                printD("Created personal zone: \(personalZoneID.zoneName)")
+            } catch {
+                printD("Failed to ensure personal zone: \(error.localizedDescription)")
+                // A parallel create may have succeeded; verify before leaving.
+                if let zones = try? await privateDatabase.allRecordZones(),
+                   zones.contains(where: { $0.zoneID == personalZoneID }) {
+                    hasEnsuredPersonalZone = true
+                    printD("Personal zone exists after retry check: \(personalZoneID.zoneName)")
+                }
+            }
         }
+        
+        ensurePersonalZoneTask = task
+        await task.value
+        ensurePersonalZoneTask = nil
     }
 #if os(iOS)
     /// Save a share to CloudKit after user confirms via UICloudSharingController

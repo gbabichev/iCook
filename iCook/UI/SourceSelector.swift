@@ -657,9 +657,11 @@ struct NewSourceSheet: View {
                     Button("Create") {
                         isCreating = true
                         Task {
-                            _ = await viewModel.createSource(name: sourceName)
-                            isPresented = false
-                            sourceName = ""
+                            let created = await viewModel.createSource(name: sourceName)
+                            if created {
+                                isPresented = false
+                                sourceName = ""
+                            }
                             isCreating = false
                         }
                     }

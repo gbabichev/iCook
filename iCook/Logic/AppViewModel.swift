@@ -123,14 +123,15 @@ final class AppViewModel: ObservableObject {
     }
     
     func createSource(name: String) async -> Bool {
-        await cloudKitManager.createSource(name: name, isPersonal: true)
+        let success = await cloudKitManager.createSource(name: name, isPersonal: true)
         // Copy sources directly from CloudKitManager without re-querying
         // (the new source might not be indexed in CloudKit yet)
         sources = cloudKitManager.sources
         currentSource = cloudKitManager.currentSource
         cloudKitManager.saveCurrentSourceID()
+        error = cloudKitManager.error
         refreshOfflineState()
-        return true
+        return success
     }
     
     func deleteSource(_ source: Source) async -> Bool {
