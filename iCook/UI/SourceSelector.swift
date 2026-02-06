@@ -22,6 +22,7 @@ struct SourceSelector: View {
     @State private var showShareCopiedToast = false
     @State private var shareToastMessage = ""
     @State private var activeMacSharePicker: NSSharingServicePicker?
+    @State private var activeMacSharingService: NSSharingService?
     @State private var macSharingDelegateProxy: MacSharingDelegateProxy?
 #endif
     
@@ -435,18 +436,17 @@ struct SourceSelector: View {
             return
         }
         
-        // Owner + already shared: open Cloud Sharing manage UI.
-        if viewModel.isSharedOwner(source), viewModel.isSourceShared(source),
-           let shareController = await viewModel.cloudKitManager.existingSharingController(for: source) {
-            await MainActor.run {
-                presentUICloudSharingController(shareController, source: source)
-                isPreparingShare = false
+        // Owners: always try native manage-sharing UI first; if no share exists yet,
+        // fall back to first-share invite flow.
+        if viewModel.isSharedOwner(source) {
+            if let shareController = await viewModel.cloudKitManager.existingSharingController(for: source) {
+                await MainActor.run {
+                    presentUICloudSharingController(shareController, source: source)
+                    isPreparingShare = false
+                }
+                return
             }
-            return
-        }
 
-        // Owner + first share: mirror Apple's iOS 26 UX by sending the link first.
-        if viewModel.isSharedOwner(source), !viewModel.isSourceShared(source) {
             await MainActor.run {
                 presentCloudKitInviteActivityController(for: source)
                 isPreparingShare = false
@@ -475,6 +475,15 @@ struct SourceSelector: View {
             isPreparingShare = false
             return
         }
+
+        // Owner + already shared: open native CloudKit manage-sharing UI.
+        if viewModel.isSharedOwner(source), viewModel.isSourceShared(source) {
+            let didPresentManagement = await presentMacCloudSharingManagement(for: source)
+            if didPresentManagement {
+                isPreparingShare = false
+                return
+            }
+        }
         
         await MainActor.run {
             withAnimation {
@@ -489,6 +498,63 @@ struct SourceSelector: View {
     }
     
 #if os(macOS)
+    @MainActor
+    private func presentMacCloudSharingManagement(for source: Source) async -> Bool {
+        do {
+            let share = try await viewModel.cloudKitManager.preparedShareForActivitySheet(
+                sourceID: source.id,
+                sourceName: source.name
+            )
+            let itemProvider = NSItemProvider()
+            itemProvider.registerCloudKitShare(
+                share,
+                container: viewModel.cloudKitManager.container
+            )
+            let items: [Any] = [itemProvider]
+            
+            guard let cloudSharingService = NSSharingService(named: .cloudSharing) else {
+                return false
+            }
+            guard cloudSharingService.canPerform(withItems: items) else {
+                printD("macOS CloudKit management service cannot perform with registered CloudKit share provider")
+                return false
+            }
+            
+            let delegate = MacSharingDelegateProxy(
+                sourceTitle: source.name,
+                onDidShare: {
+                    Task {
+                        await MainActor.run {
+                            self.viewModel.markSourceSharedLocally(source)
+                        }
+                        await self.viewModel.loadSources()
+                    }
+                },
+                onDidFail: { error in
+                    Task { @MainActor in
+                        self.shareSuccessMessage = "Failed to share: \(error.localizedDescription)"
+                        self.showShareSuccess = true
+                    }
+                }
+            )
+            cloudSharingService.delegate = delegate
+            activeMacSharingService = cloudSharingService
+            macSharingDelegateProxy = delegate
+            
+            withAnimation {
+                showShareCopiedToast = false
+            }
+            
+            cloudSharingService.perform(withItems: items)
+            printD("Presented macOS CloudKit management UI")
+            return true
+        } catch {
+            shareSuccessMessage = "Failed to open sharing options: \(error.localizedDescription)"
+            showShareSuccess = true
+            return false
+        }
+    }
+
     @MainActor
     private func presentMacCloudKitSharingPicker(for source: Source) async -> Bool {
         guard let anchorView = NSApp.keyWindow?.contentView
@@ -522,18 +588,19 @@ struct SourceSelector: View {
         )
         let picker = NSSharingServicePicker(items: [previewItem])
         let delegate = MacSharingDelegateProxy(
+            sourceTitle: source.name,
             onDidShare: {
                 Task {
                     await MainActor.run {
-                        viewModel.markSourceSharedLocally(source)
+                        self.viewModel.markSourceSharedLocally(source)
                     }
-                    await viewModel.loadSources()
+                    await self.viewModel.loadSources()
                 }
             },
             onDidFail: { error in
                 Task { @MainActor in
-                    shareSuccessMessage = "Failed to share: \(error.localizedDescription)"
-                    showShareSuccess = true
+                    self.shareSuccessMessage = "Failed to share: \(error.localizedDescription)"
+                    self.showShareSuccess = true
                 }
             }
         )
@@ -576,11 +643,13 @@ struct SourceSelector: View {
         }
     }
 
-    private final class MacSharingDelegateProxy: NSObject, NSSharingServicePickerDelegate, NSSharingServiceDelegate {
+    private final class MacSharingDelegateProxy: NSObject, NSSharingServicePickerDelegate, NSSharingServiceDelegate, NSCloudSharingServiceDelegate {
+        let sourceTitle: String
         let onDidShare: () -> Void
         let onDidFail: (Error) -> Void
         
-        init(onDidShare: @escaping () -> Void, onDidFail: @escaping (Error) -> Void) {
+        init(sourceTitle: String, onDidShare: @escaping () -> Void, onDidFail: @escaping (Error) -> Void) {
+            self.sourceTitle = sourceTitle
             self.onDidShare = onDidShare
             self.onDidFail = onDidFail
         }
@@ -595,6 +664,14 @@ struct SourceSelector: View {
         
         func sharingService(_ sharingService: NSSharingService, didFailToShareItems items: [Any], error: Error) {
             onDidFail(error)
+        }
+        
+        func itemTitle(for service: NSSharingService) -> String {
+            sourceTitle
+        }
+        
+        func itemThumbnailData(for service: NSSharingService) -> Data? {
+            NSApp.applicationIconImage.tiffRepresentation
         }
     }
 #endif
@@ -828,14 +905,6 @@ struct SourceRowWrapper: View {
     let onRename: () -> Void
     let onDelete: () -> Void
     @EnvironmentObject private var viewModel: AppViewModel
-    
-    private var canRename: Bool {
-        viewModel.canRenameSource(source)
-    }
-    
-    private var canDelete: Bool {
-        viewModel.isSharedOwner(source) || source.isPersonal
-    }
 
     private enum ShareUIState {
         case ownerPrivate
@@ -843,17 +912,15 @@ struct SourceRowWrapper: View {
         case collaborator
     }
 
-    private var shareUIState: ShareUIState {
-        let isShared = viewModel.isSourceShared(source)
-        let isOwner = viewModel.isSharedOwner(source) || source.isPersonal
+    private func shareUIState(isShared: Bool, isOwner: Bool) -> ShareUIState {
         if isOwner {
             return isShared ? .ownerShared : .ownerPrivate
         }
         return .collaborator
     }
     
-    private var shareLabel: String {
-        switch shareUIState {
+    private func shareLabel(for state: ShareUIState) -> String {
+        switch state {
         case .ownerPrivate:
             return "Share"
         case .ownerShared:
@@ -863,8 +930,8 @@ struct SourceRowWrapper: View {
         }
     }
 
-    private var shareSystemImage: String {
-        switch shareUIState {
+    private func shareSystemImage(for state: ShareUIState) -> String {
+        switch state {
         case .ownerPrivate:
             return "square.and.arrow.up"
         case .ownerShared:
@@ -874,14 +941,22 @@ struct SourceRowWrapper: View {
         }
     }
     var body: some View {
+        let isShared = viewModel.isSourceShared(source)
+        let isOwner = viewModel.isSharedOwner(source) || source.isPersonal
+        let canRename = isOwner
+        let canDelete = isOwner
+        let shareState = shareUIState(isShared: isShared, isOwner: isOwner)
+        let shareLabel = shareLabel(for: shareState)
+        let shareSystemImage = shareSystemImage(for: shareState)
+
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(source.name)
                     .fontWeight(isSelected ? .semibold : .regular)
                 
                 HStack(spacing: 6) {
-                    if viewModel.isSourceShared(source) {
-                        if viewModel.isSharedOwner(source) {
+                    if isShared {
+                        if isOwner {
                             Label("Shared - Owner", systemImage: "person.2.fill")
                         } else {
                             Label("Shared - Collaborator", systemImage: "person.2.fill")
@@ -915,7 +990,7 @@ struct SourceRowWrapper: View {
             .buttonStyle(.bordered)
             
 #if os(macOS)
-            if viewModel.isSharedOwner(source) || source.isPersonal {
+            if canDelete {
                 Button(role: .destructive, action: onDelete) {
                     Image(systemName: "trash")
                         .font(.system(size: 14, weight: .semibold))
@@ -940,14 +1015,14 @@ struct SourceRowWrapper: View {
             }
             
 #if os(macOS)
-            if viewModel.isSharedOwner(source), viewModel.isSourceShared(source) {
+            if isOwner, isShared {
                 Button(action: onShare) {
                     Label("Share With…", systemImage: "square.and.arrow.up")
                 }
                 Button(role: .destructive, action: onStopSharing ?? {}) {
                     Label("Stop Sharing", systemImage: "xmark.circle")
                 }
-            } else if source.isPersonal {
+            } else if isOwner {
                 Button(action: onShare) {
                     Label("Start Sharing", systemImage: "square.and.arrow.up")
                 }

@@ -1059,35 +1059,25 @@ class CloudKitManager: ObservableObject {
     
     func isSharedSource(_ source: Source) -> Bool {
         let key = cacheIdentifier(for: source.id)
-        printD("Shared check key: \(key); cached IDs count: \(sharedSourceIDs.count); recentlyUnshared count: \(recentlyUnsharedIDs.count)")
         if recentlyUnsharedIDs.contains(key) {
-            printD("Shared check: \(source.name) explicitly unshared recently; treating as personal")
             // defensive: scrub any lingering shared flag
             sharedSourceIDs.remove(key)
             saveSharedSourceIDs()
             return false
         }
         if sharedSourceIDs.contains(key) {
-            printD("Shared check: \(source.name) is marked shared via local cache")
             return true
         }
         // Treat anything outside the personal zone or marked non-personal as shared
         if !source.isPersonal {
-            printD("Shared check: \(source.name) is marked non-personal")
             return true
         }
-        let zoneID = source.id.zoneID
         if shouldBeSharedBasedOnZone(source) {
-            printD("Shared check: \(source.name) has shared-like zone (\(zoneID.zoneName), owner: \(zoneID.ownerName)) vs personal (\(personalZoneID.zoneName), owner: \(CKCurrentUserDefaultName))")
             return true
         }
         if let userIdentifier, !userIdentifier.isEmpty, source.owner != userIdentifier {
-            printD("Shared check: \(source.name) owner mismatch (record: \(source.owner), current: \(userIdentifier))")
             return true
         }
-        let currentUserDesc = userIdentifier ?? "nil"
-        printD("Shared check details: name=\(source.name), isPersonal flag=\(source.isPersonal), zoneName=\(zoneID.zoneName), zoneOwner=\(zoneID.ownerName), recordedOwner=\(source.owner), currentUser=\(currentUserDesc)")
-        printD("Shared check: \(source.name) treated as personal")
         return false
     }
     
@@ -1095,9 +1085,7 @@ class CloudKitManager: ObservableObject {
         guard let userIdentifier else { return false }
         let ownsByRecord = source.owner == userIdentifier
         let ownsByZone = source.id.zoneID.ownerName == CKCurrentUserDefaultName
-        let result = ownsByRecord || ownsByZone
-        printD("Shared owner check for \(source.name): ownsByRecord=\(ownsByRecord), ownsByZone=\(ownsByZone)")
-        return result
+        return ownsByRecord || ownsByZone
     }
     
     private func isOwnedByCurrentUser(_ source: Source) -> Bool {

@@ -41,3 +41,17 @@ UI notes:
 Docs updated:
 - `Documentation/PrivacyPolicy.html` and `Documentation/Support.html` reflect iCook.
 - README updated to iCook (App Store link still old—replace when known).
+- Generic cross-project sharing guide added: `Documentation/CloudKitSharingPlaybook.md`.
+
+
+## CloudKit Sharing
+
+Detailed, reusable implementation guidance has been moved to:
+- `Documentation/CloudKitSharingPlaybook.md`
+
+Project-specific anchors:
+- Entitlements: `iCook/iCook.entitlements`
+- App entry and share acceptance routing: `iCook/iCookApp.swift`
+- CloudKit sharing logic: `iCook/Logic/CloudKitManager.swift`
+- Share UI flows (iOS + macOS): `iCook/UI/SourceSelector.swift`
+- App-level accept/loading orchestration: `iCook/Logic/AppViewModel.swift`
