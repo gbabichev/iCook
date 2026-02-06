@@ -336,7 +336,6 @@ class CloudKitManager: ObservableObject {
         saveSharedSourceIDs()
     }
     
-#if os(iOS)
     /// Mark a source as shared locally so UI updates immediately after saving a share.
     func markSourceShared(_ source: Source) {
         markSharedSource(id: source.id)
@@ -355,8 +354,6 @@ class CloudKitManager: ObservableObject {
         saveSourcesLocalCache()
         saveCurrentSourceID()
     }
-    
-#endif
     
     private func saveCategoriesLocalCache(_ categories: [Category], for source: Source) {
         let url = cacheFileURL(for: .categories, sourceID: source.id)
@@ -1979,7 +1976,7 @@ class CloudKitManager: ObservableObject {
             return nil
         }
     }
-#if os(iOS)
+#if os(iOS) || os(macOS)
     func preparedShareForActivitySheet(sourceID: CKRecord.ID, sourceName: String) async throws -> CKShare {
         let rootRecord = try await privateDatabase.record(for: sourceID)
         
@@ -2014,7 +2011,9 @@ class CloudKitManager: ObservableObject {
         saveSourcesLocalCache()
         return savedShare
     }
+#endif
 
+#if os(iOS)
     /// Prepare a UICloudSharingController for sharing a source
     /// Creates/saves (or fetches existing) share first, then presents
     /// UICloudSharingController with a concrete CKShare instance.
@@ -2165,7 +2164,7 @@ class CloudKitManager: ObservableObject {
         await task.value
         ensurePersonalZoneTask = nil
     }
-#if os(iOS)
+#if os(iOS) || os(macOS)
     /// Save a share to CloudKit after user confirms via UICloudSharingController
     func saveShare(for record: CKRecord, share: CKShare) async throws -> CKShare {
         try await withCheckedThrowingContinuation { continuation in

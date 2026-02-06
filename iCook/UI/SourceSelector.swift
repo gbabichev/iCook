@@ -21,6 +21,8 @@ struct SourceSelector: View {
 #if os(macOS)
     @State private var showShareCopiedToast = false
     @State private var shareToastMessage = ""
+    @State private var activeMacSharePicker: NSSharingServicePicker?
+    @State private var macSharingDelegateProxy: MacSharingDelegateProxy?
 #endif
     
 #if os(iOS)
@@ -480,38 +482,122 @@ struct SourceSelector: View {
                 showShareCopiedToast = true
             }
         }
-        
-        if let shareURL = await viewModel.cloudKitManager.getShareURL(for: source) {
-            printD("Got share URL: \(shareURL.absoluteString)")
-            
-            await MainActor.run {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(shareURL.absoluteString, forType: .string)
-                withAnimation {
-                    shareToastMessage = "Share URL copied to clipboard"
-                    showShareCopiedToast = true
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
-                    withAnimation {
-                        showShareCopiedToast = false
-                    }
-                }
-                printD("Share URL ready for sharing")
-                Task {
-                    await viewModel.loadSources()
-                }
-            }
-            isPreparingShare = false
-        } else {
-            await MainActor.run {
-                printD("Failed to get share URL")
-                shareSuccessMessage = "Failed to get share URL: \(viewModel.cloudKitManager.error ?? "Unknown error")"
-                showShareSuccess = true
-            }
-            isPreparingShare = false
-        }
+
+        _ = await presentMacCloudKitSharingPicker(for: source)
+        isPreparingShare = false
 #endif
     }
+    
+#if os(macOS)
+    @MainActor
+    private func presentMacCloudKitSharingPicker(for source: Source) async -> Bool {
+        guard let anchorView = NSApp.keyWindow?.contentView
+            ?? NSApp.mainWindow?.contentView
+            ?? NSApp.windows.first(where: { $0.isVisible })?.contentView else {
+            return await copyShareURLToClipboard(for: source)
+        }
+        
+        withAnimation {
+            showShareCopiedToast = false
+        }
+
+        let itemProvider = NSItemProvider()
+        let container = viewModel.cloudKitManager.container
+        let sourceID = source.id
+        let sourceName = source.name
+        let allowedOptions = CKAllowedSharingOptions(
+            allowedParticipantPermissionOptions: .any,
+            allowedParticipantAccessOptions: .specifiedRecipientsOnly
+        )
+        itemProvider.registerCKShare(container: container, allowedSharingOptions: allowedOptions) {
+            try await CloudKitManager.shared.preparedShareForActivitySheet(sourceID: sourceID, sourceName: sourceName)
+        }
+        
+        let appIcon = NSApp.applicationIconImage
+        let previewItem = NSPreviewRepresentingActivityItem(
+            item: itemProvider,
+            title: source.name,
+            image: appIcon,
+            icon: appIcon
+        )
+        let picker = NSSharingServicePicker(items: [previewItem])
+        let delegate = MacSharingDelegateProxy(
+            onDidShare: {
+                Task {
+                    await MainActor.run {
+                        viewModel.markSourceSharedLocally(source)
+                    }
+                    await viewModel.loadSources()
+                }
+            },
+            onDidFail: { error in
+                Task { @MainActor in
+                    shareSuccessMessage = "Failed to share: \(error.localizedDescription)"
+                    showShareSuccess = true
+                }
+            }
+        )
+        picker.delegate = delegate
+        activeMacSharePicker = picker
+        macSharingDelegateProxy = delegate
+        let anchorRect = NSRect(
+            x: anchorView.bounds.midX,
+            y: anchorView.bounds.midY,
+            width: 1,
+            height: 1
+        )
+        picker.show(relativeTo: anchorRect, of: anchorView, preferredEdge: .minY)
+        printD("Presented macOS CloudKit sharing picker")
+        return true
+    }
+    
+    @MainActor
+    private func copyShareURLToClipboard(for source: Source) async -> Bool {
+        if let shareURL = await viewModel.cloudKitManager.getShareURL(for: source) {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(shareURL.absoluteString, forType: .string)
+            withAnimation {
+                shareToastMessage = "Share URL copied to clipboard"
+                showShareCopiedToast = true
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+                withAnimation {
+                    showShareCopiedToast = false
+                }
+            }
+            Task {
+                await viewModel.loadSources()
+            }
+            return true
+        } else {
+            shareSuccessMessage = "Failed to get share URL: \(viewModel.cloudKitManager.error ?? "Unknown error")"
+            showShareSuccess = true
+            return false
+        }
+    }
+
+    private final class MacSharingDelegateProxy: NSObject, NSSharingServicePickerDelegate, NSSharingServiceDelegate {
+        let onDidShare: () -> Void
+        let onDidFail: (Error) -> Void
+        
+        init(onDidShare: @escaping () -> Void, onDidFail: @escaping (Error) -> Void) {
+            self.onDidShare = onDidShare
+            self.onDidFail = onDidFail
+        }
+        
+        func sharingServicePicker(_ sharingServicePicker: NSSharingServicePicker, delegateFor sharingService: NSSharingService) -> NSSharingServiceDelegate? {
+            self
+        }
+        
+        func sharingService(_ sharingService: NSSharingService, didShareItems items: [Any]) {
+            onDidShare()
+        }
+        
+        func sharingService(_ sharingService: NSSharingService, didFailToShareItems items: [Any], error: Error) {
+            onDidFail(error)
+        }
+    }
+#endif
     
 #if os(iOS)
     private func presentCloudKitInviteActivityController(for source: Source) {
@@ -856,7 +942,7 @@ struct SourceRowWrapper: View {
 #if os(macOS)
             if viewModel.isSharedOwner(source), viewModel.isSourceShared(source) {
                 Button(action: onShare) {
-                    Label("Copy Share URL", systemImage: "link")
+                    Label("Share With…", systemImage: "square.and.arrow.up")
                 }
                 Button(role: .destructive, action: onStopSharing ?? {}) {
                     Label("Stop Sharing", systemImage: "xmark.circle")
