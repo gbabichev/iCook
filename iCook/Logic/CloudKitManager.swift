@@ -1121,7 +1121,7 @@ class CloudKitManager: ObservableObject {
             }
         }
     }
-    
+
     private func shouldBeSharedBasedOnZone(_ source: Source) -> Bool {
         let zoneID = source.id.zoneID
         if zoneID.zoneName != personalZoneID.zoneName { return true }
@@ -1878,15 +1878,14 @@ class CloudKitManager: ObservableObject {
             
             // Create new share if not already shared
             printD("Record not yet shared, creating share...")
-            let shareID = CKRecord.ID(recordName: UUID().uuidString, zoneID: rootRecord.recordID.zoneID)
-            let share = CKShare(rootRecord: rootRecord, shareID: shareID)
+            let share = CKShare(rootRecord: rootRecord)
             share[CKShare.SystemFieldKey.title] = source.name as CKRecordValue
             share.publicPermission = .none  // Private invites only
             if let iconData = appIconThumbnailData() {
                 share[CKShare.SystemFieldKey.thumbnailImageData] = iconData as CKRecordValue
             }
             
-            printD("Share instance created with ID: \(shareID.recordName)")
+            printD("Share instance created with ID: \(share.recordID.recordName)")
             
             // Save the share and root record together
             printD("Saving share and root record together...")
@@ -1955,7 +1954,8 @@ class CloudKitManager: ObservableObject {
     }
 #else
     /// Prepare a UICloudSharingController for sharing a source
-    /// Creates and saves the share first, then creates the controller
+    /// Creates/saves (or fetches existing) share first, then presents
+    /// UICloudSharingController with a concrete CKShare instance.
     /// - Parameters:
     ///   - source: The source to share (must be personal)
     ///   - completionHandler: Called with the controller when ready, or nil on error
@@ -1966,17 +1966,13 @@ class CloudKitManager: ObservableObject {
             completionHandler(nil)
             return
         }
-        
+
         Task {
             do {
-                // Fetch the source record from the PRIVATE database
                 let rootRecord = try await privateDatabase.record(for: source.id)
-                printD("Fetched source record from private database: \(rootRecord.recordID.recordName)")
-                printD("Root record type: \(rootRecord.recordType)")
-                printD("Root record already has share: \(rootRecord.share != nil)")
+                printD("Preparing share for source record: \(rootRecord.recordID.recordName)")
                 
                 if rootRecord.recordID.zoneID == CKRecordZone.default().zoneID {
-                    printD("Cannot share record in default zone. Prompting user to migrate.")
                     await MainActor.run {
                         self.error = "Sharing requires the source to be stored in the iCook zone. Please recreate this source to share it."
                         completionHandler(nil)
@@ -1984,86 +1980,34 @@ class CloudKitManager: ObservableObject {
                     return
                 }
                 
-                // Check if already shared
-                if let existingShare = rootRecord.share {
-                    printD("Record is already shared, fetching existing share...")
-                    // Already shared, fetch and use existing share
-                    let shareRecordID = existingShare.recordID
-                    let fetchOp = CKFetchRecordsOperation(recordIDs: [shareRecordID])
-                    
-                    fetchOp.perRecordResultBlock = { recordID, result in
-                        do {
-                            let record = try result.get()
-                            if let share = record as? CKShare {
-                                Task {
-                                    await self.resolveParticipantIdentities(in: share)
-                                    await self.attachChildRecordsToShare(share, rootRecord: rootRecord)
-                                }
-                                DispatchQueue.main.async {
-                                    let controller = UICloudSharingController(share: share, container: self.container)
-                                    printD("UICloudSharingController created for existing share with URL: \(share.url?.absoluteString ?? "pending")")
-                                    controller.availablePermissions = [.allowReadOnly, .allowReadWrite, .allowPrivate]
-                                    completionHandler(controller)
-                                }
-                            }
-                        } catch {
-                            printD("Error fetching existing share: \(error.localizedDescription)")
-                            completionHandler(nil)
-                        }
-                    }
-                    privateDatabase.add(fetchOp)
+                let shareToPresent: CKShare
+                if let existingShareRef = rootRecord.share,
+                   let existingShare = try await privateDatabase.record(for: existingShareRef.recordID) as? CKShare {
+                    printD("Using existing share: \(existingShare.recordID.recordName)")
+                    shareToPresent = existingShare
                 } else {
-                    printD("Record not yet shared, creating and saving share before presenting controller...")
-                    
-                    // Create the share with a unique ID
-                    // IMPORTANT: Use the same zone ID as the root record!
-                    let shareID = CKRecord.ID(recordName: UUID().uuidString, zoneID: rootRecord.recordID.zoneID)
-                    let share = CKShare(rootRecord: rootRecord, shareID: shareID)
+                    let share = CKShare(rootRecord: rootRecord)
                     share[CKShare.SystemFieldKey.title] = source.name as CKRecordValue
-                    // Private-only sharing (invite specific people)
                     share.publicPermission = .none
                     if let iconData = appIconThumbnailData() {
                         share[CKShare.SystemFieldKey.thumbnailImageData] = iconData as CKRecordValue
                     }
                     
-                    printD("Share instance created with ID: \(shareID.recordName)")
-                    
-                    do {
-                        let savedShare = try await self.saveShare(for: rootRecord, share: share)
-                        printD("Share saved successfully prior to presenting controller with ID: \(savedShare.recordID.recordName)")
-                        await resolveParticipantIdentities(in: savedShare)
-                        await attachChildRecordsToShare(savedShare, rootRecord: rootRecord)
-                        
-                        let controller = UICloudSharingController(share: savedShare, container: self.container)
-                        printD("UICloudSharingController created with saved share")
-                        controller.availablePermissions = [.allowReadOnly, .allowReadWrite, .allowPrivate]
-                        
-                        // Create a delegate that will copy the URL to pasteboard
-                        let delegate = CloudKitShareDelegate()
-                        controller.delegate = delegate
-                        
-                        // Store the delegate on the controller to keep it alive
-                        objc_setAssociatedObject(controller, &CloudKitShareDelegate.associatedObjectKey, delegate, .OBJC_ASSOCIATION_RETAIN)
-                        
-                        printD("Delegate attached to controller")
-                        
-                        await MainActor.run {
-                            completionHandler(controller)
-                        }
-                    } catch {
-                        printD("Error saving share before presenting controller: \(error.localizedDescription)")
-                        await MainActor.run {
-                            self.error = "Failed to save share: \(error.localizedDescription)"
-                            completionHandler(nil)
-                        }
-                    }
+                    let savedShare = try await saveShare(for: rootRecord, share: share)
+                    printD("Created new share: \(savedShare.recordID.recordName)")
+                    await attachChildRecordsToShare(savedShare, rootRecord: rootRecord)
+                    shareToPresent = savedShare
+                }
+                
+                await resolveParticipantIdentities(in: shareToPresent)
+                let controller = UICloudSharingController(share: shareToPresent, container: self.container)
+                controller.availablePermissions = [.allowReadOnly, .allowReadWrite, .allowPrivate]
+                
+                await MainActor.run {
+                    completionHandler(controller)
                 }
             } catch {
                 printD("Error preparing sharing controller: \(error.localizedDescription)")
-                if let ckError = error as? CKError {
-                    printD("CKError code: \(ckError.code)")
-                    printD("CKError: \(ckError.localizedDescription)")
-                }
                 await MainActor.run {
                     self.error = "Failed to prepare share: \(error.localizedDescription)"
                     completionHandler(nil)
@@ -2084,7 +2028,6 @@ class CloudKitManager: ObservableObject {
             guard let share = shareRecord as? CKShare else { return nil }
             
             await attachChildRecordsToShare(share, rootRecord: rootRecord)
-            
             let controller = UICloudSharingController(share: share, container: self.container)
             controller.availablePermissions = [.allowReadOnly, .allowReadWrite, .allowPrivate]
             return controller
@@ -2110,7 +2053,6 @@ class CloudKitManager: ObservableObject {
                 return nil
             }
             await attachChildRecordsToShare(share, rootRecord: rootRecord)
-            
             let controller = UICloudSharingController(share: share, container: self.container)
             controller.availablePermissions = [.allowReadOnly, .allowReadWrite]
             return controller

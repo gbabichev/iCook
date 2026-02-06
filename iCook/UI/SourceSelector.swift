@@ -524,6 +524,7 @@ struct SourceSelector: View {
         // Install delegate proxy so we can detect save events and update state
         let isOwner = viewModel.isSharedOwner(source) || source.isPersonal
         let proxy = SharingDelegateProxy(
+            sourceTitle: source.name,
             onSave: {
                 // Optimistically mark as shared so UI updates immediately
                 viewModel.markSourceSharedLocally(source)
@@ -554,11 +555,13 @@ struct SourceSelector: View {
     
     /// Delegate proxy to observe stop sharing events.
     private final class SharingDelegateProxy: NSObject, UICloudSharingControllerDelegate, UIAdaptivePresentationControllerDelegate {
+        let sourceTitle: String
         let onSave: () -> Void
         let onStop: () -> Void
         private var didStopSharing = false
 
-        init(onSave: @escaping () -> Void, onStop: @escaping () -> Void) {
+        init(sourceTitle: String, onSave: @escaping () -> Void, onStop: @escaping () -> Void) {
+            self.sourceTitle = sourceTitle
             self.onSave = onSave
             self.onStop = onStop
         }
@@ -586,7 +589,7 @@ struct SourceSelector: View {
         }
         
         func itemTitle(for csc: UICloudSharingController) -> String? {
-            nil
+            sourceTitle
         }
     }
 #endif
