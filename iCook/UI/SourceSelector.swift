@@ -750,15 +750,43 @@ struct SourceRowWrapper: View {
     private var canDelete: Bool {
         viewModel.isSharedOwner(source) || source.isPersonal
     }
-    
-    #if os(iOS)
-    private var shareLabel: String {
-        if viewModel.isSharedOwner(source) {
-            return viewModel.isSourceShared(source) ? "Manage Sharing" : "Share"
-        }
-        return viewModel.isSourceShared(source) ? "Manage Access" : "Share"
+
+    private enum ShareUIState {
+        case ownerPrivate
+        case ownerShared
+        case collaborator
     }
-    #endif
+
+    private var shareUIState: ShareUIState {
+        let isShared = viewModel.isSourceShared(source)
+        let isOwner = viewModel.isSharedOwner(source) || source.isPersonal
+        if isOwner {
+            return isShared ? .ownerShared : .ownerPrivate
+        }
+        return .collaborator
+    }
+    
+    private var shareLabel: String {
+        switch shareUIState {
+        case .ownerPrivate:
+            return "Share"
+        case .ownerShared:
+            return "Manage Sharing"
+        case .collaborator:
+            return "Manage Access"
+        }
+    }
+
+    private var shareSystemImage: String {
+        switch shareUIState {
+        case .ownerPrivate:
+            return "square.and.arrow.up"
+        case .ownerShared:
+            return "person.crop.circle.badge.checkmark"
+        case .collaborator:
+            return "person.crop.circle.fill.badge.minus"
+        }
+    }
     var body: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
@@ -794,21 +822,11 @@ struct SourceRowWrapper: View {
             }
             
             // Share / manage sharing
-            if source.isPersonal {
-                Button(action: onShare) {
-                    Image(systemName: "person.crop.circle.badge.checkmark")
-                        .font(.system(size: 14))
-                }
-                .buttonStyle(.bordered)
-                
-            } else {
-                // Collaborators use the share action to open UICloudSharingController (for "Remove Me")
-                Button(action: onShare) {
-                    Image(systemName: "person.crop.circle.badge.xmark")
-                        .font(.system(size: 14))
-                }
-                .buttonStyle(.bordered)
+            Button(action: onShare) {
+                Image(systemName: shareSystemImage)
+                    .font(.system(size: 14))
             }
+            .buttonStyle(.bordered)
             
 #if os(macOS)
             if viewModel.isSharedOwner(source) || source.isPersonal {
@@ -854,7 +872,7 @@ struct SourceRowWrapper: View {
             }
 #else
             Button(action: onShare) {
-                Label(shareLabel, systemImage: "person.2.fill")
+                Label(shareLabel, systemImage: shareSystemImage)
             }
 #endif
             
@@ -874,7 +892,7 @@ struct SourceRowWrapper: View {
                 .disabled(viewModel.isOfflineMode)
             } else {
                 Button(action: onShare) {
-                    Label("Manage", systemImage: "person.crop.circle.badge.checkmark")
+                    Label(shareLabel, systemImage: shareSystemImage)
                 }
                 .tint(.blue)
             }
