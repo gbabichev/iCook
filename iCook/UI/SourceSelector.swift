@@ -423,17 +423,7 @@ struct SourceSelector: View {
         printD("Getting share URL for source: \(source.name)")
         
 #if os(iOS)
-        // Always use UICloudSharingController so we can manage invites/participants
-        if viewModel.isSharedOwner(source),
-           let shareController = await viewModel.cloudKitManager.existingSharingController(for: source) {
-            await MainActor.run {
-                presentUICloudSharingController(shareController, source: source)
-                isPreparingShare = false
-            }
-            return
-        }
-        
-        // If collaborator, present sharing controller to allow "Leave Share"
+        // Collaborators use the Cloud Sharing controller for access management / leave flow.
         if !viewModel.isSharedOwner(source), viewModel.cloudKitManager.isSharedSource(source),
            let controller = await viewModel.cloudKitManager.participantSharingController(for: source) {
             await MainActor.run {
@@ -443,6 +433,26 @@ struct SourceSelector: View {
             return
         }
         
+        // Owner + already shared: open Cloud Sharing manage UI.
+        if viewModel.isSharedOwner(source), viewModel.isSourceShared(source),
+           let shareController = await viewModel.cloudKitManager.existingSharingController(for: source) {
+            await MainActor.run {
+                presentUICloudSharingController(shareController, source: source)
+                isPreparingShare = false
+            }
+            return
+        }
+
+        // Owner + first share: mirror Apple's iOS 26 UX by sending the link first.
+        if viewModel.isSharedOwner(source), !viewModel.isSourceShared(source) {
+            await MainActor.run {
+                presentCloudKitInviteActivityController(for: source)
+                isPreparingShare = false
+            }
+            return
+        }
+        
+        // Fallback to Cloud Sharing controller if URL creation/path fails.
         viewModel.cloudKitManager.prepareSharingController(for: source) { controller in
             Task { @MainActor in
                 isPreparingShare = false
@@ -504,6 +514,54 @@ struct SourceSelector: View {
     }
     
 #if os(iOS)
+    private func presentCloudKitInviteActivityController(for source: Source) {
+        printD("Presenting CloudKit invite activity sheet for source: \(source.name)")
+        
+        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let window = windowScene.windows.first,
+              var topController = window.rootViewController else {
+            printD("Cannot find window or root view controller for activity controller")
+            return
+        }
+        
+        while let presented = topController.presentedViewController {
+            topController = presented
+        }
+        
+        let itemProvider = NSItemProvider()
+        let container = viewModel.cloudKitManager.container
+        let sourceID = source.id
+        let sourceName = source.name
+        let allowedOptions = CKAllowedSharingOptions(
+            allowedParticipantPermissionOptions: .any,
+            allowedParticipantAccessOptions: .specifiedRecipientsOnly
+        )
+        itemProvider.registerCKShare(container: container, allowedSharingOptions: allowedOptions) {
+            try await CloudKitManager.shared.preparedShareForActivitySheet(sourceID: sourceID, sourceName: sourceName)
+        }
+        
+        let configuration = UIActivityItemsConfiguration(itemProviders: [itemProvider])
+        let activityController = UIActivityViewController(activityItemsConfiguration: configuration)
+        activityController.completionWithItemsHandler = { _, _, _, _ in
+            Task {
+                await self.viewModel.loadSources()
+            }
+        }
+        if let popover = activityController.popoverPresentationController {
+            popover.sourceView = topController.view
+            popover.sourceRect = CGRect(
+                x: topController.view.bounds.midX,
+                y: topController.view.bounds.midY,
+                width: 1,
+                height: 1
+            )
+        }
+        
+        DispatchQueue.main.async {
+            topController.present(activityController, animated: true)
+        }
+    }
+    
     /// Present UICloudSharingController directly via UIKit
     private func presentUICloudSharingController(_ controller: UICloudSharingController, source: Source) {
         printD("Presenting UICloudSharingController via UIKit")
