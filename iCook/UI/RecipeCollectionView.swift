@@ -904,81 +904,70 @@ struct RecipeCollectionView: View {
     }
     
     private var mainContent: some View {
-        Group {
-            if isLoading || (isCategory && featuredRecipe == nil && !recipes.isEmpty && !showingSearchResults) {
-                // Show loading spinner while data is loading OR while featured recipe is being selected (for categories)
-                VStack(spacing: 16) {
-                    ProgressView()
-                    Text(collectionType.loadingText)
-                        .font(.headline)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if shouldShowNoSourceState {
-                // Show message when no source is available
-                VStack(spacing: 16) {
-                    Image(systemName:"book")
-                        .font(.system(size: 48))
-                        .foregroundStyle(.secondary)
-                    Text("Please add a Recipe Collection to continue")
-                        .font(.headline)
-                        .foregroundStyle(.secondary)
-                    Text("Tap the book icon in the toolbar to create or select a source.")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                        .padding(.horizontal)
-                        .multilineTextAlignment(.center)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if shouldShowWelcomeState {
-                // Show welcome message when source exists but no recipes yet
-                VStack(spacing: 16) {
-                    Text("👋")
-                        .font(.system(size: 48))
-                    Text("Welcome to iCook!")
-                        .font(.headline)
-                        .foregroundStyle(.primary)
-                    Text("Start by adding categories and recipes to get going")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal)
-                        .multilineTextAlignment(.center)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if shouldShowEmptyState {
-                // Centered empty state - replaces the entire scroll view
-                VStack(spacing: 16) {
-                    Text(collectionType.emptyStateIcon)
-                        .font(.system(size: 48))
-                        .foregroundStyle(.secondary)
-                    Text(collectionType.emptyStateText)
-                        .font(.headline)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                // Normal scroll content
-                if isSearchActive {
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 16) {
-                            recipesGridSection()
+        GeometryReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 16) {
+                    if isLoading || (isCategory && featuredRecipe == nil && !recipes.isEmpty && !showingSearchResults) {
+                        // Show loading spinner while data is loading OR while featured recipe is being selected (for categories)
+                        VStack(spacing: 16) {
+                            ProgressView()
+                            Text(collectionType.loadingText)
+                                .font(.headline)
+                                .foregroundStyle(.secondary)
                         }
-                    }
-                    .id(AnyHashable(model.recipesRefreshTrigger))
-                } else {
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 16) {
-                            // Featured header image
-                            if let featuredRecipe = featuredRecipe {
-                                featuredRecipeHeader(featuredRecipe)
-                            }
-                            // Recipes grid section
-                            recipesGridSection()
+                        .frame(maxWidth: .infinity, minHeight: proxy.size.height)
+                    } else if shouldShowNoSourceState {
+                        // Show message when no source is available
+                        VStack(spacing: 16) {
+                            Image(systemName:"book")
+                                .font(.system(size: 48))
+                                .foregroundStyle(.secondary)
+                            Text("Please add a Recipe Collection to continue")
+                                .font(.headline)
+                                .foregroundStyle(.secondary)
+                            Text("Tap the book icon in the toolbar to create or select a source.")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                                .padding(.horizontal)
+                                .multilineTextAlignment(.center)
                         }
-                        // Reset the scroll view when recipes change so category/home reflect updates.
-                        .id(AnyHashable(model.recipesRefreshTrigger))
+                        .frame(maxWidth: .infinity, minHeight: proxy.size.height)
+                    } else if shouldShowWelcomeState {
+                        // Show welcome message when source exists but no recipes yet
+                        VStack(spacing: 16) {
+                            Text("👋")
+                                .font(.system(size: 48))
+                            Text("Welcome to iCook!")
+                                .font(.headline)
+                                .foregroundStyle(.primary)
+                            Text("Start by adding categories and recipes to get going")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal)
+                                .multilineTextAlignment(.center)
+                        }
+                        .frame(maxWidth: .infinity, minHeight: proxy.size.height)
+                    } else if shouldShowEmptyState {
+                        // Centered empty state - replaces the entire scroll content area.
+                        VStack(spacing: 16) {
+                            Text(collectionType.emptyStateIcon)
+                                .font(.system(size: 48))
+                                .foregroundStyle(.secondary)
+                            Text(collectionType.emptyStateText)
+                                .font(.headline)
+                                .foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, minHeight: proxy.size.height)
+                    } else {
+                        if !isSearchActive, let featuredRecipe = featuredRecipe {
+                            featuredRecipeHeader(featuredRecipe)
+                        }
+                        recipesGridSection()
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+                // Reset the scroll view when recipes change so category/home reflect updates.
+                .id(AnyHashable(model.recipesRefreshTrigger))
             }
         }
     }
