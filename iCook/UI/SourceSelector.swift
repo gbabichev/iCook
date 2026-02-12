@@ -337,20 +337,17 @@ struct SourceSelector: View {
                     }
                 }
                 
-#if DEBUG
-                Section("Debug: Accept Shared Link") {
-                    TextField("Paste shared iCloud URL", text: $debugShareURLString)
-#if os(iOS)
-                        .textInputAutocapitalization(.never)
-#endif
-                        .autocorrectionDisabled()
-                    
-                    Button("Open Shared URL") {
-                        openDebugShareURL()
-                    }
-                    .disabled(debugShareURLString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isProcessingDebugShare)
-                }
-#endif
+//#if DEBUG
+//                Section("Debug: Accept Shared Link") {
+//                    TextField("Paste shared iCloud URL", text: $debugShareURLString)
+//                        .autocorrectionDisabled()
+//                    
+//                    Button("Open Shared URL") {
+//                        openDebugShareURL()
+//                    }
+//                    .disabled(debugShareURLString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isProcessingDebugShare)
+//                }
+//#endif
             }
             .listStyle(.automatic)
 #if DEBUG
