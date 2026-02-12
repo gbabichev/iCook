@@ -11,14 +11,27 @@ import Combine
 import UniformTypeIdentifiers
 #if os(macOS)
 import AppKit
+
+private extension Notification.Name {
+    static let macRouteImportToWindow = Notification.Name("iCook.macRouteImportToWindow")
+}
 #endif
 
 #if os(macOS)
 final class MacAppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
-    @Published var pendingImportURL: URL?
-    var onOpenExport: ((URL) -> Void)?
+    struct ImportRequest: Equatable {
+        let id: UUID
+        let url: URL
+    }
+
+    @Published private(set) var importRequest: ImportRequest?
+    private var consumedImportRequestIDs: Set<UUID> = []
+
     var onOpenShare: ((URL) -> Void)?
     var onAcceptShare: ((CKShare.Metadata) -> Void)?
+    var onShowAbout: (() -> Void)?
+    var onImportCommand: (() -> Void)?
+    var onExportCommand: (() -> Void)?
     
     func application(_ application: NSApplication, open urls: [URL]) {
         guard let url = urls.first else { return }
@@ -60,10 +73,43 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     private func deliver(_ url: URL) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            self.pendingImportURL = url
-            self.onOpenExport?(url)
+            printD("macOS open file delivered: \(url.lastPathComponent)")
+            self.importRequest = ImportRequest(id: UUID(), url: url)
         }
     }
+
+    func consumeImportRequest(_ request: ImportRequest) -> URL? {
+        guard !consumedImportRequestIDs.contains(request.id) else { return nil }
+        consumedImportRequestIDs.insert(request.id)
+        if importRequest?.id == request.id {
+            importRequest = nil
+        }
+        printD("macOS import request consumed: \(request.url.lastPathComponent)")
+        return request.url
+    }
+}
+
+private struct WindowAccessor: NSViewRepresentable {
+    let onResolve: (NSWindow?) -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async {
+            onResolve(view.window)
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async {
+            onResolve(nsView.window)
+        }
+    }
+}
+
+private enum ImportRouteUserInfoKey {
+    static let targetWindowNumber = "targetWindowNumber"
+    static let importURL = "importURL"
 }
 #endif
 
@@ -111,166 +157,22 @@ struct iCookApp: App {
     @StateObject private var model = AppViewModel()
 #if os(macOS)
     @NSApplicationDelegateAdaptor(MacAppDelegate.self) private var appDelegate
-    @State private var isExporting = false
-    @State private var isImporting = false
-    @State private var exportDocument = RecipeExportDocument()
-    @State private var showAbout = false
+    @Environment(\.openWindow) private var openWindow
 #endif
 #if os(iOS)
     @UIApplicationDelegateAdaptor(IOSAppDelegate.self) private var iosAppDelegate
 #endif
-    @State private var importPreview: AppViewModel.ImportPreview?
-    @State private var selectedImportIndices: Set<Int> = []
-    @State private var securityScopedImportURL: URL?
     
     var body: some Scene {
-        WindowGroup {
-            ZStack {
-                ContentView()
-                    .environmentObject(model)
-                    .onOpenURL { url in
-                        if isExportURL(url) {
-                            handleOpenedExport(url)
-                        } else {
-                            handleCloudKitShareLink(url)
-                        }
-                    }
-                    .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
-                        if let url = activity.webpageURL {
-                            handleCloudKitShareLink(url)
-                        }
-                    }
 #if os(macOS)
-                    .onAppear {
-                        appDelegate.onOpenExport = { url in
-                            handleOpenedExport(url)
-                        }
-                        appDelegate.onOpenShare = { url in
-                            handleCloudKitShareLink(url)
-                        }
-                        appDelegate.onAcceptShare = { metadata in
-                            Task {
-                                _ = await model.acceptShareMetadata(metadata)
-                            }
-                        }
-                        if let pending = appDelegate.pendingImportURL {
-                            appDelegate.pendingImportURL = nil
-                            handleOpenedExport(pending)
-                        }
-                    }
-                    .onReceive(appDelegate.$pendingImportURL.compactMap { $0 }) { url in
-                        appDelegate.pendingImportURL = nil
-                        handleOpenedExport(url)
-                    }
-#endif
-#if os(iOS)
-                    .onAppear {
-                        iosAppDelegate.onAcceptShare = { metadata in
-                            Task {
-                                _ = await model.acceptShareMetadata(metadata)
-                            }
-                        }
-                    }
-                    .onReceive(NotificationCenter.default.publisher(for: .cloudKitShareAccepted)) { note in
-                        if let metadata = note.object as? CKShare.Metadata {
-                            Task { _ = await model.acceptShareMetadata(metadata) }
-                        }
-                    }
-                    .onReceive(NotificationCenter.default.publisher(for: .cloudKitShareURLReceived)) { note in
-                        if let url = note.object as? URL {
-                            handleCloudKitShareLink(url)
-                        }
-                    }
-#endif
-                
-                if model.isImporting {
-                    Color.black.opacity(0.25)
-                        .ignoresSafeArea()
-                    VStack(spacing: 12) {
-                        ProgressView()
-                        Text("Importing recipes…")
-                            .font(.headline)
-                    }
-                    .padding(16)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-                }
-                
-                if model.isAcceptingShare {
-                    Color.black.opacity(0.25)
-                        .ignoresSafeArea()
-                    VStack(spacing: 12) {
-                        ProgressView()
-                        Text("Loading shared collection…")
-                            .font(.headline)
-                    }
-                    .padding(16)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-                }
-            }
-#if os(macOS)
-            .frame(minWidth: 600, minHeight: 600)
-#endif
-#if os(macOS)
-            .fileExporter(
-                isPresented: $isExporting,
-                document: exportDocument,
-                contentType: RecipeExportConstants.contentType,
-                defaultFilename: "RecipesExport.icookexport"
-            ) { result in
-                switch result {
-                case .success(let url):
-                    showAlert(title: "Export Complete", message: "Recipes saved to \(url.lastPathComponent).")
-                case .failure(let error):
-                    showAlert(title: "Export Failed", message: error.localizedDescription)
-                }
-            }
-            .fileImporter(
-                isPresented: $isImporting,
-                allowedContentTypes: [RecipeExportConstants.contentType, .json],
-                allowsMultipleSelection: false
-            ) { result in
-                switch result {
-                case .success(let urls):
-                    guard let url = urls.first else { return }
-                    presentImportPreview(for: url)
-                case .failure(let error):
-                    showAlert(title: "Import Failed", message: error.localizedDescription)
-                }
-            }
-#endif
-#if os(macOS)
-            .sheet(isPresented: $showAbout) {
-                AboutView()
-            }
-            .sheet(item: $importPreview) { preview in
-                ImportPreviewSheet(
-                    preview: preview,
-                    selectedIndices: $selectedImportIndices,
-                    onSelectAll: { selectedImportIndices = Set(preview.package.recipes.indices) },
-                    onDeselectAll: { selectedImportIndices.removeAll() },
-                    onCancel: { cancelImportPreview() },
-                    onImport: { confirmImportSelection() }
-                )
-            }
-#else
-            .sheet(item: $importPreview) { preview in
-                ImportPreviewSheet(
-                    preview: preview,
-                    selectedIndices: $selectedImportIndices,
-                    onSelectAll: { selectedImportIndices = Set(preview.package.recipes.indices) },
-                    onDeselectAll: { selectedImportIndices.removeAll() },
-                    onCancel: { cancelImportPreview() },
-                    onImport: { confirmImportSelection() }
-                )
-                .presentationDetents([.medium, .large])
-            }
-#endif
+        Window("iCook", id: "main") {
+            AppWindowContent(appDelegate: appDelegate)
+                .environmentObject(model)
         }
-#if os(macOS)
         .commands {
             CommandGroup(replacing: .appInfo) {
                 Button {
-                    showAbout = true
+                    appDelegate.onShowAbout?()
                 } label: {
                     Label("About iCook", systemImage: "info.circle")
                 }
@@ -278,7 +180,7 @@ struct iCookApp: App {
             
             CommandGroup(replacing: .newItem) {
                 Button {
-                    NSApp.sendAction(#selector(NSApplication.newWindowForTab(_:)), to: nil, from: nil)
+                    openWindow(id: "secondary")
                 } label: {
                     Label("New Window", systemImage: "plus.square.on.square")
                 }
@@ -297,20 +199,58 @@ struct iCookApp: App {
                 Divider()
                 
                 Button {
-                    importRecipes()
+                    appDelegate.onImportCommand?()
                 } label: {
                     Label("Import Recipes…", systemImage: "square.and.arrow.down")
                 }
                 
                 Button {
-                    exportRecipes()
+                    appDelegate.onExportCommand?()
                 } label: {
                     Label("Export Recipes…", systemImage: "square.and.arrow.up")
                 }
             }
         }
+
+        WindowGroup("iCook", id: "secondary") {
+            AppWindowContent(appDelegate: appDelegate)
+                .environmentObject(model)
+        }
+        .handlesExternalEvents(matching: Set(["secondary"]))
+#endif
+#if os(iOS)
+        WindowGroup {
+            AppWindowContent(iosAppDelegate: iosAppDelegate)
+                .environmentObject(model)
+        }
 #endif
     }
+    
+#if os(macOS)
+    @MainActor
+    private func refreshCurrentView() async {
+        NotificationCenter.default.post(name: .refreshRequested, object: nil)
+    }
+#endif
+}
+
+private struct AppWindowContent: View {
+    @EnvironmentObject private var model: AppViewModel
+#if os(macOS)
+    let appDelegate: MacAppDelegate
+    @State private var isExporting = false
+    @State private var isImporting = false
+    @State private var exportDocument = RecipeExportDocument()
+    @State private var showAbout = false
+    @State private var hostWindow: NSWindow?
+    @State private var pendingOpenedExportURL: URL?
+#endif
+#if os(iOS)
+    let iosAppDelegate: IOSAppDelegate
+#endif
+    @State private var importPreview: AppViewModel.ImportPreview?
+    @State private var selectedImportIndices: Set<Int> = []
+    @State private var securityScopedImportURL: URL?
     
     private func handleCloudKitShareLink(_ url: URL) {
         // Only process real CloudKit share URLs; ignore local file/document opens
@@ -327,15 +267,18 @@ struct iCookApp: App {
     }
     
     private func presentImportPreview(for url: URL) {
+        printD("Preparing import preview for: \(url.lastPathComponent)")
         Task {
             let canAccess = url.startAccessingSecurityScopedResource()
             let preview = model.loadImportPreview(from: url)
             await MainActor.run {
                 if let preview {
+                    printD("Import preview ready: recipes=\(preview.package.recipes.count)")
                     importPreview = preview
                     selectedImportIndices = Set(preview.package.recipes.indices)
                     securityScopedImportURL = canAccess ? url : nil
                 } else {
+                    printD("Import preview failed for: \(url.lastPathComponent)")
                     if canAccess { url.stopAccessingSecurityScopedResource() }
 #if os(macOS)
                     if let message = model.error {
@@ -383,12 +326,6 @@ struct iCookApp: App {
     }
     
 #if os(macOS)
-    @MainActor
-    private func refreshCurrentView() async {
-        // Post a notification that other views can listen to for refresh
-        NotificationCenter.default.post(name: .refreshRequested, object: nil)
-    }
-    
     private func exportRecipes() {
         Task {
             await MainActor.run {
@@ -417,10 +354,63 @@ struct iCookApp: App {
         alert.informativeText = message
         alert.runModal()
     }
+
+    private func forwardImportToExistingWindowIfNeeded(_ url: URL) -> Bool {
+        guard let hostWindow else { return false }
+        let visibleMainWindows = NSApp.windows
+            .filter { $0.isVisible && $0.canBecomeMain }
+        guard visibleMainWindows.count > 1 else { return false }
+        guard let newestWindow = visibleMainWindows.max(by: { $0.windowNumber < $1.windowNumber }),
+              newestWindow === hostWindow else { return false }
+
+        let target = visibleMainWindows
+            .filter { $0.windowNumber < hostWindow.windowNumber }
+            .sorted { $0.windowNumber < $1.windowNumber }
+            .first
+        guard let target else { return false }
+
+        NotificationCenter.default.post(
+            name: .macRouteImportToWindow,
+            object: nil,
+            userInfo: [
+                ImportRouteUserInfoKey.targetWindowNumber: target.windowNumber,
+                ImportRouteUserInfoKey.importURL: url
+            ]
+        )
+        printD("Forwarded import to existing window \(target.windowNumber) from window \(hostWindow.windowNumber)")
+        DispatchQueue.main.async {
+            hostWindow.close()
+        }
+        return true
+    }
+
+    private func processPendingOpenedExportIfNeeded() {
+        guard let url = pendingOpenedExportURL else { return }
+        guard hostWindow != nil else {
+            printD("Deferring import open until window is resolved: \(url.lastPathComponent)")
+            return
+        }
+        pendingOpenedExportURL = nil
+        if forwardImportToExistingWindowIfNeeded(url) { return }
+        handleOpenedExportOnce(url)
+    }
+
+    private func tryConsumePendingImportRequest() {
+        guard let request = appDelegate.importRequest else { return }
+        printD("Attempting to consume pending import request: \(request.url.lastPathComponent)")
+        guard let url = appDelegate.consumeImportRequest(request) else { return }
+        pendingOpenedExportURL = url
+        processPendingOpenedExportIfNeeded()
+    }
 #endif
     
     private func handleOpenedExport(_ url: URL) {
+        printD("Handling export open: \(url.lastPathComponent)")
         presentImportPreview(for: url)
+    }
+
+    private func handleOpenedExportOnce(_ url: URL) {
+        handleOpenedExport(url)
     }
     
     private func isExportURL(_ url: URL) -> Bool {
@@ -429,5 +419,169 @@ struct iCookApp: App {
             return true
         }
         return url.isFileURL && url.pathExtension.lowercased() == "icookexport"
+    }
+    
+    var body: some View {
+        ZStack {
+            ContentView()
+                .onOpenURL { url in
+                    if isExportURL(url) {
+                        printD("onOpenURL received import file: \(url.lastPathComponent)")
+#if os(macOS)
+                        pendingOpenedExportURL = url
+                        processPendingOpenedExportIfNeeded()
+                        return
+#else
+                        handleOpenedExportOnce(url)
+#endif
+                    } else {
+                        handleCloudKitShareLink(url)
+                    }
+                }
+                .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
+                    if let url = activity.webpageURL {
+                        handleCloudKitShareLink(url)
+                    }
+                }
+#if os(macOS)
+                .background(
+                    WindowAccessor { window in
+                        hostWindow = window
+                        processPendingOpenedExportIfNeeded()
+                    }
+                )
+                .onAppear {
+                    appDelegate.onOpenShare = { url in
+                        handleCloudKitShareLink(url)
+                    }
+                    appDelegate.onAcceptShare = { metadata in
+                        Task {
+                            _ = await model.acceptShareMetadata(metadata)
+                        }
+                    }
+                    appDelegate.onShowAbout = {
+                        showAbout = true
+                    }
+                    appDelegate.onImportCommand = {
+                        importRecipes()
+                    }
+                    appDelegate.onExportCommand = {
+                        exportRecipes()
+                    }
+                    processPendingOpenedExportIfNeeded()
+                    tryConsumePendingImportRequest()
+                }
+                .onReceive(appDelegate.$importRequest.compactMap { $0 }) { _ in
+                    tryConsumePendingImportRequest()
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .macRouteImportToWindow)) { note in
+                    guard let targetWindowNumber = note.userInfo?[ImportRouteUserInfoKey.targetWindowNumber] as? Int,
+                          let url = note.userInfo?[ImportRouteUserInfoKey.importURL] as? URL,
+                          hostWindow?.windowNumber == targetWindowNumber else { return }
+                    printD("Received forwarded import in window \(targetWindowNumber): \(url.lastPathComponent)")
+                    handleOpenedExportOnce(url)
+                }
+                .onChange(of: hostWindow?.windowNumber) { _, _ in
+                    processPendingOpenedExportIfNeeded()
+                }
+#endif
+#if os(iOS)
+                .onAppear {
+                    iosAppDelegate.onAcceptShare = { metadata in
+                        Task {
+                            _ = await model.acceptShareMetadata(metadata)
+                        }
+                    }
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .cloudKitShareAccepted)) { note in
+                    if let metadata = note.object as? CKShare.Metadata {
+                        Task { _ = await model.acceptShareMetadata(metadata) }
+                    }
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .cloudKitShareURLReceived)) { note in
+                    if let url = note.object as? URL {
+                        handleCloudKitShareLink(url)
+                    }
+                }
+#endif
+            
+            if model.isImporting {
+                Color.black.opacity(0.25)
+                    .ignoresSafeArea()
+                VStack(spacing: 12) {
+                    ProgressView()
+                    Text("Importing recipes…")
+                        .font(.headline)
+                }
+                .padding(16)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+            }
+            
+            if model.isAcceptingShare {
+                Color.black.opacity(0.25)
+                    .ignoresSafeArea()
+                VStack(spacing: 12) {
+                    ProgressView()
+                    Text("Loading shared collection…")
+                        .font(.headline)
+                }
+                .padding(16)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+            }
+        }
+#if os(macOS)
+        .frame(minWidth: 600, minHeight: 600)
+        .fileExporter(
+            isPresented: $isExporting,
+            document: exportDocument,
+            contentType: RecipeExportConstants.contentType,
+            defaultFilename: "RecipesExport.icookexport"
+        ) { result in
+            switch result {
+            case .success(let url):
+                showAlert(title: "Export Complete", message: "Recipes saved to \(url.lastPathComponent).")
+            case .failure(let error):
+                showAlert(title: "Export Failed", message: error.localizedDescription)
+            }
+        }
+        .fileImporter(
+            isPresented: $isImporting,
+            allowedContentTypes: [RecipeExportConstants.contentType, .json],
+            allowsMultipleSelection: false
+        ) { result in
+            switch result {
+            case .success(let urls):
+                guard let url = urls.first else { return }
+                presentImportPreview(for: url)
+            case .failure(let error):
+                showAlert(title: "Import Failed", message: error.localizedDescription)
+            }
+        }
+        .sheet(isPresented: $showAbout) {
+            AboutView()
+        }
+        .sheet(item: $importPreview) { preview in
+            ImportPreviewSheet(
+                preview: preview,
+                selectedIndices: $selectedImportIndices,
+                onSelectAll: { selectedImportIndices = Set(preview.package.recipes.indices) },
+                onDeselectAll: { selectedImportIndices.removeAll() },
+                onCancel: { cancelImportPreview() },
+                onImport: { confirmImportSelection() }
+            )
+        }
+#else
+        .sheet(item: $importPreview) { preview in
+            ImportPreviewSheet(
+                preview: preview,
+                selectedIndices: $selectedImportIndices,
+                onSelectAll: { selectedImportIndices = Set(preview.package.recipes.indices) },
+                onDeselectAll: { selectedImportIndices.removeAll() },
+                onCancel: { cancelImportPreview() },
+                onImport: { confirmImportSelection() }
+            )
+            .presentationDetents([.medium, .large])
+        }
+#endif
     }
 }
