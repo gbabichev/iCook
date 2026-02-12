@@ -31,13 +31,6 @@ struct SourceSelector: View {
     
 #endif
     
-#if DEBUG
-    @State private var debugShareURLString = ""
-    @State private var showDebugShareAlert = false
-    @State private var debugShareAlertMessage = ""
-    @State private var isProcessingDebugShare = false
-#endif
-    
 #if os(macOS)
     private struct MacToolbarIconButton: View {
         let systemImage: String
@@ -305,6 +298,7 @@ struct SourceSelector: View {
                             .foregroundColor(.secondary)
                     } else {
                         ForEach(viewModel.sources, id: \.id) { source in
+#if os(macOS)
                             SourceRowWrapper(
                                 source: source,
                                 isSelected: viewModel.currentSource?.id == source.id,
@@ -319,11 +313,9 @@ struct SourceSelector: View {
                                     }
                                 },
                                 onStopSharing: {
-                                    #if os(macOS)
                                     Task {
                                         await viewModel.stopSharingSource(source)
                                     }
-                                    #endif
                                 },
                                 onRename: {
                                     beginRenaming(source)
@@ -333,30 +325,35 @@ struct SourceSelector: View {
                                     showDeleteConfirmation = true
                                 }
                             )
+#else
+                            SourceRowWrapper(
+                                source: source,
+                                isSelected: viewModel.currentSource?.id == source.id,
+                                onSelect: {
+                                    Task {
+                                        await viewModel.selectSource(source)
+                                    }
+                                },
+                                onShare: {
+                                    Task {
+                                        await shareSource(for: source)
+                                    }
+                                },
+                                onRename: {
+                                    beginRenaming(source)
+                                },
+                                onDelete: {
+                                    sourceToDelete = source
+                                    showDeleteConfirmation = true
+                                }
+                            )
+#endif
                         }
                     }
                 }
                 
-//#if DEBUG
-//                Section("Debug: Accept Shared Link") {
-//                    TextField("Paste shared iCloud URL", text: $debugShareURLString)
-//                        .autocorrectionDisabled()
-//                    
-//                    Button("Open Shared URL") {
-//                        openDebugShareURL()
-//                    }
-//                    .disabled(debugShareURLString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isProcessingDebugShare)
-//                }
-//#endif
             }
             .listStyle(.automatic)
-#if DEBUG
-            .alert("Debug Share URL", isPresented: $showDebugShareAlert) {
-                Button("OK", role: .cancel) { }
-            } message: {
-                Text(debugShareAlertMessage)
-            }
-#endif
 #if os(iOS)
             .refreshable {
                 await viewModel.loadSources()
@@ -379,38 +376,6 @@ struct SourceSelector: View {
             .environmentObject(viewModel)
         }
     }
-    
-    
-#if DEBUG
-    private func openDebugShareURL() {
-        let trimmed = debugShareURLString.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let url = URL(string: trimmed), !trimmed.isEmpty else {
-            debugShareAlertMessage = "Please enter a valid iCloud share URL."
-            showDebugShareAlert = true
-            return
-        }
-        
-        debugShareAlertMessage = "Processing shared link…"
-        showDebugShareAlert = true
-        isProcessingDebugShare = true
-        
-        Task {
-            let success = await viewModel.acceptShareURL(url)
-            await MainActor.run {
-                isProcessingDebugShare = false
-                if success {
-                    debugShareAlertMessage = "Share accepted. If the collection does not appear, pull to refresh or reopen Collections."
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                        showDebugShareAlert = false
-                    }
-                } else {
-                    debugShareAlertMessage = viewModel.cloudKitManager.error ?? "Failed to accept the share."
-                }
-            }
-        }
-    }
-#endif
-    
     private func beginRenaming(_ source: Source) {
         guard viewModel.canRenameSource(source) else { return }
         editingSource = source
@@ -518,7 +483,6 @@ struct SourceSelector: View {
             }
             
             let delegate = MacSharingDelegateProxy(
-                sourceTitle: source.name,
                 onDidShare: {
                     Task {
                         await MainActor.run {
@@ -585,7 +549,6 @@ struct SourceSelector: View {
         )
         let picker = NSSharingServicePicker(items: [previewItem])
         let delegate = MacSharingDelegateProxy(
-            sourceTitle: source.name,
             onDidShare: {
                 Task {
                     await MainActor.run {
@@ -641,12 +604,10 @@ struct SourceSelector: View {
     }
 
     private final class MacSharingDelegateProxy: NSObject, NSSharingServicePickerDelegate, NSSharingServiceDelegate, NSCloudSharingServiceDelegate {
-        let sourceTitle: String
         let onDidShare: () -> Void
         let onDidFail: (Error) -> Void
         
-        init(sourceTitle: String, onDidShare: @escaping () -> Void, onDidFail: @escaping (Error) -> Void) {
-            self.sourceTitle = sourceTitle
+        init(onDidShare: @escaping () -> Void, onDidFail: @escaping (Error) -> Void) {
             self.onDidShare = onDidShare
             self.onDidFail = onDidFail
         }
@@ -679,14 +640,6 @@ struct SourceSelector: View {
                 return true
             }
             return false
-        }
-        
-        func itemTitle(for service: NSSharingService) -> String {
-            sourceTitle
-        }
-        
-        func itemThumbnailData(for service: NSSharingService) -> Data? {
-            NSApp.applicationIconImage.tiffRepresentation
         }
     }
 #endif
@@ -916,7 +869,9 @@ struct SourceRowWrapper: View {
     let isSelected: Bool
     let onSelect: () -> Void
     let onShare: () -> Void
+#if os(macOS)
     let onStopSharing: (() -> Void)?
+#endif
     let onRename: () -> Void
     let onDelete: () -> Void
     @EnvironmentObject private var viewModel: AppViewModel

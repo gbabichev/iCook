@@ -18,10 +18,6 @@ struct CameraInfo: Identifiable, Hashable {
     let isVirtualZoom: Bool
     let zoomSortValue: CGFloat
     
-    init(device: AVCaptureDevice) {
-        self.init(device: device, inferredZoomFactor: nil)
-    }
-
     init(device: AVCaptureDevice, inferredZoomFactor: CGFloat?) {
         self.device = device
         self.position = device.position
@@ -72,10 +68,6 @@ struct CameraInfo: Identifiable, Hashable {
         }
     }
     
-    init(device: AVCaptureDevice, zoomFactor: CGFloat) {
-        self.init(device: device, zoomFactor: zoomFactor, displayZoomFactor: zoomFactor)
-    }
-
     init(device: AVCaptureDevice, zoomFactor: CGFloat, displayZoomFactor: CGFloat) {
         self.device = device
         self.position = device.position

@@ -722,16 +722,10 @@ class CloudKitManager: ObservableObject {
                     printD("Note: Could not load shared sources: \(errorDesc)")
                 }
             }
-            // If none returned (due to limitations), try via CKShare metadata
+            // If none returned (due to SharedDB query limitations), enumerate shared zones.
             if sharedSources.isEmpty {
                 let zoneSources = await fetchSharedSourcesViaZones()
                 sharedSources.append(contentsOf: zoneSources)
-                if sharedSources.isEmpty {
-                    // Disabled: this shared DB query path produces a known
-                    // "SharedDB does not support Zone Wide queries" error.
-                    // let shareSources = await fetchSharedSourcesViaShares()
-                    // sharedSources.append(contentsOf: shareSources)
-                }
             }
             allSources.append(contentsOf: sharedSources)
             
@@ -1107,34 +1101,6 @@ class CloudKitManager: ObservableObject {
         }
     }
 
-    private func ownerIdentityLooksRedacted(_ share: CKShare) -> Bool {
-        let ownerIdentity = share.owner.userIdentity
-        let displayName = ownerIdentity.nameComponents?.formatted() ?? ""
-        let ownerRecord = ownerIdentity.userRecordID?.recordName ?? ""
-        return displayName.isEmpty && ownerRecord == "__defaultOwner__"
-    }
-
-    private func refreshedShareForDisplay(_ share: CKShare, in database: CKDatabase) async -> CKShare {
-        var latest = share
-        guard ownerIdentityLooksRedacted(latest) else { return latest }
-        for attempt in 1...2 {
-            if attempt > 1 {
-                try? await Task.sleep(nanoseconds: 300_000_000)
-            }
-            do {
-                if let fetched = try await database.record(for: latest.recordID) as? CKShare {
-                    latest = fetched
-                    if !ownerIdentityLooksRedacted(latest) {
-                        break
-                    }
-                }
-            } catch {
-                break
-            }
-        }
-        return latest
-    }
-
     private func shouldBeSharedBasedOnZone(_ source: Source) -> Bool {
         let zoneID = source.id.zoneID
         if zoneID.zoneName != personalZoneID.zoneName { return true }
@@ -1290,28 +1256,6 @@ class CloudKitManager: ObservableObject {
             }
         } catch {
             printD("Failed to list shared zones: \(error.localizedDescription)")
-        }
-        return sharedSources
-    }
-    
-    private func fetchSharedSourcesViaShares() async -> [Source] {
-        var sharedSources: [Source] = []
-        let shares = await fetchAllShares()
-        for share in shares {
-            // Use KVC to access rootRecordID
-            let rootID = share.value(forKey: "rootRecordID") as? CKRecord.ID
-            guard let rootID else { continue }
-            do {
-                let record = try await sharedDatabase.record(for: rootID)
-                if var source = Source.from(record) {
-                    source.isPersonal = false
-                    markSharedSource(id: source.id)
-                    sharedSources.append(source)
-                    printD("Fetched shared source via CKShare: \(source.name)")
-                }
-            } catch {
-                printD("Failed to fetch shared source via share \(share.recordID.recordName): \(error.localizedDescription)")
-            }
         }
         return sharedSources
     }
@@ -1849,7 +1793,8 @@ class CloudKitManager: ObservableObject {
     
     // MARK: - Sharing
     
-    /// Get or create a share URL for a source (cross-platform)
+#if os(macOS)
+    /// Get or create a share URL for a source
     /// - Parameter source: The source to share (must be personal)
     /// - Returns: The share URL, or nil on error
     func getShareURL(for source: Source) async -> URL? {
@@ -1964,6 +1909,7 @@ class CloudKitManager: ObservableObject {
             return nil
         }
     }
+#endif
 #if os(iOS) || os(macOS)
     func preparedShareForActivitySheet(sourceID: CKRecord.ID, sourceName: String) async throws -> CKShare {
         let rootRecord = try await privateDatabase.record(for: sourceID)
@@ -2002,6 +1948,34 @@ class CloudKitManager: ObservableObject {
 #endif
 
 #if os(iOS)
+    private func ownerIdentityLooksRedacted(_ share: CKShare) -> Bool {
+        let ownerIdentity = share.owner.userIdentity
+        let displayName = ownerIdentity.nameComponents?.formatted() ?? ""
+        let ownerRecord = ownerIdentity.userRecordID?.recordName ?? ""
+        return displayName.isEmpty && ownerRecord == "__defaultOwner__"
+    }
+
+    private func refreshedShareForDisplay(_ share: CKShare, in database: CKDatabase) async -> CKShare {
+        var latest = share
+        guard ownerIdentityLooksRedacted(latest) else { return latest }
+        for attempt in 1...2 {
+            if attempt > 1 {
+                try? await Task.sleep(nanoseconds: 300_000_000)
+            }
+            do {
+                if let fetched = try await database.record(for: latest.recordID) as? CKShare {
+                    latest = fetched
+                    if !ownerIdentityLooksRedacted(latest) {
+                        break
+                    }
+                }
+            } catch {
+                break
+            }
+        }
+        return latest
+    }
+
     /// Prepare a UICloudSharingController for sharing a source
     /// Creates/saves (or fetches existing) share first, then presents
     /// UICloudSharingController with a concrete CKShare instance.
@@ -2400,33 +2374,7 @@ class CloudKitManager: ObservableObject {
         }
     }
     
-    /// Fetch all shares created by or shared with this user
-    func fetchAllShares() async -> [CKShare] {
-        var allShares: [CKShare] = []
-        
-        do {
-            // Query shared database for all shares
-            let predicate = NSPredicate(value: true)
-            let query = CKQuery(recordType: "cloudkit.share", predicate: predicate)
-            
-            let (results, _) = try await sharedDatabase.records(matching: query)
-            
-            allShares = results.compactMap { _, result in
-                guard case .success(let record) = result,
-                      let share = record as? CKShare else {
-                    return nil
-                }
-                return share
-            }
-            
-            printD("Fetched \(allShares.count) shares from shared database")
-        } catch {
-            printD("Error fetching shares: \(error.localizedDescription)")
-        }
-        
-        return allShares
-    }
-    #if os(macOS)
+#if os(macOS)
     /// Stop sharing a source
     func stopSharingSource(_ source: Source) async -> Bool {
         // Only the owner can stop sharing; ensure we target the private DB share record
@@ -2477,49 +2425,6 @@ private extension NSImage {
               let bitmap = NSBitmapImageRep(data: tiffData) else { return nil }
         return bitmap.representation(using: .png, properties: [:])
     }
-}
-#endif
-
-// MARK: - Cloud Sharing Delegate
-#if os(iOS)
-/// Delegate for UICloudSharingController that handles share completion
-class CloudKitShareDelegate: NSObject, UICloudSharingControllerDelegate {
-    static var associatedObjectKey: UInt8 = 0
-    
-    func cloudSharingControllerDidSaveShare(_ csc: UICloudSharingController) {
-        printD("========== cloudSharingControllerDidSaveShare ==========")
-        if let share = csc.share {
-            printD("Share ID: \(share.recordID.recordName)")
-            if let url = share.url {
-                printD("Share URL: \(url.absoluteString)")
-                DispatchQueue.main.async {
-                    UIPasteboard.general.url = url
-                    printD("Share URL copied to pasteboard!")
-                }
-            } else {
-                printD("WARNING: Share URL is nil in delegate")
-            }
-        } else {
-            printD("WARNING: Share object is nil")
-        }
-    }
-    
-    func cloudSharingControllerDidStopSharing(_ csc: UICloudSharingController) {
-        printD("========== cloudSharingControllerDidStopSharing ==========")
-    }
-    
-    func cloudSharingController(
-        _ csc: UICloudSharingController,
-        failedToSaveShareWithError error: Error
-    ) {
-        printD("========== failedToSaveShareWithError ==========")
-        printD("Error: \(error.localizedDescription)")
-    }
-    
-    func itemTitle(for csc: UICloudSharingController) -> String? {
-        return "Share Recipe Source"
-    }
-    
 }
 #endif
 
