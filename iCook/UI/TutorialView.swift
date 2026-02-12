@@ -28,6 +28,11 @@ struct TutorialView: View {
             title: "Sharing Collections",
             message: "Share a collection to collaborate. Everyone sees updates and can add recipes together.",
             systemImage: "person.2"
+        ),
+        Step(
+            title: "Copy to Reminders",
+            message: "Press the 'Copy' button next to Ingredients to copy items to paste directly into the Reminders app.",
+            systemImage: "doc.on.clipboard"
         )
     ]
     
