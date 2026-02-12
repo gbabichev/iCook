@@ -3,6 +3,7 @@ import SwiftUI
 struct ImportPreviewSheet: View {
     let preview: AppViewModel.ImportPreview
     @Binding var selectedIndices: Set<Int>
+    let isImporting: Bool
     let onSelectAll: () -> Void
     let onDeselectAll: () -> Void
     let onCancel: () -> Void
@@ -19,7 +20,9 @@ struct ImportPreviewSheet: View {
             
             HStack {
                 Button("Select All", action: onSelectAll)
+                    .disabled(isImporting)
                 Button("Deselect All", action: onDeselectAll)
+                    .disabled(isImporting)
                 Spacer()
                 Text(selectionSummary)
                     .font(.subheadline)
@@ -43,6 +46,7 @@ struct ImportPreviewSheet: View {
 #if os(macOS)
                                 .toggleStyle(.checkbox)
 #endif
+                                .disabled(isImporting)
                             }
                         }
                     }
@@ -57,13 +61,30 @@ struct ImportPreviewSheet: View {
             
             HStack {
                 Button("Cancel", action: onCancel)
+                    .disabled(isImporting)
                 Spacer()
-                Button("Import Selected", action: onImport)
+                Button(action: onImport) {
+                    if isImporting {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Importing...")
+                        }
+                    } else {
+                        Text("Import Selected")
+                    }
+                }
                     .buttonStyle(.borderedProminent)
-                    .disabled(selectedIndices.isEmpty)
+                    .disabled(selectedIndices.isEmpty || isImporting)
             }
         }
         .padding(20)
+        .overlay {
+            if isImporting {
+                Color.black.opacity(0.08)
+                    .ignoresSafeArea()
+            }
+        }
 #if os(macOS)
         .frame(minWidth: 520, minHeight: 480)
 #endif

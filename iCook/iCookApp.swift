@@ -251,6 +251,9 @@ private struct AppWindowContent: View {
     @State private var importPreview: AppViewModel.ImportPreview?
     @State private var selectedImportIndices: Set<Int> = []
     @State private var securityScopedImportURL: URL?
+    @State private var isCommittingImport = false
+    @State private var showImportCompletedToast = false
+    @State private var importCompletedToastMessage = ""
     
     private func handleCloudKitShareLink(_ url: URL) {
         // Only process real CloudKit share URLs; ignore local file/document opens
@@ -293,17 +296,25 @@ private struct AppWindowContent: View {
     private func confirmImportSelection() {
         guard let preview = importPreview else { return }
         let selectedRecipes = selectedImportIndices.sorted().map { preview.package.recipes[$0] }
+        let selectedCount = selectedRecipes.count
         let securedURL = securityScopedImportURL
+        isCommittingImport = true
         Task {
             let success = await model.importRecipes(from: preview, selectedRecipes: selectedRecipes)
             await MainActor.run {
+                isCommittingImport = false
 #if os(macOS)
-                if success {
-                    showAlert(title: "Import Complete", message: "Recipes were imported successfully.")
-                } else if let message = model.error {
+                if !success, let message = model.error {
                     showAlert(title: "Import Failed", message: message)
                 }
+#else
+                if !success {
+                    printD("Import failed: \(model.error ?? "unknown error")")
+                }
 #endif
+                if success {
+                    presentImportCompletedToast(importedCount: selectedCount)
+                }
                 cleanupImportPreview()
                 if let securedURL {
                     securedURL.stopAccessingSecurityScopedResource()
@@ -323,6 +334,21 @@ private struct AppWindowContent: View {
         importPreview = nil
         selectedImportIndices.removeAll()
         securityScopedImportURL = nil
+        isCommittingImport = false
+    }
+
+    private func presentImportCompletedToast(importedCount: Int) {
+        importCompletedToastMessage = importedCount == 1
+            ? "Imported 1 recipe"
+            : "Imported \(importedCount) recipes"
+        withAnimation {
+            showImportCompletedToast = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+            withAnimation {
+                showImportCompletedToast = false
+            }
+        }
     }
     
 #if os(macOS)
@@ -529,6 +555,17 @@ private struct AppWindowContent: View {
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
             }
         }
+        .overlay(alignment: .bottom) {
+            if showImportCompletedToast {
+                Text(importCompletedToastMessage)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .shadow(radius: 6)
+                    .padding(.bottom, 20)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
 #if os(macOS)
         .frame(minWidth: 600, minHeight: 600)
         .fileExporter(
@@ -564,6 +601,7 @@ private struct AppWindowContent: View {
             ImportPreviewSheet(
                 preview: preview,
                 selectedIndices: $selectedImportIndices,
+                isImporting: isCommittingImport,
                 onSelectAll: { selectedImportIndices = Set(preview.package.recipes.indices) },
                 onDeselectAll: { selectedImportIndices.removeAll() },
                 onCancel: { cancelImportPreview() },
@@ -575,6 +613,7 @@ private struct AppWindowContent: View {
             ImportPreviewSheet(
                 preview: preview,
                 selectedIndices: $selectedImportIndices,
+                isImporting: isCommittingImport,
                 onSelectAll: { selectedImportIndices = Set(preview.package.recipes.indices) },
                 onDeselectAll: { selectedImportIndices.removeAll() },
                 onCancel: { cancelImportPreview() },
