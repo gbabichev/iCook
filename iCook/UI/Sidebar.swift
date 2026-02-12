@@ -146,10 +146,10 @@ struct CategoryList: View {
                 Button {
                     showSourcesOverlay = true
                 } label: {
-                    Image(systemName: "book")
+                    Image(systemName: "gear")
                 }
                 .disabled(model.isOfflineMode)
-                .accessibilityLabel("Collections")
+                .accessibilityLabel("Settings")
             }
             ToolbarItem(placement: .primaryAction) {
                 Button {

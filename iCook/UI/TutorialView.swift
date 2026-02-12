@@ -12,7 +12,7 @@ struct TutorialView: View {
         Step(
             title: "Collections",
             message: "Collections are your top-level spaces. Keep separate groups for personal, family, or projects.",
-            systemImage: "books.vertical"
+            systemImage: "book"
         ),
         Step(
             title: "Categories",

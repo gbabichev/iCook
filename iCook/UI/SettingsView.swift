@@ -123,7 +123,7 @@ struct SourceSelector: View {
                         }
                 }
             }
-            .navigationTitle("Collections")
+            .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
@@ -159,7 +159,7 @@ struct SourceSelector: View {
         VStack(spacing: 0) {
             // Title bar
             HStack(spacing: 8) {
-                Text("Collections")
+                Text("Settings")
                     .font(.title2)
                     .fontWeight(.semibold)
                 
@@ -286,13 +286,11 @@ struct SourceSelector: View {
             }
             
             List {
-                Section {
-                    Text("Create recipe collections for different themes or occasions. Share any collection with friends!")
+                Section("Collections") {
+                    Text("Organize recipes into collections by theme or occasion, and share collections with others.")
                         .font(.caption)
                         .foregroundColor(.secondary)
-                }
-                
-                Section {
+                    
                     if viewModel.sources.isEmpty {
                         Text("No Collections yet")
                             .foregroundColor(.secondary)
@@ -351,7 +349,12 @@ struct SourceSelector: View {
                         }
                     }
                 }
-                
+
+                Section("Settings") {
+                    Text("More settings coming soon.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
             }
             .listStyle(.automatic)
 #if os(iOS)
