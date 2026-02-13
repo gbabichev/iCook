@@ -631,9 +631,8 @@ struct RecipeCollectionView: View {
                 Task { await deleteRecipe(recipe) }
             }
             .applySheetModifiers(editingRecipe: $editingRecipe, showNewSourceSheet: $showNewSourceSheet, newSourceName: $newSourceName, model: model)
-            .padding(.top, isSearchActive ? 0 : 0)
-            .ignoresSafeArea(edges: isSearchActive ? [] : .top)
             .toast(isPresented: $showRevokedToast, message: revokedToastMessage)
+            .ignoresSafeArea(edges: isSearchActive ? [] : .top)
             .onReceive(NotificationCenter.default.publisher(for: .recipeDeleted), perform: handleRecipeDeleted)
             .onReceive(NotificationCenter.default.publisher(for: .recipeUpdated), perform: handleRecipeUpdated)
 #if os(macOS)

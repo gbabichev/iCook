@@ -4,6 +4,7 @@ import CloudKit
 struct RecipeDetailView: View {
     let recipe: Recipe
     @EnvironmentObject private var model: AppViewModel
+    @Environment(\.dismiss) private var dismiss
     
     @State private var editingRecipe: Recipe?
     @State private var checkedIngredients: Set<String> = []
@@ -293,6 +294,12 @@ struct RecipeDetailView: View {
         }
         .onAppear {
             refreshDisplayedRecipe()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .recipeDeleted)) { notification in
+            guard let deletedID = notification.object as? CKRecord.ID else { return }
+            if deletedID == recipe.id {
+                dismiss()
+            }
         }
         .overlay(alignment: .top) {
             if showCopiedHUD {
