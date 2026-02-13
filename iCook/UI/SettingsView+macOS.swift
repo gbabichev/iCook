@@ -236,6 +236,15 @@ extension SourceSelector {
                             .font(.headline)
 
                         HStack {
+                            Text("Total Recipes")
+                            Spacer()
+                            Text("\(totalRecipeCountAllCollections)")
+                                .foregroundColor(.secondary)
+                                .monospacedDigit()
+                        }
+                        .font(.callout)
+
+                        HStack {
                             Text("Version")
                             Spacer()
                             Text(appVersionString)

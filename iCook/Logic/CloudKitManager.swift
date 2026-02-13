@@ -1395,6 +1395,60 @@ class CloudKitManager: ObservableObject {
             }
         }
     }
+
+    /// Returns total recipe count for a source without mutating the currently selected source state.
+    /// Also refreshes the source's recipe-count local cache when online.
+    func totalRecipeCount(for source: Source) async -> Int {
+        let cachedCounts = loadRecipeCountsLocalCache(for: source)
+        let cachedTotal = cachedCounts.values.reduce(0, +)
+
+        guard isCloudKitAvailable else {
+            return cachedTotal
+        }
+
+        let predicate = NSPredicate(
+            format: "sourceID == %@",
+            CKRecord.Reference(recordID: source.id, action: .none)
+        )
+        let query = CKQuery(recordType: "Recipe", predicate: predicate)
+        query.sortDescriptors = nil
+
+        let isOwner = isSharedOwner(source)
+        let database = isOwner || source.isPersonal ? privateDatabase : sharedDatabase
+        let zoneID = isOwner || source.isPersonal ? personalZoneID : source.id.zoneID
+
+        do {
+            let (results, _) = try await database.records(matching: query, inZoneWith: zoneID)
+            var counts: [CKRecord.ID: Int] = [:]
+            var total = 0
+
+            for (_, result) in results {
+                guard case .success(let record) = result else { continue }
+                total += 1
+                if let categoryRef = record["categoryID"] as? CKRecord.Reference {
+                    counts[categoryRef.recordID, default: 0] += 1
+                }
+            }
+
+            saveRecipeCountsLocalCache(counts, for: source)
+            markOnlineIfNeeded()
+            return total
+        } catch {
+            if isSharedSource(source), isShareRevokedError(error) {
+                printD("Share revoked or inaccessible while loading totals for \(source.name); removing locally")
+                await removeSharedSourceLocally(source)
+                return 0
+            }
+            if handleOfflineFallback(for: error) {
+                return cachedTotal
+            }
+            let errorDesc = error.localizedDescription
+            if !errorDesc.contains("Did not find record type") {
+                printD("Error loading total recipe count for \(source.name): \(errorDesc)")
+            }
+            return cachedTotal
+        }
+    }
     
     func createCategory(name: String, icon: String, in source: Source) async {
         do {

@@ -18,6 +18,7 @@ struct SourceSelector: View {
     @State var editingSource: Source?
     @State var sourceToDelete: Source?
     @State var showDeleteConfirmation = false
+    @State var recipeTotalsBySource: [CKRecord.ID: Int] = [:]
 #if os(macOS)
     @State var showShareCopiedToast = false
     @State var shareToastMessage = ""
@@ -36,12 +37,28 @@ struct SourceSelector: View {
         return version == build ? version : "\(version) (\(build))"
     }
 
+    var totalRecipeCountAllCollections: Int {
+        recipeTotalsBySource.values.reduce(0, +)
+    }
+
+    var sourceTotalsRefreshKey: String {
+        viewModel.sources
+            .map { "\($0.id.zoneID.ownerName)|\($0.id.zoneID.zoneName)|\($0.id.recordName)" }
+            .sorted()
+            .joined(separator: ",")
+    }
+
     var body: some View {
+        Group {
 #if os(iOS)
-        iOSView
+            iOSView
 #elseif os(macOS)
-        macOSView
+            macOSView
 #endif
+        }
+        .task(id: sourceTotalsRefreshKey) {
+            await refreshRecipeTotals()
+        }
     }
 
     @ViewBuilder
@@ -49,6 +66,7 @@ struct SourceSelector: View {
 #if os(macOS)
         SourceRowWrapper(
             source: source,
+            recipeCount: recipeTotalsBySource[source.id, default: 0],
             isSelected: viewModel.currentSource?.id == source.id,
             onSelect: {
                 Task {
@@ -76,6 +94,7 @@ struct SourceSelector: View {
 #else
         SourceRowWrapper(
             source: source,
+            recipeCount: recipeTotalsBySource[source.id, default: 0],
             isSelected: viewModel.currentSource?.id == source.id,
             onSelect: {
                 Task {
@@ -130,6 +149,14 @@ struct SourceSelector: View {
 
                 Section("Settings") {
                     HStack {
+                        Text("Total Recipes")
+                        Spacer()
+                        Text("\(totalRecipeCountAllCollections)")
+                            .foregroundColor(.secondary)
+                            .monospacedDigit()
+                    }
+
+                    HStack {
                         Text("Version")
                         Spacer()
                         Text(appVersionString)
@@ -164,6 +191,21 @@ struct SourceSelector: View {
     func beginRenaming(_ source: Source) {
         guard viewModel.canRenameSource(source) else { return }
         editingSource = source
+    }
+
+    func refreshRecipeTotals() async {
+        let sources = viewModel.sources
+        guard !sources.isEmpty else {
+            recipeTotalsBySource = [:]
+            return
+        }
+
+        var totals: [CKRecord.ID: Int] = [:]
+        for source in sources {
+            let total = await viewModel.cloudKitManager.totalRecipeCount(for: source)
+            totals[source.id] = total
+        }
+        recipeTotalsBySource = totals
     }
 
     func deleteSource(_ source: Source) async {
@@ -242,6 +284,7 @@ struct NewSourceSheet: View {
 
 struct SourceRowWrapper: View {
     let source: Source
+    let recipeCount: Int
     let isSelected: Bool
     let onSelect: () -> Void
     let onShare: () -> Void
@@ -310,6 +353,8 @@ struct SourceRowWrapper: View {
                     } else {
                         Label("Private", systemImage: "person.fill")
                     }
+                    Text("•")
+                    Text("\(recipeCount) \(recipeCount == 1 ? "recipe" : "recipes")")
                 }
                 .font(.caption)
                 .foregroundColor(.secondary)
