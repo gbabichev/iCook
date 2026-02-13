@@ -688,6 +688,10 @@ struct RecipeCollectionView: View {
                 handleSearchTextChange(newValue)
             }
             .onReceive(NotificationCenter.default.publisher(for: .shareRevokedToast), perform: handleShareRevokedToast)
+            .onReceive(NotificationCenter.default.publisher(for: .requestAddRecipe)) { _ in
+                guard !model.isOfflineMode, hasActiveCollection, !model.categories.isEmpty else { return }
+                showingAddRecipe = true
+            }
             .refreshable { await handleRefresh() }
             .sheet(isPresented: $showingOfflineNotice) { offlineNoticeSheet }
             .overlay { deletingOverlay }
@@ -878,28 +882,11 @@ struct RecipeCollectionView: View {
             }
         }
         
-        ToolbarItem(placement: .primaryAction) {
-            Button {
-                showingAddRecipe = true
-            } label: {
-                Image(systemName: "plus.circle.fill")
-            }
-            .disabled(model.isOfflineMode || !hasActiveCollection || model.categories.isEmpty)
-            .help(
-                model.isOfflineMode
-                ? "Connect to iCloud to add recipes"
-                : (!hasActiveCollection
-                   ? "Create a collection first"
-                   : (model.categories.isEmpty ? "Add a category first" : "Add Recipe"))
-            )
-            .accessibilityLabel("Add Recipe")
-        }
-        
-#if DEBUG
-        ToolbarItem(placement: .primaryAction) {
-            debugMenu
-        }
-#endif
+//#if DEBUG
+//        ToolbarItem(placement: .primaryAction) {
+//            debugMenu
+//        }
+//#endif
         
 #if os(macOS)
         ToolbarItem(placement: .status) {

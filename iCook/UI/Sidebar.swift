@@ -152,16 +152,27 @@ struct CategoryList: View {
                 .accessibilityLabel("Settings")
             }
             ToolbarItem(placement: .primaryAction) {
-                Button {
-                    showingAddCategory = true
+                Menu {
+                    Button {
+                        showingAddCategory = true
+                    } label: {
+                        Label("Add Category", systemImage: "tag")
+                    }
+                    .disabled(model.isOfflineMode || model.currentSource == nil)
+                    
+                    Button {
+                        NotificationCenter.default.post(name: .requestAddRecipe, object: nil)
+                    } label: {
+                        Label("Add Recipe", systemImage: "fork.knife.circle")
+                    }
+                    .disabled(model.isOfflineMode || model.currentSource == nil || model.categories.isEmpty)
                 } label: {
                     Image(systemName: "plus")
                 }
-                            .disabled(model.isOfflineMode || model.currentSource == nil)
-                            .accessibilityLabel("Add Category")
-                        }
-                    }
-                    .sheet(isPresented: $showSourcesOverlay) {
+                .accessibilityLabel("Add")
+            }
+        }
+        .sheet(isPresented: $showSourcesOverlay) {
             SourceSelector()
                 .environmentObject(model)
 #if os(macOS)
