@@ -20,12 +20,13 @@ struct AddCategoryView: View {
     @State private var selectedIcon: String = "🍴"
     @State private var isSaving = false
     
-    // Emoji icons for categories
-    private let commonIcons = [
-        "🍴", "☕", "🍰", "🌱", "🐟",
-        "🥐", "🧁", "🍲", "🌮", "🌯", "🍣", "🍝",
-        "🥗", "🍎", "🥘", "🍚", "🍗", "🥩", "🧈",
-        "🧅", "🥔", "🌶️", "🍔", "🍕", "🥞", "🍱"
+    // Emoji icons grouped for quicker scanning
+    private let iconGroups: [(title: String, icons: [String])] = [
+        ("General", ["🍴", "🌱", "☕"]),
+        ("Meals", ["🍔", "🍕", "🌮", "🌯", "🍣", "🍝", "🍜", "🍲", "🥘", "🍛", "🍱", "🍙", "🥟", "🥪"]),
+        ("Proteins & Dairy", ["🐟", "🍗", "🍖", "🥩", "🥓", "🍤", "🧀", "🧈", "🍳"]),
+        ("Produce", ["🧄", "🧅", "🥔", "🥕", "🥦", "🍄", "🌶️", "🍅", "🥑", "🍎", "🍋", "🍇", "🍓", "🫐", "🍌", "🫘"]),
+        ("Baked & Desserts", ["🥐", "🍞", "🥖", "🧁", "🍰", "🍪", "🍩", "🍫", "🍨"])
     ]
     var isEditing: Bool { editingCategory != nil }
     
@@ -117,7 +118,7 @@ struct AddCategoryView: View {
     private var macOSView: some View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
-                Image(systemName: isEditing ? "square.and.pencil" : "square.grid.2x2.fill")
+                Image(systemName: "tag")
                     .font(.title2)
                     .foregroundStyle(.secondary)
 
@@ -205,30 +206,40 @@ struct AddCategoryView: View {
 #endif
 
     private var iconPickerGrid: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 8), spacing: 12) {
-            ForEach(commonIcons, id: \.self) { icon in
-                Button {
-                    selectedIcon = icon
-                } label: {
-                    Text(icon)
-                        .font(.title2)
-                        .frame(width: 40, height: 40)
-                        .background(
-                            selectedIcon == icon ?
-                            Color.accentColor.opacity(0.2) :
-                                Color.clear
-                        )
-                        .cornerRadius(8)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(
-                                    selectedIcon == icon ? Color.accentColor : Color.clear,
-                                    lineWidth: 2
-                                )
-                        )
+        VStack(alignment: .leading, spacing: 12) {
+            ForEach(iconGroups, id: \.title) { group in
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(group.title)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 8), spacing: 12) {
+                        ForEach(group.icons, id: \.self) { icon in
+                            Button {
+                                selectedIcon = icon
+                            } label: {
+                                Text(icon)
+                                    .font(.title2)
+                                    .frame(width: 40, height: 40)
+                                    .background(
+                                        selectedIcon == icon ?
+                                        Color.accentColor.opacity(0.2) :
+                                            Color.clear
+                                    )
+                                    .cornerRadius(8)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .stroke(
+                                                selectedIcon == icon ? Color.accentColor : Color.clear,
+                                                lineWidth: 2
+                                            )
+                                    )
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(!canEdit)
+                        }
+                    }
                 }
-                .buttonStyle(.plain)
-                .disabled(!canEdit)
             }
         }
     }

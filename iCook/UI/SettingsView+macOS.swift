@@ -103,14 +103,21 @@ extension SourceSelector {
                     showNewSourceSheet = true
                 }
 
-                MacToolbarIconButton(
-                    systemImage: "arrow.clockwise",
-                    help: "Refresh collections",
-                    shortcut: KeyboardShortcut(.init("r"), modifiers: .command)
-                ) {
-                    Task {
-                        await viewModel.loadSources()
-                        await viewModel.loadRandomRecipes(skipCache: true)
+                if isRefreshingCollections {
+                    ProgressView()
+                        .controlSize(.small)
+                        .frame(width: 28, height: 28)
+                        .padding(4)
+                        .help("Refreshing collections")
+                } else {
+                    MacToolbarIconButton(
+                        systemImage: "arrow.clockwise",
+                        help: "Refresh collections",
+                        shortcut: KeyboardShortcut(.init("r"), modifiers: .command)
+                    ) {
+                        Task {
+                            await refreshCollectionsAndRecipes()
+                        }
                     }
                 }
 

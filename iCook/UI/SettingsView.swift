@@ -26,6 +26,7 @@ struct SourceSelector: View {
     @State var activeMacSharingService: NSSharingService?
     @State var macSharingDelegateProxy: AnyObject?
     @State var hoveredSourceID: CKRecord.ID?
+    @State var isRefreshingCollections = false
 #endif
 #if os(iOS)
     @State var sharingDelegateProxy: AnyObject?
@@ -207,6 +208,17 @@ struct SourceSelector: View {
         }
         recipeTotalsBySource = totals
     }
+
+#if os(macOS)
+    func refreshCollectionsAndRecipes() async {
+        guard !isRefreshingCollections else { return }
+        isRefreshingCollections = true
+        defer { isRefreshingCollections = false }
+        await viewModel.loadSources()
+        await viewModel.loadRandomRecipes(skipCache: true)
+        await refreshRecipeTotals()
+    }
+#endif
 
     func deleteSource(_ source: Source) async {
         printD("Deleting source: \(source.name)")
