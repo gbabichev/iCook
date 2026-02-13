@@ -7,68 +7,35 @@ import AppKit
 #endif
 
 struct SourceSelector: View {
-    @EnvironmentObject private var viewModel: AppViewModel
+    @EnvironmentObject var viewModel: AppViewModel
     @Environment(\.dismiss) var dismiss
-    
-    @State private var showNewSourceSheet = false
-    @State private var newSourceName = ""
-    @State private var isPreparingShare = false
-    @State private var showShareSuccess = false
-    @State private var shareSuccessMessage = ""
-    @State private var editingSource: Source?
-    @State private var sourceToDelete: Source?
-    @State private var showDeleteConfirmation = false
+
+    @State var showNewSourceSheet = false
+    @State var newSourceName = ""
+    @State var isPreparingShare = false
+    @State var showShareSuccess = false
+    @State var shareSuccessMessage = ""
+    @State var editingSource: Source?
+    @State var sourceToDelete: Source?
+    @State var showDeleteConfirmation = false
 #if os(macOS)
-    @State private var showShareCopiedToast = false
-    @State private var shareToastMessage = ""
-    @State private var activeMacSharePicker: NSSharingServicePicker?
-    @State private var activeMacSharingService: NSSharingService?
-    @State private var macSharingDelegateProxy: MacSharingDelegateProxy?
+    @State var showShareCopiedToast = false
+    @State var shareToastMessage = ""
+    @State var activeMacSharePicker: NSSharingServicePicker?
+    @State var activeMacSharingService: NSSharingService?
+    @State var macSharingDelegateProxy: AnyObject?
+    @State var hoveredSourceID: CKRecord.ID?
 #endif
-    
 #if os(iOS)
-    @State private var sharingDelegateProxy: SharingDelegateProxy?
-    
+    @State var sharingDelegateProxy: AnyObject?
 #endif
-    
-#if os(macOS)
-    private struct MacToolbarIconButton: View {
-        let systemImage: String
-        let help: String
-        let action: () -> Void
-        let shortcut: KeyboardShortcut?
-        
-        init(systemImage: String, help: String, shortcut: KeyboardShortcut? = nil, action: @escaping () -> Void) {
-            self.systemImage = systemImage
-            self.help = help
-            self.shortcut = shortcut
-            self.action = action
-        }
-        
-        var body: some View {
-            Group {
-                if let shortcut {
-                    Button(action: action) {
-                        Image(systemName: systemImage)
-                            .font(.system(size: 13, weight: .semibold))
-                            .frame(width: 28, height: 28)
-                    }
-                    .keyboardShortcut(shortcut)
-                } else {
-                    Button(action: action) {
-                        Image(systemName: systemImage)
-                            .font(.system(size: 13, weight: .semibold))
-                            .frame(width: 28, height: 28)
-                    }
-                }
-            }
-            .padding(4)
-            .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-            .help(help)
-        }
+
+    var appVersionString: String {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Unknown"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"
+        return version == build ? version : "\(version) (\(build))"
     }
-#endif
-    
+
     var body: some View {
 #if os(iOS)
         iOSView
@@ -76,202 +43,62 @@ struct SourceSelector: View {
         macOSView
 #endif
     }
-    
-#if os(iOS)
-    private var iOSView: some View {
-        NavigationStack {
-            ZStack {
-                sourcesListView
-                
-                if isPreparingShare {
-                    Color.black.opacity(0.2)
-                        .ignoresSafeArea()
-                    VStack(spacing: 12) {
-                        ProgressView()
-                        Text("Preparing share…")
-                            .font(.headline)
-                    }
-                    .padding(16)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-                }
-                
-                // Alerts and sheets
-                if showShareSuccess {
-                    Color.clear
-                        .alert("Share Link", isPresented: $showShareSuccess) {
-                            Button("OK") { }
-                        } message: {
-                            Text(shareSuccessMessage)
-                        }
-                }
-                
-                if showDeleteConfirmation {
-                    Color.clear
-                        .alert("Delete Source", isPresented: $showDeleteConfirmation) {
-                            Button("Cancel", role: .cancel) { }
-                            Button("Delete", role: .destructive) {
-                                if let source = sourceToDelete {
-                                    Task {
-                                        await deleteSource(source)
-                                    }
-                                }
-                            }
-                        } message: {
-                            if let source = sourceToDelete {
-                                Text("Delete '\(source.name)' and all its recipes and categories?")
-                            }
-                        }
-                }
-            }
-            .navigationTitle("Settings")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button(action: { dismiss() }) {
-                        Text("Done")
-                    }
-                }
-                
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: { showNewSourceSheet = true }) {
-                        Image(systemName: "plus")
-                    }
-                }
-            }
-        }
-        .onAppear {
-            if viewModel.sources.isEmpty {
+
+    @ViewBuilder
+    func sourceRow(for source: Source) -> some View {
+#if os(macOS)
+        SourceRowWrapper(
+            source: source,
+            isSelected: viewModel.currentSource?.id == source.id,
+            onSelect: {
                 Task {
-                    await viewModel.loadSources()
+                    await viewModel.selectSource(source)
                 }
-            }
-        }
-        .sheet(isPresented: $showNewSourceSheet) {
-            NewSourceSheet(
-                isPresented: $showNewSourceSheet,
-                sourceName: $newSourceName
-            )
-            .environmentObject(viewModel)
-        }
-    }
-#elseif os(macOS)
-    private var macOSView: some View {
-        VStack(spacing: 0) {
-            // Title bar
-            HStack(spacing: 8) {
-                Text("Settings")
-                    .font(.title2)
-                    .fontWeight(.semibold)
-                
-                Spacer()
-                
-                MacToolbarIconButton(systemImage: "plus", help: "Add new collection") {
-                    showNewSourceSheet = true
-                }
-                
-                MacToolbarIconButton(
-                    systemImage: "arrow.clockwise",
-                    help: "Refresh collections",
-                    shortcut: KeyboardShortcut(.init("r"), modifiers: .command)
-                ) {
-                    Task {
-                        await viewModel.loadSources()
-                        await viewModel.loadRandomRecipes(skipCache: true)
-                    }
-                }
-                
-                MacToolbarIconButton(systemImage: "xmark", help: "Close") {
-                    dismiss()
-                }
-            }
-            .padding(12)
-            
-            
-            // Content area
-            macOSListContent
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onAppear {
-            if viewModel.sources.isEmpty {
+            },
+            onShare: {
                 Task {
-                    await viewModel.loadSources()
+                    await shareSource(for: source)
                 }
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .shareURLCopied)) { _ in
-            withAnimation {
-                shareToastMessage = "Share URL copied to clipboard"
-                showShareCopiedToast = true
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
-                withAnimation {
-                    showShareCopiedToast = false
+            },
+            onStopSharing: {
+                Task {
+                    await viewModel.stopSharingSource(source)
                 }
+            },
+            onRename: {
+                beginRenaming(source)
+            },
+            onDelete: {
+                sourceToDelete = source
+                showDeleteConfirmation = true
             }
-        }
-        .sheet(isPresented: $showNewSourceSheet) {
-            NewSourceSheet(
-                isPresented: $showNewSourceSheet,
-                sourceName: $newSourceName
-            )
-            .environmentObject(viewModel)
-        }
-    }
-    
-    private var macOSListContent: some View {
-        ZStack {
-            sourcesListView
-            
-            // Alerts
-            if showShareSuccess {
-                Color.clear
-                    .alert("Share Link", isPresented: $showShareSuccess) {
-                        Button("OK") { }
-                    } message: {
-                        Text(shareSuccessMessage)
-                    }
-            }
-            
-            if showDeleteConfirmation {
-                Color.clear
-                    .alert("Delete Source", isPresented: $showDeleteConfirmation) {
-                        Button("Cancel", role: .cancel) { }
-                        Button("Delete", role: .destructive) {
-                            if let source = sourceToDelete {
-                                Task {
-                                    await deleteSource(source)
-                                }
-                            }
-                        }
-                    } message: {
-                        if let source = sourceToDelete {
-                            Text("Delete '\(source.name)' and all its recipes and categories?")
-                        }
-                    }
-            }
-            
-            if showShareCopiedToast {
-                VStack {
-                    Spacer()
-                    HStack {
-                        Spacer()
-                        Label(shareToastMessage.isEmpty ? "Preparing to share..." : shareToastMessage, systemImage: "doc.on.clipboard")
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 10)
-                            .background(.regularMaterial, in: Capsule())
-                            .shadow(radius: 6)
-                        Spacer()
-                    }
-                    .padding(.bottom, 16)
+        )
+#else
+        SourceRowWrapper(
+            source: source,
+            isSelected: viewModel.currentSource?.id == source.id,
+            onSelect: {
+                Task {
+                    await viewModel.selectSource(source)
                 }
-                .transition(.opacity.combined(with: .move(edge: .bottom)))
+            },
+            onShare: {
+                Task {
+                    await shareSource(for: source)
+                }
+            },
+            onRename: {
+                beginRenaming(source)
+            },
+            onDelete: {
+                sourceToDelete = source
+                showDeleteConfirmation = true
             }
-        }
-    }
+        )
 #endif
-    
-    private var sourcesListView: some View {
+    }
+
+    var sourcesListView: some View {
         VStack(spacing: 0) {
             if let error = viewModel.cloudKitManager.error {
                 HStack {
@@ -284,83 +111,37 @@ struct SourceSelector: View {
                 .background(.orange.opacity(0.1))
                 .frame(maxWidth: .infinity)
             }
-            
+
             List {
                 Section("Collections") {
                     Text("Organize recipes into collections by theme or occasion, and share collections with others.")
                         .font(.caption)
                         .foregroundColor(.secondary)
-                    
+
                     if viewModel.sources.isEmpty {
                         Text("No Collections yet")
                             .foregroundColor(.secondary)
                     } else {
                         ForEach(viewModel.sources, id: \.id) { source in
-#if os(macOS)
-                            SourceRowWrapper(
-                                source: source,
-                                isSelected: viewModel.currentSource?.id == source.id,
-                                onSelect: {
-                                    Task {
-                                        await viewModel.selectSource(source)
-                                    }
-                                },
-                                onShare: {
-                                    Task {
-                                        await shareSource(for: source)
-                                    }
-                                },
-                                onStopSharing: {
-                                    Task {
-                                        await viewModel.stopSharingSource(source)
-                                    }
-                                },
-                                onRename: {
-                                    beginRenaming(source)
-                                },
-                                onDelete: {
-                                    sourceToDelete = source
-                                    showDeleteConfirmation = true
-                                }
-                            )
-#else
-                            SourceRowWrapper(
-                                source: source,
-                                isSelected: viewModel.currentSource?.id == source.id,
-                                onSelect: {
-                                    Task {
-                                        await viewModel.selectSource(source)
-                                    }
-                                },
-                                onShare: {
-                                    Task {
-                                        await shareSource(for: source)
-                                    }
-                                },
-                                onRename: {
-                                    beginRenaming(source)
-                                },
-                                onDelete: {
-                                    sourceToDelete = source
-                                    showDeleteConfirmation = true
-                                }
-                            )
-#endif
+                            sourceRow(for: source)
                         }
                     }
                 }
 
                 Section("Settings") {
-                    Text("More settings coming soon.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                    HStack {
+                        Text("Version")
+                        Spacer()
+                        Text(appVersionString)
+                            .foregroundColor(.secondary)
+                            .monospacedDigit()
+                    }
                 }
             }
             .listStyle(.automatic)
 #if os(iOS)
             .refreshable {
                 await viewModel.loadSources()
-                // Force-refresh recipes for the current source so content/images reflect latest changes
                 await viewModel.loadRandomRecipes(skipCache: true)
             }
 #endif
@@ -379,442 +160,34 @@ struct SourceSelector: View {
             .environmentObject(viewModel)
         }
     }
-    private func beginRenaming(_ source: Source) {
+
+    func beginRenaming(_ source: Source) {
         guard viewModel.canRenameSource(source) else { return }
         editingSource = source
     }
-    
-    
-    private func shareSource(for source: Source) async {
-        isPreparingShare = true
-        
-        printD("Getting share URL for source: \(source.name)")
-        
-#if os(iOS)
-        // Collaborators use the Cloud Sharing controller for access management / leave flow.
-        if !viewModel.isSharedOwner(source), viewModel.cloudKitManager.isSharedSource(source),
-           let controller = await viewModel.cloudKitManager.participantSharingController(for: source) {
-            await MainActor.run {
-                presentUICloudSharingController(controller, source: source)
-                isPreparingShare = false
-            }
-            return
-        }
-        
-        // Owners: always try native manage-sharing UI first; if no share exists yet,
-        // fall back to first-share invite flow.
-        if viewModel.isSharedOwner(source) {
-            if let shareController = await viewModel.cloudKitManager.existingSharingController(for: source) {
-                await MainActor.run {
-                    presentUICloudSharingController(shareController, source: source)
-                    isPreparingShare = false
-                }
-                return
-            }
 
-            await MainActor.run {
-                presentCloudKitInviteActivityController(for: source)
-                isPreparingShare = false
-            }
-            return
-        }
-        
-        // Fallback to Cloud Sharing controller if URL creation/path fails.
-        viewModel.cloudKitManager.prepareSharingController(for: source) { controller in
-            Task { @MainActor in
-                isPreparingShare = false
-                if let controller {
-                    presentUICloudSharingController(controller, source: source)
-                } else {
-                    printD("Failed to prepare sharing controller")
-                    shareSuccessMessage = viewModel.cloudKitManager.error ?? "Failed to start sharing"
-                    showShareSuccess = true
-                }
-            }
-        }
-#else
-        // If collaborator, leave the share directly
-        if !viewModel.isSharedOwner(source), viewModel.cloudKitManager.isSharedSource(source) {
-            printD("macOS collaborator leave flow for source: \(source.name)")
-            await viewModel.leaveSharedSource(source)
-            isPreparingShare = false
-            return
-        }
-
-        // Owner + already shared: open native CloudKit manage-sharing UI.
-        if viewModel.isSharedOwner(source), viewModel.isSourceShared(source) {
-            let didPresentManagement = await presentMacCloudSharingManagement(for: source)
-            if didPresentManagement {
-                isPreparingShare = false
-                return
-            }
-        }
-        
-        await MainActor.run {
-            withAnimation {
-                shareToastMessage = "Preparing to share..."
-                showShareCopiedToast = true
-            }
-        }
-
-        _ = await presentMacCloudKitSharingPicker(for: source)
-        isPreparingShare = false
-#endif
-    }
-    
-#if os(macOS)
-    @MainActor
-    private func presentMacCloudSharingManagement(for source: Source) async -> Bool {
-        do {
-            let share = try await viewModel.cloudKitManager.preparedShareForActivitySheet(
-                sourceID: source.id,
-                sourceName: source.name
-            )
-            let itemProvider = NSItemProvider()
-            itemProvider.registerCloudKitShare(
-                share,
-                container: viewModel.cloudKitManager.container
-            )
-            let items: [Any] = [itemProvider]
-            
-            guard let cloudSharingService = NSSharingService(named: .cloudSharing) else {
-                return false
-            }
-            guard cloudSharingService.canPerform(withItems: items) else {
-                printD("macOS CloudKit management service cannot perform with registered CloudKit share provider")
-                return false
-            }
-            
-            let delegate = MacSharingDelegateProxy(
-                onDidShare: {
-                    Task {
-                        await MainActor.run {
-                            self.viewModel.markSourceSharedLocally(source)
-                        }
-                        await self.viewModel.loadSources()
-                    }
-                },
-                onDidFail: { error in
-                    Task { @MainActor in
-                        self.shareSuccessMessage = "Failed to share: \(error.localizedDescription)"
-                        self.showShareSuccess = true
-                    }
-                }
-            )
-            cloudSharingService.delegate = delegate
-            activeMacSharingService = cloudSharingService
-            macSharingDelegateProxy = delegate
-            
-            withAnimation {
-                showShareCopiedToast = false
-            }
-            
-            cloudSharingService.perform(withItems: items)
-            printD("Presented macOS CloudKit management UI")
-            return true
-        } catch {
-            shareSuccessMessage = "Failed to open sharing options: \(error.localizedDescription)"
-            showShareSuccess = true
-            return false
-        }
-    }
-
-    @MainActor
-    private func presentMacCloudKitSharingPicker(for source: Source) async -> Bool {
-        guard let anchorView = NSApp.keyWindow?.contentView
-            ?? NSApp.mainWindow?.contentView
-            ?? NSApp.windows.first(where: { $0.isVisible })?.contentView else {
-            return await copyShareURLToClipboard(for: source)
-        }
-        
-        withAnimation {
-            showShareCopiedToast = false
-        }
-
-        let itemProvider = NSItemProvider()
-        let container = viewModel.cloudKitManager.container
-        let sourceID = source.id
-        let sourceName = source.name
-        let allowedOptions = CKAllowedSharingOptions(
-            allowedParticipantPermissionOptions: .any,
-            allowedParticipantAccessOptions: .specifiedRecipientsOnly
-        )
-        itemProvider.registerCKShare(container: container, allowedSharingOptions: allowedOptions) {
-            try await CloudKitManager.shared.preparedShareForActivitySheet(sourceID: sourceID, sourceName: sourceName)
-        }
-        
-        let appIcon = NSApp.applicationIconImage
-        let previewItem = NSPreviewRepresentingActivityItem(
-            item: itemProvider,
-            title: source.name,
-            image: appIcon,
-            icon: appIcon
-        )
-        let picker = NSSharingServicePicker(items: [previewItem])
-        let delegate = MacSharingDelegateProxy(
-            onDidShare: {
-                Task {
-                    await MainActor.run {
-                        self.viewModel.markSourceSharedLocally(source)
-                    }
-                    await self.viewModel.loadSources()
-                }
-            },
-            onDidFail: { error in
-                Task { @MainActor in
-                    self.shareSuccessMessage = "Failed to share: \(error.localizedDescription)"
-                    self.showShareSuccess = true
-                }
-            }
-        )
-        picker.delegate = delegate
-        activeMacSharePicker = picker
-        macSharingDelegateProxy = delegate
-        let anchorRect = NSRect(
-            x: anchorView.bounds.midX,
-            y: anchorView.bounds.midY,
-            width: 1,
-            height: 1
-        )
-        picker.show(relativeTo: anchorRect, of: anchorView, preferredEdge: .minY)
-        printD("Presented macOS CloudKit sharing picker")
-        return true
-    }
-    
-    @MainActor
-    private func copyShareURLToClipboard(for source: Source) async -> Bool {
-        if let shareURL = await viewModel.cloudKitManager.getShareURL(for: source) {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(shareURL.absoluteString, forType: .string)
-            withAnimation {
-                shareToastMessage = "Share URL copied to clipboard"
-                showShareCopiedToast = true
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
-                withAnimation {
-                    showShareCopiedToast = false
-                }
-            }
-            Task {
-                await viewModel.loadSources()
-            }
-            return true
-        } else {
-            shareSuccessMessage = "Failed to get share URL: \(viewModel.cloudKitManager.error ?? "Unknown error")"
-            showShareSuccess = true
-            return false
-        }
-    }
-
-    private final class MacSharingDelegateProxy: NSObject, NSSharingServicePickerDelegate, NSSharingServiceDelegate, NSCloudSharingServiceDelegate {
-        let onDidShare: () -> Void
-        let onDidFail: (Error) -> Void
-        
-        init(onDidShare: @escaping () -> Void, onDidFail: @escaping (Error) -> Void) {
-            self.onDidShare = onDidShare
-            self.onDidFail = onDidFail
-        }
-        
-        func sharingServicePicker(_ sharingServicePicker: NSSharingServicePicker, delegateFor sharingService: NSSharingService) -> NSSharingServiceDelegate? {
-            self
-        }
-        
-        func sharingService(_ sharingService: NSSharingService, didShareItems items: [Any]) {
-            onDidShare()
-        }
-        
-        func sharingService(_ sharingService: NSSharingService, didFailToShareItems items: [Any], error: Error) {
-            if isUserCancellation(error) {
-                printD("macOS CloudKit sharing dismissed by user")
-                return
-            }
-            onDidFail(error)
-        }
-
-        private func isUserCancellation(_ error: Error) -> Bool {
-            if let ckError = error as? CKError, ckError.code == .operationCancelled {
-                return true
-            }
-            let nsError = error as NSError
-            if nsError.domain == NSCocoaErrorDomain, nsError.code == NSUserCancelledError {
-                return true
-            }
-            if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorCancelled {
-                return true
-            }
-            return false
-        }
-    }
-#endif
-    
-#if os(iOS)
-    private func presentCloudKitInviteActivityController(for source: Source) {
-        printD("Presenting CloudKit invite activity sheet for source: \(source.name)")
-        
-        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-              let window = windowScene.windows.first,
-              var topController = window.rootViewController else {
-            printD("Cannot find window or root view controller for activity controller")
-            return
-        }
-        
-        while let presented = topController.presentedViewController {
-            topController = presented
-        }
-        
-        let itemProvider = NSItemProvider()
-        let container = viewModel.cloudKitManager.container
-        let sourceID = source.id
-        let sourceName = source.name
-        let allowedOptions = CKAllowedSharingOptions(
-            allowedParticipantPermissionOptions: .any,
-            allowedParticipantAccessOptions: .specifiedRecipientsOnly
-        )
-        itemProvider.registerCKShare(container: container, allowedSharingOptions: allowedOptions) {
-            try await CloudKitManager.shared.preparedShareForActivitySheet(sourceID: sourceID, sourceName: sourceName)
-        }
-        
-        let configuration = UIActivityItemsConfiguration(itemProviders: [itemProvider])
-        let activityController = UIActivityViewController(activityItemsConfiguration: configuration)
-        activityController.completionWithItemsHandler = { _, _, _, _ in
-            Task {
-                await self.viewModel.loadSources()
-            }
-        }
-        if let popover = activityController.popoverPresentationController {
-            popover.sourceView = topController.view
-            popover.sourceRect = CGRect(
-                x: topController.view.bounds.midX,
-                y: topController.view.bounds.midY,
-                width: 1,
-                height: 1
-            )
-        }
-        
-        DispatchQueue.main.async {
-            topController.present(activityController, animated: true)
-        }
-    }
-    
-    /// Present UICloudSharingController directly via UIKit
-    private func presentUICloudSharingController(_ controller: UICloudSharingController, source: Source) {
-        printD("Presenting UICloudSharingController via UIKit")
-        
-        // Get the top view controller
-        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-              let window = windowScene.windows.first,
-              var topController = window.rootViewController else {
-            printD("Cannot find window or root view controller")
-            return
-        }
-        
-        // Find the topmost view controller
-        while let presented = topController.presentedViewController {
-            topController = presented
-        }
-        
-        // Install delegate proxy so we can detect save events and update state
-        let isOwner = viewModel.isSharedOwner(source) || source.isPersonal
-        let proxy = SharingDelegateProxy(
-            sourceTitle: source.name,
-            onSave: {
-                // Optimistically mark as shared so UI updates immediately
-                viewModel.markSourceSharedLocally(source)
-                Task {
-                    await viewModel.loadSources()
-                }
-            },
-            onStop: {
-                Task {
-                    if isOwner {
-                        await viewModel.loadSources()
-                    } else {
-                        await viewModel.cloudKitManager.removeSharedSourceLocally(source)
-                    }
-                }
-            }
-        )
-        controller.delegate = proxy
-        sharingDelegateProxy = proxy
-        
-        // Present modally
-        DispatchQueue.main.async {
-            topController.present(controller, animated: true) {
-                printD("UICloudSharingController presented successfully")
-            }
-        }
-    }
-    
-    /// Delegate proxy to observe stop sharing events.
-    private final class SharingDelegateProxy: NSObject, UICloudSharingControllerDelegate, UIAdaptivePresentationControllerDelegate {
-        let sourceTitle: String
-        let onSave: () -> Void
-        let onStop: () -> Void
-        private var didStopSharing = false
-
-        init(sourceTitle: String, onSave: @escaping () -> Void, onStop: @escaping () -> Void) {
-            self.sourceTitle = sourceTitle
-            self.onSave = onSave
-            self.onStop = onStop
-        }
-        
-        func cloudSharingController(_ csc: UICloudSharingController, failedToSaveShareWithError error: Error) {
-            // no-op
-        }
-        
-        func cloudSharingControllerDidSaveShare(_ csc: UICloudSharingController) {
-            printD("SharingDelegateProxy: cloudSharingControllerDidSaveShare")
-            onSave()
-        }
-        
-        func cloudSharingControllerDidStopSharing(_ csc: UICloudSharingController) {
-            printD("SharingDelegateProxy: cloudSharingControllerDidStopSharing")
-            didStopSharing = true
-            onStop()
-        }
-        
-        func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
-            printD("SharingDelegateProxy: presentationControllerDidDismiss - refreshing sources")
-            if !didStopSharing {
-                onSave()
-            }
-        }
-        
-        func itemTitle(for csc: UICloudSharingController) -> String? {
-            sourceTitle
-        }
-    }
-#endif
-    
-    private func deleteSource(_ source: Source) async {
+    func deleteSource(_ source: Source) async {
         printD("Deleting source: \(source.name)")
-        
-        // Delete all categories in this source
+
         let categoriesToDelete = viewModel.categories.filter { $0.sourceID == source.id }
         for category in categoriesToDelete {
             await viewModel.deleteCategory(id: category.id)
             printD("Deleted category: \(category.name)")
         }
-        
-        // Delete all recipes in this source
+
         let recipesToDelete = viewModel.recipes.filter { $0.sourceID == source.id }
         for recipe in recipesToDelete {
             _ = await viewModel.deleteRecipe(id: recipe.id)
             printD("Deleted recipe: \(recipe.name)")
         }
-        
-        // Delete the source itself
+
         _ = await viewModel.deleteSource(source)
         printD("Deleted source: \(source.name)")
-        
-        // Clear the deletion state
+
         sourceToDelete = nil
-        
-        // Reload sources
         await viewModel.loadSources()
     }
 }
-
 struct NewSourceSheet: View {
     @Binding var isPresented: Bool
     @EnvironmentObject private var viewModel: AppViewModel

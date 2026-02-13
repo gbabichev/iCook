@@ -158,17 +158,18 @@ struct CategoryList: View {
                     } label: {
                         Label("Add Category", systemImage: "tag")
                     }
-                    .disabled(model.isOfflineMode || model.currentSource == nil)
+                    .disabled(model.currentSource == nil)
                     
                     Button {
                         NotificationCenter.default.post(name: .requestAddRecipe, object: nil)
                     } label: {
                         Label("Add Recipe", systemImage: "fork.knife.circle")
                     }
-                    .disabled(model.isOfflineMode || model.currentSource == nil || model.categories.isEmpty)
+                    .disabled(model.currentSource == nil || model.categories.isEmpty)
                 } label: {
                     Image(systemName: "plus")
                 }
+                .disabled(model.isOfflineMode)
                 .accessibilityLabel("Add")
             }
         }
