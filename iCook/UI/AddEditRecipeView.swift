@@ -81,56 +81,108 @@ struct AddEditRecipeView: View {
     }
     
     var body: some View {
+        Group {
+#if os(macOS)
+            macOSView
+#else
+            iOSView
+#endif
+        }
+        .overlay {
+            if isSaving {
+                ZStack {
+                    Color.black.opacity(0.25)
+                        .ignoresSafeArea()
+                    VStack(spacing: 12) {
+                        ProgressView()
+                        Text(isEditing ? "Updating recipe..." : "Creating recipe...")
+                            .font(.headline)
+                            .foregroundStyle(.primary)
+                    }
+                    .padding(24)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                }
+            }
+        }
+        .overlay {
+            if isDeletingRecipe {
+                ZStack {
+                    Color.black.opacity(0.25)
+                        .ignoresSafeArea()
+                    VStack(spacing: 12) {
+                        ProgressView()
+                        Text("Deleting recipe...")
+                            .font(.headline)
+                            .foregroundStyle(.primary)
+                    }
+                    .padding(24)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                }
+            }
+        }
+        .task {
+            await initializeView()
+        }
+        .onChange(of: model.categories) { _, newCategories in
+            handleCategoryChanges(newCategories)
+        }
+#if os(iOS)
+        .photosPicker(
+            isPresented: $showingImagePicker,
+            selection: $selectedPhotoItem,
+            matching: .images
+        )
+        .onChange(of: selectedPhotoItem) { _, newItem in
+            Task {
+                await handleSelectedPhotoItemChange(newItem)
+            }
+        }
+        .fullScreenCover(isPresented: $showingCamera) {
+            CameraView { image in
+                Task {
+                    await handleCapturedCameraImage(image)
+                }
+            }
+        }
+#else
+        .fileImporter(
+            isPresented: $showingImagePicker,
+            allowedContentTypes: [.image],
+            allowsMultipleSelection: false
+        ) { result in
+            showingImagePicker = false
+            
+            switch result {
+            case .success(let urls):
+                if let url = urls.first {
+                    loadImageFromURL(url)
+                }
+            case .failure(let error):
+                print("Failed to pick image: \(error)")
+            }
+        }
+        .id(fileImporterTrigger)
+#endif
+        .alert("Delete Recipe", isPresented: $showingDeleteAlert) {
+            Button("Delete", role: .destructive) {
+                Task {
+                    await deleteRecipe()
+                }
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text(deleteConfirmationMessage)
+        }
+    }
+
+    private var iOSView: some View {
         NavigationStack {
             Form {
-                if let source = model.currentSource, !model.canEditSource(source) {
-                    Section {
-                        HStack {
-                            Image(systemName: "lock.fill")
-                                .foregroundColor(.orange)
-                            Text("This source is read-only")
-                                .foregroundColor(.orange)
-                        }
-                    }
-                }
-                
-                if let errorMessage = saveErrorMessage {
-                    Section {
-                        HStack {
-                            Image(systemName: "exclamationmark.circle.fill")
-                                .foregroundColor(.red)
-                            Text(errorMessage)
-                                .foregroundColor(.red)
-                        }
-                    }
-                }
+                readOnlyBannerSection
+                saveErrorSection
                 
                 Section("Basic Information") {
-                    // Category Picker
-                    if !model.categories.isEmpty {
-                        Picker("Category", selection: $selectedCategoryId) {
-                            ForEach(model.categories) { category in
-                                Text(category.name).tag(category.id as CKRecord.ID?)
-                            }
-                        }
-                        .pickerStyle(.menu)
-                        .disabled(!canEdit)
-                    } else {
-                        Text("No categories available")
-                            .foregroundStyle(.secondary)
-                    }
-                    
-                    // Recipe Name - REQUIRED
-                    TextField("Recipe Name *", text: $recipeName)
-                        .disabled(!canEdit)
-                    
-                    // Recipe Time - REQUIRED
-                    HStack {
-                        TextField("Cooking Time *", text: $recipeTime)
-                            .disabled(!canEdit)
-                        Text("minutes")
-                            .foregroundStyle(.secondary)
-                    }
+                    basicInformationContent
                 }
                 
                 Section("Image") {
@@ -139,7 +191,6 @@ struct AddEditRecipeView: View {
                 
                 recipeStepsSection
                 deleteRecipeSection
-                
             }
             .formStyle(.grouped)
             .navigationTitle(isEditing ? "Edit Recipe" : "Add Recipe")
@@ -156,175 +207,185 @@ struct AddEditRecipeView: View {
                             await saveRecipe()
                         }
                     }
-                    .disabled(!isFormValid || isSaving || isDeletingRecipe || !canEdit)
+                    .disabled(!saveButtonEnabled)
                 }
             }
-            .overlay {
-                if isSaving {
-                    ZStack {
-                        Color.black.opacity(0.25)
-                            .ignoresSafeArea()
-                        VStack(spacing: 12) {
-                            ProgressView()
-                            Text(isEditing ? "Updating recipe..." : "Creating recipe...")
-                                .font(.headline)
-                                .foregroundStyle(.primary)
-                        }
-                        .padding(24)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-                    }
-                }
-            }
-            .overlay {
-                if isDeletingRecipe {
-                    ZStack {
-                        Color.black.opacity(0.25)
-                            .ignoresSafeArea()
-                        VStack(spacing: 12) {
-                            ProgressView()
-                            Text("Deleting recipe...")
-                                .font(.headline)
-                                .foregroundStyle(.primary)
-                        }
-                        .padding(24)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-                    }
-                }
-            }
-            .task {
-                await initializeView()
-            }
-            .onChange(of: model.categories) { _, newCategories in
-                handleCategoryChanges(newCategories)
-            }
-            // Photo picker implementations (keeping your existing implementations)
-            // iOS specific photo handling
-#if os(iOS)
-            .photosPicker(
-                isPresented: $showingImagePicker,
-                selection: $selectedPhotoItem,
-                matching: .images
-            )
-            .onChange(of: selectedPhotoItem) { _, newItem in
-                Task {
-                    await handleSelectedPhotoItemChange(newItem)
-                }
-            }
-            .fullScreenCover(isPresented: $showingCamera) {
-                CameraView { image in
-                    Task {
-                        await handleCapturedCameraImage(image)
-                    }
-                }
-            }
-#else
-            .fileImporter(
-                isPresented: $showingImagePicker,
-                allowedContentTypes: [.image],
-                allowsMultipleSelection: false
-            ) { result in
-                showingImagePicker = false
-                
-                switch result {
-                case .success(let urls):
-                    if let url = urls.first {
-                        loadImageFromURL(url)
-                    }
-                case .failure(let error):
-                    print("Failed to pick image: \(error)")
-                }
-            }
-            .id(fileImporterTrigger)
-#endif
-            .alert("Delete Recipe", isPresented: $showingDeleteAlert) {
-                Button("Delete", role: .destructive) {
-                    Task {
-                        await deleteRecipe()
-                    }
-                }
-                Button("Cancel", role: .cancel) { }
-            } message: {
-                Text(deleteConfirmationMessage)
-            }
-            //            .alert("Error", isPresented: .init(
-            //                get: { model.error != nil },
-            //                set: { if !$0 { model.error = nil } }
-            //            )) {
-            //                Button("OK") { model.error = nil }
-            //            } message: {
-            //                Text(model.error ?? "")
-            //            }
         }
+    }
+
+#if os(macOS)
+    private var macOSView: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Image(systemName: isEditing ? "square.and.pencil" : "fork.knife.circle.fill")
+                    .font(.title2)
+                    .foregroundStyle(.secondary)
+                
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(isEditing ? "Edit Recipe" : "Add Recipe")
+                        .font(.title2)
+                        .fontWeight(.semibold)
+                    Text("Create and organize recipe details")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                
+                Spacer()
+                
+                Button("Cancel") {
+                    dismiss()
+                }
+                .keyboardShortcut(.cancelAction)
+                
+                Button(isEditing ? "Update" : "Create") {
+                    Task {
+                        await saveRecipe()
+                    }
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(!saveButtonEnabled)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            
+            Divider()
+            
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    statusBanners
+                    
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Basic Information")
+                            .font(.headline)
+                        basicInformationContent
+                    }
+                    .padding(14)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Image")
+                            .font(.headline)
+                        imageSection.disabled(!canEdit)
+                    }
+                    .padding(14)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    
+                    VStack(alignment: .leading, spacing: 12) {
+                        recipeStepsHeader
+                        recipeStepsEditorContent
+                    }
+                    .padding(14)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    
+                    if isEditing {
+                        VStack(alignment: .leading, spacing: 10) {
+                            deleteRecipeButton
+                            Text("This action cannot be undone.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(14)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    }
+                }
+                .padding(16)
+            }
+        }
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+#endif
+
+    @ViewBuilder
+    private var statusBanners: some View {
+        if let source = model.currentSource, !model.canEditSource(source) {
+            HStack(spacing: 10) {
+                Image(systemName: "lock.fill")
+                    .foregroundColor(.orange)
+                Text("This source is read-only")
+                    .font(.callout)
+                    .foregroundStyle(.primary)
+            }
+            .padding(12)
+            .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+        }
+        
+        if let errorMessage = saveErrorMessage {
+            HStack(spacing: 10) {
+                Image(systemName: "exclamationmark.circle.fill")
+                    .foregroundColor(.red)
+                Text(errorMessage)
+                    .font(.callout)
+                    .foregroundStyle(.primary)
+            }
+            .padding(12)
+            .background(.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
+        }
+    }
+
+    @ViewBuilder
+    private var readOnlyBannerSection: some View {
+        if let source = model.currentSource, !model.canEditSource(source) {
+            Section {
+                HStack {
+                    Image(systemName: "lock.fill")
+                        .foregroundColor(.orange)
+                    Text("This source is read-only")
+                        .foregroundColor(.orange)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var saveErrorSection: some View {
+        if let errorMessage = saveErrorMessage {
+            Section {
+                HStack {
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .foregroundColor(.red)
+                    Text(errorMessage)
+                        .foregroundColor(.red)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var basicInformationContent: some View {
+        if !model.categories.isEmpty {
+            Picker("Category", selection: $selectedCategoryId) {
+                ForEach(model.categories) { category in
+                    Text(category.name).tag(category.id as CKRecord.ID?)
+                }
+            }
+            .pickerStyle(.menu)
+            .disabled(!canEdit)
+        } else {
+            Text("No categories available")
+                .foregroundStyle(.secondary)
+        }
+        
+        TextField("Recipe Name *", text: $recipeName)
+            .disabled(!canEdit)
+        
+        HStack {
+            TextField("Cooking Time *", text: $recipeTime)
+                .disabled(!canEdit)
+            Text("minutes")
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var saveButtonEnabled: Bool {
+        isFormValid && !isSaving && !isDeletingRecipe && canEdit
     }
 
     private var recipeStepsSection: some View {
         Section {
-            VStack(alignment: .leading, spacing: 16) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Recipe Steps")
-                        .font(.headline)
-
-                    HStack {
-                        if !recipeSteps.isEmpty {
-                            Button("Collapse All") {
-                                collapseAllSteps()
-                            }
-                            .buttonStyle(.bordered)
-                            .disabled(!canEdit)
-
-                            Button("Expand All") {
-                                expandAllSteps()
-                            }
-                            .buttonStyle(.bordered)
-                            .disabled(!canEdit)
-                        }
-                        Button("Add Step") {
-                            addNewStep()
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(!canEdit)
-
-                        Spacer()
-                    }
-                }
-
-                if recipeSteps.isEmpty {
-                    Text("No steps added yet. Add steps to structure your recipe with ingredients for each step.")
-                        .font(.caption)
-                        .padding(.vertical, 8)
-                } else {
-                    ForEach(Array(recipeSteps.enumerated()), id: \.element.stepNumber) { index, step in
-                        StepEditView(
-                            step: Binding(
-                                get: { recipeSteps[index] },
-                                set: { recipeSteps[index] = $0 }
-                            ),
-                            stepNumber: step.stepNumber,
-                            onDelete: { deleteStep(at: index) },
-                            isExpanded: Binding(
-                                get: { expandedSteps.contains(step.stepNumber) },
-                                set: { isExpanded in
-                                    if isExpanded {
-                                        expandedSteps.insert(step.stepNumber)
-                                    } else {
-                                        expandedSteps.remove(step.stepNumber)
-                                    }
-                                }
-                            )
-                        )
-                    }
-                    .onMove(perform: moveSteps)
-                }
-            }
+            recipeStepsEditorContent
         } header: {
-            HStack {
-                Text("Recipe Steps")
-                Spacer()
-                if !recipeSteps.isEmpty {
-                    Text("\(recipeSteps.count) steps")
-                        .font(.caption)
-                }
-            }
+            recipeStepsHeader
         }
     }
 
@@ -332,19 +393,94 @@ struct AddEditRecipeView: View {
     private var deleteRecipeSection: some View {
         if isEditing {
             Section {
-                Button(role: .destructive) {
-                    showingDeleteAlert = true
-                } label: {
-                    Label("Delete Recipe", systemImage: "trash")
-                }
-#if os(macOS)
-                .foregroundStyle(.red)
-#endif
-                .disabled(!canEdit || isSaving || isDeletingRecipe)
+                deleteRecipeButton
             } footer: {
                 Text("This action cannot be undone.")
             }
         }
+    }
+
+    private var recipeStepsHeader: some View {
+        HStack {
+            Text("Recipe Steps")
+            Spacer()
+            if !recipeSteps.isEmpty {
+                Text("\(recipeSteps.count) steps")
+                    .font(.caption)
+            }
+        }
+    }
+
+    private var recipeStepsEditorContent: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Recipe Steps")
+                    .font(.headline)
+
+                HStack {
+                    if !recipeSteps.isEmpty {
+                        Button("Collapse All") {
+                            collapseAllSteps()
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(!canEdit)
+
+                        Button("Expand All") {
+                            expandAllSteps()
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(!canEdit)
+                    }
+                    Button("Add Step") {
+                        addNewStep()
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(!canEdit)
+
+                    Spacer()
+                }
+            }
+
+            if recipeSteps.isEmpty {
+                Text("No steps added yet. Add steps to structure your recipe with ingredients for each step.")
+                    .font(.caption)
+                    .padding(.vertical, 8)
+            } else {
+                ForEach(Array(recipeSteps.enumerated()), id: \.element.stepNumber) { index, step in
+                    StepEditView(
+                        step: Binding(
+                            get: { recipeSteps[index] },
+                            set: { recipeSteps[index] = $0 }
+                        ),
+                        stepNumber: step.stepNumber,
+                        onDelete: { deleteStep(at: index) },
+                        isExpanded: Binding(
+                            get: { expandedSteps.contains(step.stepNumber) },
+                            set: { isExpanded in
+                                if isExpanded {
+                                    expandedSteps.insert(step.stepNumber)
+                                } else {
+                                    expandedSteps.remove(step.stepNumber)
+                                }
+                            }
+                        )
+                    )
+                }
+                .onMove(perform: moveSteps)
+            }
+        }
+    }
+
+    private var deleteRecipeButton: some View {
+        Button(role: .destructive) {
+            showingDeleteAlert = true
+        } label: {
+            Label("Delete Recipe", systemImage: "trash")
+        }
+#if os(macOS)
+        .foregroundStyle(.red)
+#endif
+        .disabled(!canEdit || isSaving || isDeletingRecipe)
     }
     
     // MARK: - Step Management

@@ -1,8 +1,9 @@
+#if os(macOS)
 import SwiftUI
 import CloudKit
 import AppKit
 
-#if os(macOS)
+
 private struct MacToolbarIconButton: View {
     let systemImage: String
     let help: String

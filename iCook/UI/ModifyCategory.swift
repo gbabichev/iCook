@@ -6,6 +6,9 @@
 //
 
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 
 struct AddCategoryView: View {
     @EnvironmentObject private var model: AppViewModel
@@ -31,6 +34,30 @@ struct AddCategoryView: View {
     }
     
     var body: some View {
+        Group {
+#if os(macOS)
+            macOSView
+#else
+            iOSView
+#endif
+        }
+        .task {
+            if let category = editingCategory {
+                categoryName = category.name
+                selectedIcon = category.icon
+            }
+        }
+        .alert("Error",
+               isPresented: .init(
+                get: { model.error != nil },
+                set: { if !$0 { model.error = nil } }
+               ),
+               actions: { Button("OK") { model.error = nil } },
+               message: { Text(model.error ?? "") }
+        )
+    }
+
+    private var iOSView: some View {
         NavigationStack {
             Form {
                 if model.currentSource == nil {
@@ -60,32 +87,7 @@ struct AddCategoryView: View {
                 }
                 
                 Section("Choose an Icon") {
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 8), spacing: 12) {
-                        ForEach(commonIcons, id: \.self) { icon in
-                            Button {
-                                selectedIcon = icon
-                            } label: {
-                                Text(icon)
-                                    .font(.title2)
-                                    .frame(width: 40, height: 40)
-                                    .background(
-                                        selectedIcon == icon ?
-                                        Color.accentColor.opacity(0.2) :
-                                            Color.clear
-                                    )
-                                    .cornerRadius(8)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 8)
-                                            .stroke(
-                                                selectedIcon == icon ? Color.accentColor : Color.clear,
-                                                lineWidth: 2
-                                            )
-                                    )
-                            }
-                            .buttonStyle(PlainButtonStyle())
-                            .disabled(!canEdit)
-                        }
-                    }
+                    iconPickerGrid
                     .padding(.vertical, 8)
                 }
             }
@@ -108,21 +110,131 @@ struct AddCategoryView: View {
                     .disabled(!canEdit || categoryName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSaving)
                 }
             }
-            .task {
-                if let category = editingCategory {
-                    categoryName = category.name
-                    selectedIcon = category.icon
-                }
-            }
-            .alert("Error",
-                   isPresented: .init(
-                    get: { model.error != nil },
-                    set: { if !$0 { model.error = nil } }
-                   ),
-                   actions: { Button("OK") { model.error = nil } },
-                   message: { Text(model.error ?? "") }
-            )
         }
+    }
+
+#if os(macOS)
+    private var macOSView: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Image(systemName: isEditing ? "square.and.pencil" : "square.grid.2x2.fill")
+                    .font(.title2)
+                    .foregroundStyle(.secondary)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(isEditing ? "Edit Category" : "Add Category")
+                        .font(.title2)
+                        .fontWeight(.semibold)
+                    Text("Organize recipes with category names and icons")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Button("Cancel") {
+                    dismiss()
+                }
+                .keyboardShortcut(.cancelAction)
+
+                Button(isEditing ? "Update" : "Create") {
+                    Task {
+                        await saveCategory()
+                    }
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(saveButtonDisabled)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+
+            Divider()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    statusBanner
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Category Information")
+                            .font(.headline)
+
+                        TextField("Category Name", text: $categoryName)
+                            .textFieldStyle(.roundedBorder)
+                            .disabled(!canEdit)
+                    }
+                    .padding(14)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Choose an Icon")
+                            .font(.headline)
+
+                        iconPickerGrid
+                    }
+                    .padding(14)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+                .padding(16)
+            }
+        }
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    @ViewBuilder
+    private var statusBanner: some View {
+        if model.currentSource == nil {
+            HStack(spacing: 10) {
+                Image(systemName: "exclamationmark.circle.fill")
+                    .foregroundColor(.red)
+                Text("Create a collection first before adding categories.")
+                    .font(.callout)
+            }
+            .padding(12)
+            .background(.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
+        } else if let source = model.currentSource, !model.canEditSource(source) {
+            HStack(spacing: 10) {
+                Image(systemName: "lock.fill")
+                    .foregroundColor(.orange)
+                Text("This collection is read-only.")
+                    .font(.callout)
+            }
+            .padding(12)
+            .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+        }
+    }
+#endif
+
+    private var iconPickerGrid: some View {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 8), spacing: 12) {
+            ForEach(commonIcons, id: \.self) { icon in
+                Button {
+                    selectedIcon = icon
+                } label: {
+                    Text(icon)
+                        .font(.title2)
+                        .frame(width: 40, height: 40)
+                        .background(
+                            selectedIcon == icon ?
+                            Color.accentColor.opacity(0.2) :
+                                Color.clear
+                        )
+                        .cornerRadius(8)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(
+                                    selectedIcon == icon ? Color.accentColor : Color.clear,
+                                    lineWidth: 2
+                                )
+                        )
+                }
+                .buttonStyle(.plain)
+                .disabled(!canEdit)
+            }
+        }
+    }
+
+    private var saveButtonDisabled: Bool {
+        !canEdit || categoryName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSaving
     }
     
     private var canEdit: Bool {
