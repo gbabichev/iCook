@@ -75,7 +75,6 @@ struct RecipeCollectionView: View {
     @EnvironmentObject private var model: AppViewModel
     
     // Toolbar state - passed from parent or locally managed
-    @State private var showingAddRecipe = false
     @State private var showNewSourceSheet = false
     @State private var newSourceName = ""
     @State private var isDebugOperationInProgress = false
@@ -211,18 +210,6 @@ struct RecipeCollectionView: View {
     
     private func logSearchState(_ context: String) {
         printD("SearchState [\(context)]: text='\(searchText)', showingSearchResults=\(showingSearchResults), isSearchActive=\(isSearchActive), collectionType=\(collectionType.navigationTitle)")
-    }
-    
-    // Get category ID if viewing a category, nil if viewing home
-    private var categoryIdIfApplicable: CKRecord.ID? {
-        if case .category(let category) = collectionType {
-            return category.id
-        }
-        return nil
-    }
-    
-    private var hasActiveCollection: Bool {
-        model.currentSource != nil
     }
     
     // MARK: - Toolbar Views
@@ -643,7 +630,7 @@ struct RecipeCollectionView: View {
             ) { recipe in
                 Task { await deleteRecipe(recipe) }
             }
-            .applySheetModifiers(editingRecipe: $editingRecipe, showingAddRecipe: $showingAddRecipe, showNewSourceSheet: $showNewSourceSheet, newSourceName: $newSourceName, categoryIdIfApplicable: categoryIdIfApplicable, model: model)
+            .applySheetModifiers(editingRecipe: $editingRecipe, showNewSourceSheet: $showNewSourceSheet, newSourceName: $newSourceName, model: model)
             .padding(.top, isSearchActive ? 0 : 0)
             .ignoresSafeArea(edges: isSearchActive ? [] : .top)
             .toast(isPresented: $showRevokedToast, message: revokedToastMessage)
@@ -688,10 +675,6 @@ struct RecipeCollectionView: View {
                 handleSearchTextChange(newValue)
             }
             .onReceive(NotificationCenter.default.publisher(for: .shareRevokedToast), perform: handleShareRevokedToast)
-            .onReceive(NotificationCenter.default.publisher(for: .requestAddRecipe)) { _ in
-                guard !model.isOfflineMode, hasActiveCollection, !model.categories.isEmpty else { return }
-                showingAddRecipe = true
-            }
             .refreshable { await handleRefresh() }
             .sheet(isPresented: $showingOfflineNotice) { offlineNoticeSheet }
             .overlay { deletingOverlay }
@@ -1069,19 +1052,13 @@ extension View {
     
     func applySheetModifiers(
         editingRecipe: Binding<Recipe?>,
-        showingAddRecipe: Binding<Bool>,
         showNewSourceSheet: Binding<Bool>,
         newSourceName: Binding<String>,
-        categoryIdIfApplicable: CKRecord.ID?,
         model: AppViewModel
     ) -> some View {
         self
             .sheet(item: editingRecipe) { recipe in
                 AddEditRecipeView(editingRecipe: recipe)
-                    .environmentObject(model)
-            }
-            .sheet(isPresented: showingAddRecipe) {
-                AddEditRecipeView(preselectedCategoryId: categoryIdIfApplicable)
                     .environmentObject(model)
             }
             .sheet(isPresented: showNewSourceSheet) {

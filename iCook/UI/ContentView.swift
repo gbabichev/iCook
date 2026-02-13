@@ -22,6 +22,14 @@ struct ContentView: View {
     @State private var didRestoreLastViewed = false
     @State private var suppressResetOnSourceChange = false
     @State private var showingTutorial = false
+    @State private var showingAddRecipe = false
+
+    private var addRecipePreselectedCategoryId: CKRecord.ID? {
+        if case .category(let category) = (collectionType ?? lastCollectionType) {
+            return category.id
+        }
+        return nil
+    }
     
     var body: some View {
         NavigationSplitView(preferredCompactColumn: $preferredColumn) {
@@ -161,6 +169,10 @@ struct ContentView: View {
             AddCategoryView(editingCategory: category)
                 .environmentObject(model)
         }
+        .sheet(isPresented: $showingAddRecipe) {
+            AddEditRecipeView(preselectedCategoryId: addRecipePreselectedCategoryId)
+                .environmentObject(model)
+        }
         .onChange(of: collectionType) { _, newValue in
             if let newValue {
                 lastCollectionType = newValue
@@ -189,6 +201,10 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .showTutorial)) { _ in
             showingTutorial = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .requestAddRecipe)) { _ in
+            guard !model.isOfflineMode, model.currentSource != nil, !model.categories.isEmpty else { return }
+            showingAddRecipe = true
         }
         .onAppear {
             // Try to restore immediately from cached data to avoid visible jumps

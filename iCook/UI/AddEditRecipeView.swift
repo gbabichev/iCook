@@ -31,6 +31,8 @@ struct AddEditRecipeView: View {
 #endif
     @State private var isCompressingImage = false
     @State private var saveErrorMessage: String?
+    @State private var showingDeleteAlert = false
+    @State private var isDeletingRecipe = false
     
     // Recipe Steps
     @State private var recipeSteps: [RecipeStep] = []
@@ -57,6 +59,18 @@ struct AddEditRecipeView: View {
     private var canEdit: Bool {
         guard let source = model.currentSource else { return false }
         return model.canEditSource(source)
+    }
+
+    private var deleteConfirmationRecipeName: String {
+        let trimmedName = recipeName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedName.isEmpty {
+            return trimmedName
+        }
+        return editingRecipe?.name ?? "this recipe"
+    }
+
+    private var deleteConfirmationMessage: String {
+        "Are you sure you want to delete '\(deleteConfirmationRecipeName)'? This action cannot be undone."
     }
     
     var isEditing: Bool { editingRecipe != nil }
@@ -123,76 +137,8 @@ struct AddEditRecipeView: View {
                     imageSection.disabled(!canEdit)
                 }
                 
-                // Recipe Steps Section
-                Section {
-                    VStack(alignment: .leading, spacing: 16) {
-                        
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Recipe Steps")
-                                .font(.headline)
-                            
-                            HStack {
-                                if !recipeSteps.isEmpty {
-                                    Button("Collapse All") {
-                                        collapseAllSteps()
-                                    }
-                                    .buttonStyle(.bordered)
-                                    .disabled(!canEdit)
-                                    
-                                    Button("Expand All") {
-                                        expandAllSteps()
-                                    }
-                                    .buttonStyle(.bordered)
-                                    .disabled(!canEdit)
-                                }
-                                Button("Add Step") {
-                                    addNewStep()
-                                }
-                                .buttonStyle(.bordered)
-                                .disabled(!canEdit)
-                                
-                                Spacer()
-                            }
-                        }
-                        
-                        if recipeSteps.isEmpty {
-                            Text("No steps added yet. Add steps to structure your recipe with ingredients for each step.")
-                                .font(.caption)
-                                .padding(.vertical, 8)
-                        } else {
-                            ForEach(Array(recipeSteps.enumerated()), id: \.element.stepNumber) { index, step in
-                                StepEditView(
-                                    step: Binding(
-                                        get: { recipeSteps[index] },
-                                        set: { recipeSteps[index] = $0 }
-                                    ),
-                                    stepNumber: step.stepNumber,
-                                    onDelete: { deleteStep(at: index) },
-                                    isExpanded: Binding(
-                                        get: { expandedSteps.contains(step.stepNumber) },
-                                        set: { isExpanded in
-                                            if isExpanded {
-                                                expandedSteps.insert(step.stepNumber)
-                                            } else {
-                                                expandedSteps.remove(step.stepNumber)
-                                            }
-                                        }
-                                    )
-                                )
-                            }
-                            .onMove(perform: moveSteps)
-                        }
-                    }
-                } header: {
-                    HStack {
-                        Text("Recipe Steps")
-                        Spacer()
-                        if !recipeSteps.isEmpty {
-                            Text("\(recipeSteps.count) steps")
-                                .font(.caption)
-                        }
-                    }
-                }
+                recipeStepsSection
+                deleteRecipeSection
                 
             }
             .formStyle(.grouped)
@@ -210,7 +156,7 @@ struct AddEditRecipeView: View {
                             await saveRecipe()
                         }
                     }
-                    .disabled(!isFormValid || isSaving || !canEdit)
+                    .disabled(!isFormValid || isSaving || isDeletingRecipe || !canEdit)
                 }
             }
             .overlay {
@@ -221,6 +167,22 @@ struct AddEditRecipeView: View {
                         VStack(spacing: 12) {
                             ProgressView()
                             Text(isEditing ? "Updating recipe..." : "Creating recipe...")
+                                .font(.headline)
+                                .foregroundStyle(.primary)
+                        }
+                        .padding(24)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                    }
+                }
+            }
+            .overlay {
+                if isDeletingRecipe {
+                    ZStack {
+                        Color.black.opacity(0.25)
+                            .ignoresSafeArea()
+                        VStack(spacing: 12) {
+                            ProgressView()
+                            Text("Deleting recipe...")
                                 .font(.headline)
                                 .foregroundStyle(.primary)
                         }
@@ -245,74 +207,13 @@ struct AddEditRecipeView: View {
             )
             .onChange(of: selectedPhotoItem) { _, newItem in
                 Task {
-                    guard let newItem = newItem else { return }
-                    
-                    await MainActor.run {
-                        isUploading = true
-                        isCompressingImage = true
-                    }
-                    
-                    defer {
-                        Task { @MainActor in
-                            isUploading = false
-                            isCompressingImage = false
-                        }
-                    }
-                    
-                    do {
-                        guard let originalData = try await newItem.loadTransferable(type: Data.self) else {
-                            return
-                        }
-                        
-                        print("[Image] Loaded \(Int(Double(originalData.count) / 1024.0))KB from photo picker")
-                        let compressedData = await compressImageInBackground(originalData)
-                        
-                        await MainActor.run {
-                            if let compressed = compressedData {
-                                selectedImageData = compressed
-                                existingImagePath = nil
-                                print("[Image] Stored compressed image: \(Int(Double(compressed.count) / 1024.0))KB")
-                            } else {
-                                selectedImageData = originalData
-                                existingImagePath = nil
-                            }
-                        }
-                    } catch {
-                        print("Failed to load photo: \(error)")
-                    }
+                    await handleSelectedPhotoItemChange(newItem)
                 }
             }
             .fullScreenCover(isPresented: $showingCamera) {
                 CameraView { image in
                     Task {
-                        await MainActor.run {
-                            isUploading = true
-                            isCompressingImage = true
-                        }
-                        
-                        defer {
-                            Task { @MainActor in
-                                isUploading = false
-                                isCompressingImage = false
-                            }
-                        }
-                        
-                        guard let originalData = image.jpegData(compressionQuality: 0.95) else {
-                            return
-                        }
-                        
-                        print("[Camera] Captured \(Int(Double(originalData.count) / 1024.0))KB image")
-                        let compressedData = await compressImageInBackground(originalData)
-                        
-                        await MainActor.run {
-                            if let compressed = compressedData {
-                                selectedImageData = compressed
-                                existingImagePath = nil
-                            } else {
-                                selectedImageData = originalData
-                                existingImagePath = nil
-                            }
-                        }
+                        await handleCapturedCameraImage(image)
                     }
                 }
             }
@@ -335,6 +236,16 @@ struct AddEditRecipeView: View {
             }
             .id(fileImporterTrigger)
 #endif
+            .alert("Delete Recipe", isPresented: $showingDeleteAlert) {
+                Button("Delete", role: .destructive) {
+                    Task {
+                        await deleteRecipe()
+                    }
+                }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text(deleteConfirmationMessage)
+            }
             //            .alert("Error", isPresented: .init(
             //                get: { model.error != nil },
             //                set: { if !$0 { model.error = nil } }
@@ -343,6 +254,96 @@ struct AddEditRecipeView: View {
             //            } message: {
             //                Text(model.error ?? "")
             //            }
+        }
+    }
+
+    private var recipeStepsSection: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Recipe Steps")
+                        .font(.headline)
+
+                    HStack {
+                        if !recipeSteps.isEmpty {
+                            Button("Collapse All") {
+                                collapseAllSteps()
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(!canEdit)
+
+                            Button("Expand All") {
+                                expandAllSteps()
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(!canEdit)
+                        }
+                        Button("Add Step") {
+                            addNewStep()
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(!canEdit)
+
+                        Spacer()
+                    }
+                }
+
+                if recipeSteps.isEmpty {
+                    Text("No steps added yet. Add steps to structure your recipe with ingredients for each step.")
+                        .font(.caption)
+                        .padding(.vertical, 8)
+                } else {
+                    ForEach(Array(recipeSteps.enumerated()), id: \.element.stepNumber) { index, step in
+                        StepEditView(
+                            step: Binding(
+                                get: { recipeSteps[index] },
+                                set: { recipeSteps[index] = $0 }
+                            ),
+                            stepNumber: step.stepNumber,
+                            onDelete: { deleteStep(at: index) },
+                            isExpanded: Binding(
+                                get: { expandedSteps.contains(step.stepNumber) },
+                                set: { isExpanded in
+                                    if isExpanded {
+                                        expandedSteps.insert(step.stepNumber)
+                                    } else {
+                                        expandedSteps.remove(step.stepNumber)
+                                    }
+                                }
+                            )
+                        )
+                    }
+                    .onMove(perform: moveSteps)
+                }
+            }
+        } header: {
+            HStack {
+                Text("Recipe Steps")
+                Spacer()
+                if !recipeSteps.isEmpty {
+                    Text("\(recipeSteps.count) steps")
+                        .font(.caption)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var deleteRecipeSection: some View {
+        if isEditing {
+            Section {
+                Button(role: .destructive) {
+                    showingDeleteAlert = true
+                } label: {
+                    Label("Delete Recipe", systemImage: "trash")
+                }
+#if os(macOS)
+                .foregroundStyle(.red)
+#endif
+                .disabled(!canEdit || isSaving || isDeletingRecipe)
+            } footer: {
+                Text("This action cannot be undone.")
+            }
         }
     }
     
@@ -590,6 +591,25 @@ struct AddEditRecipeView: View {
             }
         }
     }
+
+    @MainActor
+    private func deleteRecipe() async {
+        guard let recipe = editingRecipe else { return }
+        isDeletingRecipe = true
+        saveErrorMessage = nil
+        let success = await model.deleteRecipeWithUIFeedback(id: recipe.id)
+        isDeletingRecipe = false
+
+        if success {
+            dismiss()
+        } else {
+            if let modelError = model.error {
+                saveErrorMessage = "Failed to delete recipe: \(modelError)"
+            } else {
+                saveErrorMessage = "Failed to delete recipe. Please try again."
+            }
+        }
+    }
     
     // MARK: - Image Section
     
@@ -732,6 +752,80 @@ struct AddEditRecipeView: View {
                     .foregroundStyle(.secondary)
             }
     }
+
+#if os(iOS)
+    @MainActor
+    private func setImageLoadingState(_ isLoading: Bool) {
+        isUploading = isLoading
+        isCompressingImage = isLoading
+    }
+
+    private func handleSelectedPhotoItemChange(_ newItem: PhotosPickerItem?) async {
+        guard let newItem = newItem else { return }
+
+        await MainActor.run {
+            setImageLoadingState(true)
+        }
+
+        defer {
+            Task { @MainActor in
+                setImageLoadingState(false)
+            }
+        }
+
+        do {
+            guard let originalData = try await newItem.loadTransferable(type: Data.self) else {
+                return
+            }
+
+            print("[Image] Loaded \(Int(Double(originalData.count) / 1024.0))KB from photo picker")
+            let compressedData = await compressImageInBackground(originalData)
+
+            await MainActor.run {
+                if let compressed = compressedData {
+                    selectedImageData = compressed
+                    existingImagePath = nil
+                    print("[Image] Stored compressed image: \(Int(Double(compressed.count) / 1024.0))KB")
+                } else {
+                    selectedImageData = originalData
+                    existingImagePath = nil
+                }
+            }
+        } catch {
+            print("Failed to load photo: \(error)")
+        }
+    }
+
+    private func handleCapturedCameraImage(_ image: UIImage) async {
+        await MainActor.run {
+            setImageLoadingState(true)
+        }
+
+        defer {
+            Task { @MainActor in
+                setImageLoadingState(false)
+            }
+        }
+
+        guard let originalData = image.jpegData(compressionQuality: 0.95) else {
+            return
+        }
+
+        print("[Camera] Captured \(Int(Double(originalData.count) / 1024.0))KB image")
+        let compressedData = await compressImageInBackground(originalData)
+
+        await MainActor.run {
+            if let compressed = compressedData {
+                selectedImageData = compressed
+                existingImagePath = nil
+            } else {
+                selectedImageData = originalData
+                existingImagePath = nil
+            }
+        }
+    }
+#endif
+
 #if os(macOS)
     private func loadImageFromURL(_ url: URL) {
         Task {

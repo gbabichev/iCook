@@ -4,11 +4,8 @@ import CloudKit
 struct RecipeDetailView: View {
     let recipe: Recipe
     @EnvironmentObject private var model: AppViewModel
-    @Environment(\.dismiss) private var dismiss
     
     @State private var editingRecipe: Recipe?
-    @State private var showingDeleteAlert = false
-    @State private var isDeleting = false
     @State private var checkedIngredients: Set<String> = []
     @State private var checkedSteps: Set<Int> = []
     @State private var checkedStepIngredients: Set<String> = [] // Format: "stepNumber-ingredientIndex"
@@ -269,22 +266,12 @@ struct RecipeDetailView: View {
         .ignoresSafeArea(edges: .top)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Menu {
-                    Button {
-                        editingRecipe = displayedRecipe
-                    } label: {
-                        Label("Edit Recipe", systemImage: "pencil")
-                    }
-                    .disabled(model.isOfflineMode)
-                    
-                    Button(role: .destructive) {
-                        showingDeleteAlert = true
-                    } label: {
-                        Label("Delete Recipe", systemImage: "trash")
-                    }
+                Button {
+                    editingRecipe = displayedRecipe
                 } label: {
-                    Image(systemName: "ellipsis.circle")
+                    Image(systemName: "pencil")
                 }
+                .accessibilityLabel("Edit Recipe")
                 .disabled(model.isOfflineMode)
             }
         }
@@ -307,54 +294,12 @@ struct RecipeDetailView: View {
         .onAppear {
             refreshDisplayedRecipe()
         }
-        .alert("Delete Recipe", isPresented: $showingDeleteAlert) {
-            Button("Delete", role: .destructive) {
-                Task {
-                    await deleteRecipe()
-                }
-            }
-            Button("Cancel", role: .cancel) { }
-        } message: {
-            Text("Are you sure you want to delete '\(displayedRecipe.name)'? This action cannot be undone.")
-        }
         .overlay(alignment: .top) {
             if showCopiedHUD {
                 CopiedHUD()
                     .transition(.move(edge: .top).combined(with: .opacity))
                     .padding(.top, 60) // Adjust positioning as needed
             }
-        }
-        .overlay {
-            if isDeleting {
-                ZStack {
-                    Color.black.opacity(0.3)
-                        .ignoresSafeArea()
-                    
-                    VStack(spacing: 16) {
-                        ProgressView()
-                        Text("Deleting recipe...")
-                            .font(.headline)
-                    }
-                    .padding()
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-                }
-            }
-        }
-    }
-    
-    @MainActor
-    private func deleteRecipe() async {
-        printD("deleteRecipe: Starting deletion for recipe '\(recipe.name)' with ID: \(recipe.id.recordName)")
-        isDeleting = true
-        let success = await model.deleteRecipeWithUIFeedback(id: recipe.id)
-        isDeleting = false
-        printD("deleteRecipe: Deletion completed. Success: \(success)")
-        
-        if success {
-            printD("deleteRecipe: Dismissing view after successful deletion")
-            dismiss()
-        } else {
-            printD("deleteRecipe: Deletion failed, not dismissing view")
         }
     }
     
