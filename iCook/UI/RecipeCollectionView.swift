@@ -199,6 +199,15 @@ struct RecipeCollectionView: View {
     private var isSearchActive: Bool {
         showingSearchResults || !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
+
+    private var searchPromptText: String {
+        switch collectionType {
+        case .home:
+            return "Search Recipes"
+        case .category(let category):
+            return "Search in \(category.name)"
+        }
+    }
     
     private func logSearchState(_ context: String) {
         printD("SearchState [\(context)]: text='\(searchText)', showingSearchResults=\(showingSearchResults), isSearchActive=\(isSearchActive), collectionType=\(collectionType.navigationTitle)")
@@ -652,7 +661,7 @@ struct RecipeCollectionView: View {
                     // No need to reload; featured selection handled by changes below
                 }
             }
-            .searchable(text: $searchText, placement: .toolbar, prompt: "Search recipes")
+            .searchable(text: $searchText, placement: .toolbar, prompt: searchPromptText)
             .onSubmit(of: .search) { performSearch(); logSearchState("onSubmit") }
             .onChange(of: model.recipes) { _, newValue in
                 if let first = newValue.first {
