@@ -84,7 +84,6 @@ struct AddCategoryView: View {
                 Section("Category Information") {
                     TextField("Category Name", text: $categoryName)
                         .disabled(!canEdit)
-                    //.textInputAutocapitalization(.words)
                 }
                 
                 Section("Choose an Icon") {
@@ -94,7 +93,6 @@ struct AddCategoryView: View {
             }
             .formStyle(.grouped)
             .navigationTitle(isEditing ? "Edit Category" : "Add Category")
-            //.navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
@@ -274,11 +272,4 @@ struct AddCategoryView: View {
             dismiss()
         }
     }
-}
-
-#Preview {
-    NavigationStack {
-        AddCategoryView()
-    }
-    .environmentObject(AppViewModel())
 }

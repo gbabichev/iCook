@@ -6,33 +6,16 @@
 //
 
 import SwiftUI
-import CloudKit
 
 // MARK: - List Column (Landmarks: *List)
 
 struct CategoryList: View {
     @EnvironmentObject private var model: AppViewModel
-    @Binding var selection: CKRecord.ID?
     @Binding var editingCategory: Category?
-    @Binding var isShowingHome: Bool
     @Binding var showingAddCategory: Bool
     @Binding var collectionType: RecipeCollectionType?
     @State private var showSourcesOverlay = false
     @State private var deleteAlertMessage: String?
-    
-    init(
-        selection: Binding<CKRecord.ID?>,
-        editingCategory: Binding<Category?>,
-        isShowingHome: Binding<Bool>,
-        showingAddCategory: Binding<Bool>,
-        collectionType: Binding<RecipeCollectionType?>
-    ) {
-        self._selection = selection
-        self._editingCategory = editingCategory
-        self._isShowingHome = isShowingHome
-        self._showingAddCategory = showingAddCategory
-        self._collectionType = collectionType
-    }
     
     private var homeRecipeCount: Int {
         model.recipeCounts.values.reduce(0, +)
@@ -179,18 +162,6 @@ struct CategoryList: View {
 #if os(macOS)
                 .frame(minWidth: 400, minHeight: 300)
 #endif
-        }
-        .onChange(of: collectionType) { _, newValue in
-            switch newValue {
-            case .home:
-                isShowingHome = true
-                selection = nil
-            case .category(let category):
-                isShowingHome = false
-                selection = category.id
-            case .none:
-                break
-            }
         }
         .alert("Cannot Delete Category", isPresented: .init(
             get: { deleteAlertMessage != nil },

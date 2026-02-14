@@ -122,15 +122,6 @@ struct RecipeCollectionView: View {
         }
     }
     
-    //    @ViewBuilder
-    //    private var offlineStatusIndicator: some View {
-    //        if model.isOfflineMode {
-    //            Label("Offline Mode", systemImage: "wifi.slash")
-    //                .font(.caption)
-    //                .foregroundStyle(.orange)
-    //        }
-    //    }
-    
     @ViewBuilder
     private var offlineStatusIndicator: some View {
         if model.isOfflineMode {
@@ -207,28 +198,24 @@ struct RecipeCollectionView: View {
             return "Search in \(category.name)"
         }
     }
-    
-    private func logSearchState(_ context: String) {
-        printD("SearchState [\(context)]: text='\(searchText)', showingSearchResults=\(showingSearchResults), isSearchActive=\(isSearchActive), collectionType=\(collectionType.navigationTitle)")
-    }
-    
+
     // MARK: - Toolbar Views
-    
+
     private var debugMenu: some View {
         Menu {
             Section("Debug") {
                 Button {
-                    print("debug")
+                    printD("Debug menu invoked")
                 } label: {
                     Label("Print debug", systemImage: "terminal")
                 }
-                
+
                 Button {
                     NotificationCenter.default.post(name: .showTutorial, object: nil)
                 } label: {
                     Label("Show Tutorial", systemImage: "sparkles")
                 }
-                
+
                 Button(role: .destructive) {
                     isDebugOperationInProgress = true
                     Task {
@@ -391,14 +378,6 @@ struct RecipeCollectionView: View {
                                 index: index
                             )
                         }
-                        .onAppear {
-                            if let path = recipe.cachedImagePath {
-                                let exists = FileManager.default.fileExists(atPath: path)
-                                printD("[ImagePath] grid appear: \(recipe.name) path=\(path) exists=\(exists)")
-                            } else {
-                                printD("[ImagePath] grid appear: \(recipe.name) path=nil")
-                            }
-                        }
                         .simultaneousGesture(TapGesture().onEnded {
                             model.saveLastViewedRecipe(recipe)
                             // Save app location when navigating to recipe
@@ -532,15 +511,6 @@ struct RecipeCollectionView: View {
         deletingRecipe = nil
     }
     
-    private func logImagePath(_ recipe: Recipe, context: String) {
-        if let path = recipe.cachedImagePath {
-            let exists = FileManager.default.fileExists(atPath: path)
-            printD("[ImagePath] \(context): \(recipe.name) path=\(path) exists=\(exists)")
-        } else {
-            printD("[ImagePath] \(context): \(recipe.name) path=nil")
-        }
-    }
-    
     // MARK: - Search Logic
 
     private func filteredRecipes(for query: String) -> [Recipe] {
@@ -577,7 +547,7 @@ struct RecipeCollectionView: View {
         isSearching = false
         
         if let modelError = model.error {
-            print("Search error: \(modelError)")
+            printD("Search error: \(modelError)")
         }
     }
 
@@ -617,7 +587,6 @@ struct RecipeCollectionView: View {
     
     var body: some View {
         mainContent
-            .applySearchModifiers(searchText: $searchText, searchTask: $searchTask, showingSearchResults: $showingSearchResults, searchResults: $searchResults)
             .applyNavigationModifiers(collectionType: collectionType, showingSearchResults: showingSearchResults)
             .navigationDestination(for: Recipe.self) { recipe in
                 RecipeDetailView(recipe: recipe)
@@ -642,18 +611,8 @@ struct RecipeCollectionView: View {
 #endif
             .task { await initialLoadIfNeeded() }
             .onChange(of: collectionType) { _, _ in Task { await handleCollectionTypeChange() } }
-            .task(id: model.recipes.count) {
-                if case .home = collectionType {
-                    // No need to reload; featured selection handled by changes below
-                }
-            }
             .searchable(text: $searchText, placement: .toolbar, prompt: searchPromptText)
-            .onSubmit(of: .search) { performSearch(); logSearchState("onSubmit") }
-            .onChange(of: model.recipes) { _, newValue in
-                if let first = newValue.first {
-                    logImagePath(first, context: "onChange model.recipes first")
-                }
-            }
+            .onSubmit(of: .search) { performSearch() }
             .onChange(of: model.recipes) { _, newValue in
                 if case .home = collectionType {
                     featuredHomeRecipe = newValue.randomElement()
@@ -668,9 +627,7 @@ struct RecipeCollectionView: View {
                     }
                 }
             }
-            .onChange(of: searchText, initial: false) { oldValue, newValue in
-                // oldValue unused but keeps us on the new API signature for macOS 14+
-                _ = oldValue
+            .onChange(of: searchText, initial: false) { _, newValue in
                 handleSearchTextChange(newValue)
             }
             .onReceive(NotificationCenter.default.publisher(for: .shareRevokedToast), perform: handleShareRevokedToast)
@@ -719,7 +676,6 @@ struct RecipeCollectionView: View {
             showingSearchResults = false
             searchResults = []
             searchTask?.cancel()
-            logSearchState("onChange cleared")
         } else {
             showingSearchResults = true
             searchTask?.cancel()
@@ -731,7 +687,6 @@ struct RecipeCollectionView: View {
                     isSearching = false
                 }
             }
-            logSearchState("onChange typing")
         }
     }
 
@@ -863,13 +818,13 @@ struct RecipeCollectionView: View {
                 .disabled(true)
             }
         }
-        
-//#if DEBUG
-//        ToolbarItem(placement: .primaryAction) {
-//            debugMenu
-//        }
-//#endif
-        
+
+#if DEBUG
+        ToolbarItem(placement: .primaryAction) {
+            debugMenu
+        }
+#endif
+
 #if os(macOS)
         ToolbarItem(placement: .status) {
             offlineStatusIndicator
@@ -903,7 +858,7 @@ struct RecipeCollectionView: View {
                             Text("Please add a Recipe Collection to continue")
                                 .font(.headline)
                                 .foregroundStyle(.secondary)
-                            Text("Tap the book icon in the toolbar to create or select a source.")
+                            Text("Open Settings from the toolbar to create or select a collection.")
                                 .font(.caption)
                                 .foregroundStyle(.tertiary)
                                 .padding(.horizontal)
@@ -979,28 +934,6 @@ private extension View {
 }
 
 extension View {
-    func applySearchModifiers(
-        searchText: Binding<String>,
-        searchTask: Binding<Task<Void, Never>?>,
-        showingSearchResults: Binding<Bool>,
-        searchResults: Binding<[Recipe]>
-    ) -> some View {
-        self
-            .onSubmit(of: .search) {
-                if !searchText.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    // Perform search here - would need access to performSearch function
-                }
-            }
-            .onChange(of: searchText.wrappedValue) { _, newValue in
-                let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-                if trimmed.isEmpty {
-                    showingSearchResults.wrappedValue = false
-                    searchResults.wrappedValue = []
-                    searchTask.wrappedValue?.cancel()
-                }
-            }
-    }
-    
     func applyNavigationModifiers(collectionType: RecipeCollectionType, showingSearchResults: Bool) -> some View {
         self
             .navigationTitle(showingSearchResults ? "Search Results" : collectionType.navigationTitle)

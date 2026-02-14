@@ -82,7 +82,7 @@ struct RobustAsyncImage<Content: View, Placeholder: View>: View {
             
         } catch {
             if Task.isCancelled { return }
-            print("Failed to load image from \(url): \(error)")
+            printD("Failed to load image from \(url): \(error)")
             
             if retryCount < maxRetries && !url.isFileURL {
                 retryCount += 1

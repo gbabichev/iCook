@@ -637,7 +637,7 @@ class CameraManager: NSObject, ObservableObject {
                 session.addOutput(photoOutput)
             }
         } catch {
-            print("Error setting up camera: \(error)")
+            printD("Error setting up camera: \(error)")
         }
     }
     
@@ -669,7 +669,7 @@ class CameraManager: NSObject, ObservableObject {
             applyZoom(cameraInfo.zoomFactor, to: activeDevice)
             currentCamera = cameraInfo
         } catch {
-            print("Error switching camera: \(error)")
+            printD("Error switching camera: \(error)")
         }
 
         if didReplaceInput {
@@ -869,7 +869,7 @@ class CameraManager: NSObject, ObservableObject {
             printD("Camera applyZoom: device=\(device.uniqueID), type=\(device.deviceType.rawValue), target=\(target), clamped=\(clamped), min=\(minZoom), max=\(maxZoom)")
             device.unlockForConfiguration()
         } catch {
-            print("Error setting zoom: \(error)")
+            printD("Error setting zoom: \(error)")
         }
     }
 
@@ -1010,11 +1010,6 @@ extension CameraManager: AVCapturePhotoCaptureDelegate {
             self.captureCompletion = nil
         }
     }
-}
-
-// Add this extension for the notification
-extension Notification.Name {
-    static let cameraDeviceChanged = Notification.Name("cameraDeviceChanged")
 }
 
 final class PreviewView: UIView {

@@ -11,8 +11,6 @@ struct ContentView: View {
     @AppStorage("HasSeenTutorial") private var hasSeenTutorial = false
     
     @State private var preferredColumn: NavigationSplitViewColumn = .detail
-    @State private var selectedCategoryID: CKRecord.ID?
-    @State private var isShowingHome = true
     @State private var showingAddCategory = false
     @State private var editingCategory: Category? = nil
     @State private var collectionType: RecipeCollectionType? = .home
@@ -51,9 +49,7 @@ struct ContentView: View {
                 
                 // Category list
                 CategoryList(
-                    selection: $selectedCategoryID,
                     editingCategory: $editingCategory,
-                    isShowingHome: $isShowingHome,
                     showingAddCategory: $showingAddCategory,
                     collectionType: $collectionType
                 )
@@ -71,9 +67,6 @@ struct ContentView: View {
 #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
 #endif
-            .navigationDestination(for: Recipe.self) { recipe in
-                RecipeDetailView(recipe: recipe)
-            }
         }
         .task {
             await model.loadSources()
@@ -129,8 +122,6 @@ struct ContentView: View {
                 navPath = NavigationPath()
                 navStackKey = UUID().uuidString
                 collectionType = .home
-                selectedCategoryID = nil
-                isShowingHome = true
                 model.clearLastViewedRecipe()
             }
         }
@@ -142,8 +133,6 @@ struct ContentView: View {
             navPath = NavigationPath()
             navStackKey = UUID().uuidString
             collectionType = .home
-            selectedCategoryID = nil
-            isShowingHome = true
             model.clearLastViewedRecipe()
         }
         .alert("Error",

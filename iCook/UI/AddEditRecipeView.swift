@@ -157,8 +157,8 @@ struct AddEditRecipeView: View {
                 if let url = urls.first {
                     loadImageFromURL(url)
                 }
-            case .failure(let error):
-                print("Failed to pick image: \(error)")
+            case .failure:
+                break
             }
         }
         .id(fileImporterTrigger)
@@ -679,7 +679,6 @@ struct AddEditRecipeView: View {
         
         let success: Bool
         if let recipe = editingRecipe {
-            print("DEBUG: Saving recipe - UPDATE mode. Recipe ID: \(recipe.id.recordName)")
             success = await model.updateRecipeWithSteps(
                 id: recipe.id,
                 categoryId: selectedCategoryId != recipe.categoryID ? selectedCategoryId : nil,
@@ -689,9 +688,7 @@ struct AddEditRecipeView: View {
                 image: selectedImageData,
                 recipeSteps: finalSteps
             )
-            print("DEBUG: Update result: \(success)")
         } else {
-            print("DEBUG: Saving recipe - CREATE mode")
             success = await model.createRecipeWithSteps(
                 categoryId: categoryId,
                 name: trimmedName,
@@ -700,7 +697,6 @@ struct AddEditRecipeView: View {
                 image: selectedImageData,
                 recipeSteps: finalSteps
             )
-            print("DEBUG: Create result: \(success)")
         }
         
         if success {
@@ -717,7 +713,6 @@ struct AddEditRecipeView: View {
             }
             dismiss()
         } else {
-            print("DEBUG: Save failed - not dismissing. Model error: \(model.error ?? "nil")")
             if let modelError = model.error {
                 saveErrorMessage = "Failed to save recipe: \(modelError)"
             } else if isEditing {
@@ -914,21 +909,18 @@ struct AddEditRecipeView: View {
                 return
             }
 
-            print("[Image] Loaded \(Int(Double(originalData.count) / 1024.0))KB from photo picker")
             let compressedData = await compressImageInBackground(originalData)
 
             await MainActor.run {
                 if let compressed = compressedData {
                     selectedImageData = compressed
                     existingImagePath = nil
-                    print("[Image] Stored compressed image: \(Int(Double(compressed.count) / 1024.0))KB")
                 } else {
                     selectedImageData = originalData
                     existingImagePath = nil
                 }
             }
         } catch {
-            print("Failed to load photo: \(error)")
         }
     }
 
@@ -947,7 +939,6 @@ struct AddEditRecipeView: View {
             return
         }
 
-        print("[Camera] Captured \(Int(Double(originalData.count) / 1024.0))KB image")
         let compressedData = await compressImageInBackground(originalData)
 
         await MainActor.run {
@@ -980,7 +971,6 @@ struct AddEditRecipeView: View {
             
             do {
                 let originalData = try Data(contentsOf: url, options: .mappedIfSafe)
-                print("[Image] Loaded \(Int(Double(originalData.count) / 1024.0))KB from file")
                 
                 let compressedData = await compressImageInBackground(originalData)
                 
@@ -988,16 +978,13 @@ struct AddEditRecipeView: View {
                     if let compressed = compressedData {
                         selectedImageData = compressed
                         existingImagePath = nil
-                        print("[Image] Stored compressed image in memory: \(Int(Double(compressed.count) / 1024.0))KB")
                     } else {
-                        print("[Image] Compression failed, storing original")
                         selectedImageData = originalData
                         existingImagePath = nil
                     }
                 }
                 
             } catch {
-                print("Failed to load image from URL: \(error)")
                 await MainActor.run {
                     // Could show an error alert here
                 }
@@ -1025,13 +1012,10 @@ struct AddEditRecipeView: View {
 #if os(iOS)
     nonisolated private func compressImageData(_ data: Data, maxDimension: CGFloat = 1600, quality: CGFloat = 0.7) -> Data? {
         guard let image = UIImage(data: data) else {
-            print("[Compression] Failed to create UIImage from data")
             return nil
         }
         
         let originalSize = image.size
-        let scale = image.scale
-        print("[Compression] Original image size: \(originalSize), scale: \(scale)")
         
         let maxSide = max(originalSize.width, originalSize.height)
         let needsResize = maxSide > maxDimension
@@ -1040,10 +1024,8 @@ struct AddEditRecipeView: View {
         if needsResize {
             let scaleRatio = maxDimension / maxSide
             targetSize = CGSize(width: originalSize.width * scaleRatio, height: originalSize.height * scaleRatio)
-            print("[Compression] Scale ratio: \(scaleRatio), target size: \(targetSize)")
         } else {
             targetSize = originalSize
-            print("[Compression] No resize needed, original size: \(originalSize)")
         }
         
         // Create the final image with explicit scale
@@ -1055,27 +1037,20 @@ struct AddEditRecipeView: View {
             finalImage = renderer.image { _ in
                 image.draw(in: CGRect(origin: .zero, size: targetSize))
             }
-            print("[Compression] Rendered image size: \(finalImage.size), scale: \(finalImage.scale)")
         } else {
             finalImage = image
         }
         
         // Always apply JPEG compression
         guard let compressedData = finalImage.jpegData(compressionQuality: quality) else {
-            print("[Compression] Failed to create JPEG data")
             return nil
         }
-        
-        let originalKB = Double(data.count) / 1024.0
-        let compressedKB = Double(compressedData.count) / 1024.0
-        print("[Compression] \(Int(originalKB))KB → \(Int(compressedKB))KB (quality: \(quality))")
         
         return compressedData
     }
 #else
     nonisolated private func compressImageData(_ data: Data, maxDimension: CGFloat = 1600, quality: CGFloat = 0.7) -> Data? {
         guard let nsImage = NSImage(data: data) else {
-            print("[Compression] Failed to create NSImage from data")
             return nil
         }
         
@@ -1088,14 +1063,11 @@ struct AddEditRecipeView: View {
         if needsResize {
             let scale = maxDimension / maxSide
             targetSize = NSSize(width: originalSize.width * scale, height: originalSize.height * scale)
-            print("[Compression] Resizing from \(originalSize) to \(targetSize)")
         } else {
             targetSize = originalSize
-            print("[Compression] No resize needed, original size: \(originalSize)")
         }
         
         guard let originalRep = NSBitmapImageRep(data: data) ?? nsImage.representations.first as? NSBitmapImageRep else {
-            print("[Compression] Failed to get bitmap representation")
             return nil
         }
         
@@ -1118,7 +1090,6 @@ struct AddEditRecipeView: View {
                 bytesPerRow: 0,
                 bitsPerPixel: 0
             ) else {
-                print("[Compression] Failed to create resized bitmap rep")
                 return nil
             }
             
@@ -1143,13 +1114,8 @@ struct AddEditRecipeView: View {
             using: .jpeg,
             properties: [.compressionFactor: quality]
         ) else {
-            print("[Compression] Failed to create JPEG representation")
             return nil
         }
-        
-        let originalKB = Double(data.count) / 1024.0
-        let compressedKB = Double(compressedData.count) / 1024.0
-        print("[Compression] \(Int(originalKB))KB → \(Int(compressedKB))KB (quality: \(quality))")
         
         return compressedData
     }
@@ -1212,31 +1178,6 @@ struct StepEditView: View {
                         Text("Instructions:")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
-
-//                        ZStack(alignment: .topLeading) {
-//                            TextEditor(text: .init(
-//                                get: { step.instruction },
-//                                set: { newValue in
-//                                    step = RecipeStep(
-//                                        stepNumber: step.stepNumber,
-//                                        instruction: newValue,
-//                                        ingredients: step.ingredients
-//                                    )
-//                                }
-//                            ))
-//                            .focused($isInstructionFocused)
-//#if os(iOS)
-//                            .scrollContentBackground(.hidden)
-//#endif
-//                            .frame(minHeight: 80)
-//                            .padding(4)
-//                            .overlay(
-//                                RoundedRectangle(cornerRadius: 5)
-//                                    .stroke(.black, lineWidth: 1 / 3)
-//                                    .opacity(0.3)
-//                            )
-//                        }
-//                        .frame(maxWidth: .infinity, alignment: .leading)
 
                         TextField(
                             "Add instructions for this step",
@@ -1316,8 +1257,6 @@ struct StepEditView: View {
                 .padding(.leading, 16)
             }
         }
-        //.padding()
-        //.background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
     }
     
     private func updateIngredient(at index: Int, with newValue: String) {
