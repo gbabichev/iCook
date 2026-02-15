@@ -12,7 +12,9 @@ struct ContentView: View {
     
     @State private var preferredColumn: NavigationSplitViewColumn = .detail
     @State private var showingAddCategory = false
+    @State private var showingAddTag = false
     @State private var editingCategory: Category? = nil
+    @State private var editingTag: Tag? = nil
     @State private var collectionType: RecipeCollectionType? = .home
     @State private var lastCollectionType: RecipeCollectionType = .home
     @State private var navPath = NavigationPath()
@@ -50,7 +52,9 @@ struct ContentView: View {
                 // Category list
                 CategoryList(
                     editingCategory: $editingCategory,
+                    editingTag: $editingTag,
                     showingAddCategory: $showingAddCategory,
+                    showingAddTag: $showingAddTag,
                     collectionType: $collectionType
                 )
             }
@@ -147,6 +151,10 @@ struct ContentView: View {
             AddCategoryView()
                 .environmentObject(model)
         }
+        .sheet(isPresented: $showingAddTag) {
+            AddTagView()
+                .environmentObject(model)
+        }
         .sheet(isPresented: $showingTutorial) {
             TutorialView {
                 hasSeenTutorial = true
@@ -156,6 +164,10 @@ struct ContentView: View {
         }
         .sheet(item: $editingCategory) { category in
             AddCategoryView(editingCategory: category)
+                .environmentObject(model)
+        }
+        .sheet(item: $editingTag) { tag in
+            AddTagView(editingTag: tag)
                 .environmentObject(model)
         }
         .sheet(isPresented: $showingAddRecipe) {

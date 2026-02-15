@@ -12,7 +12,9 @@ import SwiftUI
 struct CategoryList: View {
     @EnvironmentObject private var model: AppViewModel
     @Binding var editingCategory: Category?
+    @Binding var editingTag: Tag?
     @Binding var showingAddCategory: Bool
+    @Binding var showingAddTag: Bool
     @Binding var collectionType: RecipeCollectionType?
     @State private var showSourcesOverlay = false
     @State private var deleteAlertMessage: String?
@@ -119,6 +121,14 @@ struct CategoryList: View {
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
+                            .contextMenu {
+                                Button {
+                                    editingTag = tag
+                                } label: {
+                                    Label("Edit Tag", systemImage: "pencil")
+                                }
+                                .disabled(model.isOfflineMode || model.currentSource == nil || !(model.currentSource.map(model.canEditSource) ?? false))
+                            }
                         }
                     }
                 }
@@ -169,6 +179,13 @@ struct CategoryList: View {
                         showingAddCategory = true
                     } label: {
                         Label("Add Category", systemImage: "tag")
+                    }
+                    .disabled(model.currentSource == nil)
+
+                    Button {
+                        showingAddTag = true
+                    } label: {
+                        Label("Add Tag", systemImage: "number")
                     }
                     .disabled(model.currentSource == nil)
                     
