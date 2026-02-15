@@ -125,6 +125,15 @@ struct ContentView: View {
             AddTagView()
                 .environmentObject(model)
         }
+#if os(iOS)
+        .fullScreenCover(isPresented: $showingTutorial) {
+            TutorialView {
+                hasSeenTutorial = true
+                showingTutorial = false
+            }
+            .interactiveDismissDisabled(true)
+        }
+#else
         .sheet(isPresented: $showingTutorial) {
             TutorialView {
                 hasSeenTutorial = true
@@ -132,6 +141,7 @@ struct ContentView: View {
             }
             .interactiveDismissDisabled(true)
         }
+#endif
         .sheet(item: $editingCategory) { category in
             AddCategoryView(editingCategory: category)
                 .environmentObject(model)

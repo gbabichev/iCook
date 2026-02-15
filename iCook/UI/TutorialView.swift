@@ -40,6 +40,82 @@ struct TutorialView: View {
     let onDone: () -> Void
     
     var body: some View {
+#if os(iOS)
+        iOSTutorialView
+#else
+        macOSTutorialView
+#endif
+    }
+
+#if os(iOS)
+    private var iOSTutorialView: some View {
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Color(.systemBackground),
+                    Color(.systemGray6)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
+
+            VStack(spacing: 20) {
+                HStack {
+                    Spacer()
+                    Button("Skip") {
+                        onDone()
+                    }
+                    .buttonStyle(.bordered)
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 8)
+
+                TabView(selection: $index) {
+                    ForEach(Array(steps.enumerated()), id: \.offset) { idx, step in
+                        iOSStepCard(step: step)
+                            .padding(.horizontal, 20)
+                            .tag(idx)
+                    }
+                }
+                .tabViewStyle(.page(indexDisplayMode: .never))
+                .animation(.easeInOut(duration: 0.2), value: index)
+
+                VStack(spacing: 12) {
+                    HStack(spacing: 8) {
+                        ForEach(steps.indices, id: \.self) { idx in
+                            Capsule()
+                                .fill(idx == index ? Color.accentColor : Color.secondary.opacity(0.25))
+                                .frame(width: idx == index ? 22 : 8, height: 8)
+                        }
+                    }
+                    .animation(.easeInOut(duration: 0.18), value: index)
+
+                    Text("Step \(index + 1) of \(steps.count)")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
+                Button(index == steps.count - 1 ? "Get Started" : "Continue") {
+                    if index == steps.count - 1 {
+                        onDone()
+                    } else {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            index += 1
+                        }
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 16)
+            }
+        }
+    }
+#endif
+
+    private var macOSTutorialView: some View {
         VStack(spacing: 24) {
             Spacer()
             
@@ -89,6 +165,44 @@ struct TutorialView: View {
         .padding(24)
     }
 }
+
+#if os(iOS)
+private struct iOSStepCard: View {
+    let step: TutorialView.Step
+
+    var body: some View {
+        VStack(spacing: 18) {
+            ZStack {
+                Circle()
+                    .fill(Color.accentColor.opacity(0.14))
+                    .frame(width: 110, height: 110)
+                Image(systemName: step.systemImage)
+                    .font(.system(size: 46, weight: .semibold))
+                    .foregroundStyle(Color.accentColor)
+            }
+            .padding(.top, 14)
+
+            Text(step.title)
+                .font(.title2.weight(.bold))
+                .multilineTextAlignment(.center)
+
+            Text(step.message)
+                .font(.body)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 8)
+
+            Spacer(minLength: 0)
+        }
+        .padding(22)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .fill(Color(.secondarySystemBackground))
+        )
+    }
+}
+#endif
 
 private struct TutorialStepView: View {
     let step: TutorialView.Step
