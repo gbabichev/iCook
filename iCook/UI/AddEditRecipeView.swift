@@ -33,6 +33,8 @@ struct AddEditRecipeView: View {
     @State private var saveErrorMessage: String?
     @State private var showingDeleteAlert = false
     @State private var isDeletingRecipe = false
+    @State private var showingAddTag = false
+    @State private var selectedTagIDs: Set<CKRecord.ID> = []
     
     // Recipe Steps
     @State private var recipeSteps: [RecipeStep] = []
@@ -125,6 +127,13 @@ struct AddEditRecipeView: View {
         }
         .onChange(of: model.categories) { _, newCategories in
             handleCategoryChanges(newCategories)
+        }
+        .onChange(of: model.tags) { _, newTags in
+            handleTagChanges(newTags)
+        }
+        .sheet(isPresented: $showingAddTag) {
+            AddTagView()
+                .environmentObject(model)
         }
 #if os(iOS)
         .photosPicker(
@@ -398,6 +407,8 @@ struct AddEditRecipeView: View {
             Text("minutes")
                 .foregroundStyle(.secondary)
         }
+
+        recipeTagSelectionContent
     }
 
     private var saveButtonEnabled: Bool {
@@ -437,6 +448,68 @@ struct AddEditRecipeView: View {
             if !recipeSteps.isEmpty {
                 Text("\(recipeSteps.count) steps")
                     .font(.caption)
+            }
+        }
+    }
+
+    private var orderedSelectedTagIDs: [CKRecord.ID] {
+        Array(selectedTagIDs).sorted { $0.recordName.localizedStandardCompare($1.recordName) == .orderedAscending }
+    }
+
+    @ViewBuilder
+    private var recipeTagSelectionContent: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Label("Tags", systemImage: "tag")
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+
+                Spacer()
+
+                Button {
+                    showingAddTag = true
+                } label: {
+                    Label("Add Tag", systemImage: "plus")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(!canEdit)
+            }
+
+            if model.tags.isEmpty {
+                Text("No tags yet.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: 8)], alignment: .leading, spacing: 8) {
+                    ForEach(model.tags) { tag in
+                        let isSelected = selectedTagIDs.contains(tag.id)
+                        Button {
+                            if isSelected {
+                                selectedTagIDs.remove(tag.id)
+                            } else {
+                                selectedTagIDs.insert(tag.id)
+                            }
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                                    .font(.caption)
+                                Text(tag.name)
+                                    .lineLimit(1)
+                            }
+                            .font(.caption)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(
+                                isSelected ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.12),
+                                in: Capsule()
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(!canEdit)
+                    }
+                }
             }
         }
     }
@@ -577,6 +650,7 @@ struct AddEditRecipeView: View {
         
         if let recipe = editingRecipe {
             selectedCategoryId = recipe.categoryID
+            selectedTagIDs = Set(recipe.tagIDs)
             recipeName = recipe.name
             recipeTime = String(recipe.recipeTime)
             recipeDetails = recipe.details ?? ""
@@ -629,6 +703,11 @@ struct AddEditRecipeView: View {
                 }
             }
         }
+    }
+
+    private func handleTagChanges(_ newTags: [Tag]) {
+        let validIDs = Set(newTags.map { $0.id })
+        selectedTagIDs.formIntersection(validIDs)
     }
     
     // MARK: - Save Recipe
@@ -696,7 +775,10 @@ struct AddEditRecipeView: View {
         }
         
         let success: Bool
+        let selectedTagIDsArray = orderedSelectedTagIDs
         if let recipe = editingRecipe {
+            let originalTagIDs = Set(recipe.tagIDs)
+            let tagIDsForUpdate: [CKRecord.ID]? = selectedTagIDs == originalTagIDs ? nil : selectedTagIDsArray
             success = await model.updateRecipeWithSteps(
                 id: recipe.id,
                 categoryId: selectedCategoryId != recipe.categoryID ? selectedCategoryId : nil,
@@ -704,7 +786,8 @@ struct AddEditRecipeView: View {
                 recipeTime: timeValue != recipe.recipeTime ? timeValue : nil,
                 details: detailsToSave != recipe.details ? detailsToSave : nil,
                 image: selectedImageData,
-                recipeSteps: finalSteps
+                recipeSteps: finalSteps,
+                tagIDs: tagIDsForUpdate
             )
         } else {
             success = await model.createRecipeWithSteps(
@@ -713,7 +796,8 @@ struct AddEditRecipeView: View {
                 recipeTime: timeValue,
                 details: detailsToSave,
                 image: selectedImageData,
-                recipeSteps: finalSteps
+                recipeSteps: finalSteps,
+                tagIDs: selectedTagIDsArray
             )
         }
         
@@ -727,6 +811,7 @@ struct AddEditRecipeView: View {
                 updated.details = detailsToSave
                 updated.recipeTime = timeValue
                 updated.recipeSteps = finalSteps
+                updated.tagIDs = selectedTagIDsArray
                 NotificationCenter.default.post(name: .recipeUpdated, object: updated)
             }
             dismiss()

@@ -12,6 +12,8 @@ struct RecipeDetailView: View {
     @State private var checkedStepIngredients: Set<String> = [] // Format: "stepNumber-ingredientIndex"
     @State private var showCopiedHUD = false
     @State private var displayedRecipe: Recipe
+    @State private var isUpdatingTags = false
+    @State private var tagUpdateErrorMessage: String?
     
     init(recipe: Recipe) {
         self.recipe = recipe
@@ -72,6 +74,8 @@ struct RecipeDetailView: View {
                                 .font(.headline)
                                 .foregroundStyle(.secondary)
                         }
+
+                        recipeTagManagerContent
                     }
                     
                     // Recipe Steps Section (NEW)
@@ -299,6 +303,109 @@ struct RecipeDetailView: View {
             }
         }
     }
+
+    private var canEditTags: Bool {
+        guard let source = model.currentSource else { return false }
+        return model.canEditSource(source) && !model.isOfflineMode
+    }
+
+    @ViewBuilder
+    private var recipeTagManagerContent: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .center, spacing: 10) {
+                Image(systemName: "tag")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+
+                if model.tags.isEmpty {
+                    Text("No tags yet.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    WrappingTagLayout(horizontalSpacing: 8, verticalSpacing: 8) {
+                        ForEach(model.tags) { tag in
+                            let isSelected = displayedRecipe.tagIDs.contains(tag.id)
+                            Button {
+                                Task {
+                                    await toggleTag(tag)
+                                }
+                            } label: {
+                                HStack(spacing: 6) {
+                                    let marker = isSelected ? "checkmark.circle.fill" : "circle"
+                                    Image(systemName: marker)
+                                        .font(.caption)
+                                    Text(tag.name)
+                                        .lineLimit(1)
+                                    Image(systemName: marker)
+                                        .font(.caption)
+                                        .opacity(0)
+                                }
+                                .font(.caption)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(
+                                    isSelected ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.12),
+                                    in: Capsule()
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(!canEditTags || isUpdatingTags)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+
+            if isUpdatingTags {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Updating tags...")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } else if let tagUpdateErrorMessage {
+                Text(tagUpdateErrorMessage)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+        }
+    }
+
+    @MainActor
+    private func toggleTag(_ tag: Tag) async {
+        guard canEditTags else { return }
+        isUpdatingTags = true
+        tagUpdateErrorMessage = nil
+
+        var next = Set(displayedRecipe.tagIDs)
+        if next.contains(tag.id) {
+            next.remove(tag.id)
+        } else {
+            next.insert(tag.id)
+        }
+        let nextIDs = Array(next).sorted { $0.recordName.localizedStandardCompare($1.recordName) == .orderedAscending }
+
+        let success = await model.updateRecipeWithSteps(
+            id: displayedRecipe.id,
+            categoryId: nil,
+            name: nil,
+            recipeTime: nil,
+            details: nil,
+            image: nil,
+            recipeSteps: nil,
+            tagIDs: nextIDs
+        )
+
+        if success {
+            displayedRecipe.tagIDs = nextIDs
+            refreshDisplayedRecipe()
+        } else {
+            tagUpdateErrorMessage = model.error ?? "Failed to update tags."
+        }
+
+        isUpdatingTags = false
+    }
     
     // Drop this helper anywhere in your file (outside the view body)
     private func copyToReminders(_ lines: [String]) {
@@ -352,6 +459,61 @@ struct RecipeDetailView: View {
 #endif
     }
     
+}
+
+private struct WrappingTagLayout: Layout {
+    var horizontalSpacing: CGFloat = 8
+    var verticalSpacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxWidth = proposal.width ?? .greatestFiniteMagnitude
+        var currentX: CGFloat = 0
+        var currentY: CGFloat = 0
+        var rowHeight: CGFloat = 0
+        var usedWidth: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if currentX > 0, currentX + size.width > maxWidth {
+                usedWidth = max(usedWidth, currentX - horizontalSpacing)
+                currentX = 0
+                currentY += rowHeight + verticalSpacing
+                rowHeight = 0
+            }
+
+            currentX += size.width + horizontalSpacing
+            rowHeight = max(rowHeight, size.height)
+        }
+
+        usedWidth = max(usedWidth, currentX > 0 ? currentX - horizontalSpacing : 0)
+        let totalHeight = currentY + rowHeight
+        let fittedWidth = proposal.width ?? usedWidth
+
+        return CGSize(width: fittedWidth, height: totalHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let maxWidth = bounds.width
+        var originX = bounds.minX
+        var originY = bounds.minY
+        var rowHeight: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if originX > bounds.minX, originX + size.width > bounds.minX + maxWidth {
+                originX = bounds.minX
+                originY += rowHeight + verticalSpacing
+                rowHeight = 0
+            }
+
+            subview.place(
+                at: CGPoint(x: originX, y: originY),
+                proposal: ProposedViewSize(width: size.width, height: size.height)
+            )
+            originX += size.width + horizontalSpacing
+            rowHeight = max(rowHeight, size.height)
+        }
+    }
 }
 
 extension Notification.Name {
