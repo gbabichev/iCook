@@ -113,6 +113,7 @@ struct RecipeCollectionView: View {
     @State private var searchResults: [Recipe] = []
     @State private var isSearching = false
     @State private var showingSearchResults = false
+    @State private var searchActivationScrollResetToken = 0
     @State private var showRevokedToast = false
     @State private var revokedToastMessage = ""
     @State private var featuredHomeRecipe: Recipe?
@@ -777,7 +778,11 @@ struct RecipeCollectionView: View {
             searchResults = []
             searchTask?.cancel()
         } else {
+            let wasShowingSearchResults = showingSearchResults
             showingSearchResults = true
+            if !wasShowingSearchResults {
+                searchActivationScrollResetToken &+= 1
+            }
             searchTask?.cancel()
             searchTask = Task {
                 try? await Task.sleep(nanoseconds: 250_000_000) // 250ms debounce
@@ -1023,6 +1028,7 @@ struct RecipeCollectionView: View {
                 // Reset the scroll view when recipes change so category/home reflect updates.
                 .id(AnyHashable(model.recipesRefreshTrigger))
             }
+            .id(searchActivationScrollResetToken)
         }
     }
 }
