@@ -30,8 +30,9 @@ struct ContentView: View {
         }
         return nil
     }
-    
-    var body: some View {
+
+    @ViewBuilder
+    private var splitViewContent: some View {
         NavigationSplitView(preferredCompactColumn: $preferredColumn) {
             VStack(spacing: 0) {
                 // iCloud status banner
@@ -48,7 +49,7 @@ struct ContentView: View {
                     .padding(.vertical, 8)
                     .background(Color.orange.opacity(0.1))
                 }
-                
+
                 // Category list
                 CategoryList(
                     editingCategory: $editingCategory,
@@ -72,90 +73,21 @@ struct ContentView: View {
             .navigationBarTitleDisplayMode(.inline)
 #endif
         }
+    }
+    
+    var body: some View {
+        splitViewContent
         .task {
-            await model.loadSources()
-            if !didRestoreLastViewed,
-               let saved = model.loadAppLocation(),
-               let source = model.sources.first(where: { $0.id == saved.sourceID }) {
-                suppressResetOnSourceChange = true
-                await model.selectSource(source)
-                await model.loadRandomRecipes(skipCache: true)
-
-                switch saved.location {
-                case .allRecipes:
-                    collectionType = .home
-                    didRestoreLastViewed = true
-
-                case .category(let categoryID):
-                    if let category = model.categories.first(where: { $0.id == categoryID }) {
-                        collectionType = .category(category)
-                        didRestoreLastViewed = true
-                    }
-
-                case .tag(let tagID):
-                    if let tag = model.tags.first(where: { $0.id == tagID }) {
-                        collectionType = .tag(tag)
-                        didRestoreLastViewed = true
-                    }
-
-                case .recipe(let recipeID, let categoryID):
-                    // Set the collection type first
-                    if let catID = categoryID,
-                       let category = model.categories.first(where: { $0.id == catID }) {
-                        collectionType = .category(category)
-                    } else {
-                        collectionType = .home
-                    }
-
-                    #if os(iOS)
-                    // On iOS, give NavigationStack time to initialize after collectionType changes
-                    try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 second
-                    #endif
-
-                    // Then navigate to the recipe
-                    if let recipe = model.recipes.first(where: { $0.id == recipeID }) ??
-                        model.randomRecipes.first(where: { $0.id == recipeID }) {
-                        navPath.append(recipe)
-                        didRestoreLastViewed = true
-                    }
-                }
-            } else if model.currentSource != nil {
-                await model.loadCategories()
-                await model.loadRandomRecipes()
-            }
+            await handleInitialLoadTask()
         }
         .onChange(of: model.currentSource?.id) {
-            // Pop to root when switching collections unless we just restored
-            if suppressResetOnSourceChange {
-                suppressResetOnSourceChange = false
-            } else {
-                navPath = NavigationPath()
-                navStackKey = UUID().uuidString
-                collectionType = .home
-                model.clearLastViewedRecipe()
-            }
+            handleCurrentSourceIDChange()
         }
         .onChange(of: model.sourceSelectionStamp) { _, _ in
-            if suppressResetOnSourceChange {
-                suppressResetOnSourceChange = false
-                return
-            }
-            navPath = NavigationPath()
-            navStackKey = UUID().uuidString
-            collectionType = .home
-            model.clearLastViewedRecipe()
+            handleSourceSelectionStampChange()
         }
         .onChange(of: model.tags) { _, newTags in
-            guard case .tag(let selectedTag) = collectionType else { return }
-            let stillExists = newTags.contains(where: { $0.id == selectedTag.id })
-            guard !stillExists else { return }
-
-            navPath = NavigationPath()
-            navStackKey = UUID().uuidString
-            collectionType = .home
-            lastCollectionType = .home
-            model.clearLastViewedRecipe()
-            model.saveAppLocation(.allRecipes)
+            handleTagsChange(newTags)
         }
         .alert("Error",
             isPresented: .init(
@@ -193,50 +125,34 @@ struct ContentView: View {
                 .environmentObject(model)
         }
         .onChange(of: collectionType) { _, newValue in
-            if let newValue {
-                lastCollectionType = newValue
-                // Save location when collectionType changes
-                switch newValue {
-                case .home:
-                    model.saveAppLocation(.allRecipes)
-                case .category(let category):
-                    model.saveAppLocation(.category(categoryID: category.id))
-                case .tag(let tag):
-                    model.saveAppLocation(.tag(tagID: tag.id))
-                }
-            }
+            handleCollectionTypeChange(newValue)
         }
         .onChange(of: navPath.count) { oldCount, newCount in
-            // When navigating back from a recipe (path becomes empty)
-            // save the current collection type location
-            if newCount == 0 && oldCount > 0 {
-                switch collectionType {
-                case .home:
-                    model.saveAppLocation(.allRecipes)
-                case .category(let category):
-                    model.saveAppLocation(.category(categoryID: category.id))
-                case .tag(let tag):
-                    model.saveAppLocation(.tag(tagID: tag.id))
-                case .none:
-                    model.saveAppLocation(.allRecipes)
-                }
-            }
+            handleNavPathCountChange(oldCount: oldCount, newCount: newCount)
         }
         .onReceive(NotificationCenter.default.publisher(for: .showTutorial)) { _ in
-            showingTutorial = true
+            handleShowTutorialRequest()
         }
         .onReceive(NotificationCenter.default.publisher(for: .requestAddRecipe)) { _ in
-            guard !model.isOfflineMode, model.currentSource != nil, !model.categories.isEmpty else { return }
-            showingAddRecipe = true
+            handleAddRecipeRequest()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .requestFeelingLucky)) { notification in
+            handleFeelingLuckyRequest(notification)
         }
         .onAppear {
-            // Try to restore immediately from cached data to avoid visible jumps
-            if !hasSeenTutorial {
-                showingTutorial = true
-            }
-            guard !didRestoreLastViewed,
-                  let saved = model.loadAppLocation(),
-                  model.currentSource?.id == saved.sourceID else { return }
+            handleOnAppear()
+        }
+    }
+
+    @MainActor
+    private func handleInitialLoadTask() async {
+        await model.loadSources()
+        if !didRestoreLastViewed,
+           let saved = model.loadAppLocation(),
+           let source = model.sources.first(where: { $0.id == saved.sourceID }) {
+            suppressResetOnSourceChange = true
+            await model.selectSource(source)
+            await model.loadRandomRecipes(skipCache: true)
 
             switch saved.location {
             case .allRecipes:
@@ -256,7 +172,6 @@ struct ContentView: View {
                 }
 
             case .recipe(let recipeID, let categoryID):
-                // Set the collection type first
                 if let catID = categoryID,
                    let category = model.categories.first(where: { $0.id == catID }) {
                     collectionType = .category(category)
@@ -264,23 +179,162 @@ struct ContentView: View {
                     collectionType = .home
                 }
 
-                // Then navigate to the recipe
+#if os(iOS)
+                try? await Task.sleep(nanoseconds: 100_000_000)
+#endif
+
                 if let recipe = model.recipes.first(where: { $0.id == recipeID }) ??
                     model.randomRecipes.first(where: { $0.id == recipeID }) {
-                    #if os(iOS)
-                    // On iOS, delay navigation to allow NavigationStack to initialize
-                    Task {
-                        try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 second
-                        suppressResetOnSourceChange = true
-                        navPath.append(recipe)
-                        didRestoreLastViewed = true
-                    }
-                    #else
+                    navPath.append(recipe)
+                    didRestoreLastViewed = true
+                }
+            }
+        } else if model.currentSource != nil {
+            await model.loadCategories()
+            await model.loadRandomRecipes()
+        }
+    }
+
+    private func handleCurrentSourceIDChange() {
+        if suppressResetOnSourceChange {
+            suppressResetOnSourceChange = false
+        } else {
+            navPath = NavigationPath()
+            navStackKey = UUID().uuidString
+            collectionType = .home
+            model.clearLastViewedRecipe()
+        }
+    }
+
+    private func handleSourceSelectionStampChange() {
+        if suppressResetOnSourceChange {
+            suppressResetOnSourceChange = false
+            return
+        }
+        navPath = NavigationPath()
+        navStackKey = UUID().uuidString
+        collectionType = .home
+        model.clearLastViewedRecipe()
+    }
+
+    private func handleTagsChange(_ newTags: [Tag]) {
+        guard case .tag(let selectedTag) = collectionType else { return }
+        let stillExists = newTags.contains(where: { $0.id == selectedTag.id })
+        guard !stillExists else { return }
+
+        navPath = NavigationPath()
+        navStackKey = UUID().uuidString
+        collectionType = .home
+        lastCollectionType = .home
+        model.clearLastViewedRecipe()
+        model.saveAppLocation(.allRecipes)
+    }
+
+    private func handleCollectionTypeChange(_ newValue: RecipeCollectionType?) {
+        if let newValue {
+            lastCollectionType = newValue
+            switch newValue {
+            case .home:
+                model.saveAppLocation(.allRecipes)
+            case .category(let category):
+                model.saveAppLocation(.category(categoryID: category.id))
+            case .tag(let tag):
+                model.saveAppLocation(.tag(tagID: tag.id))
+            }
+        }
+    }
+
+    private func handleNavPathCountChange(oldCount: Int, newCount: Int) {
+        if newCount == 0 && oldCount > 0 {
+            switch collectionType {
+            case .home:
+                model.saveAppLocation(.allRecipes)
+            case .category(let category):
+                model.saveAppLocation(.category(categoryID: category.id))
+            case .tag(let tag):
+                model.saveAppLocation(.tag(tagID: tag.id))
+            case .none:
+                model.saveAppLocation(.allRecipes)
+            }
+        }
+    }
+
+    private func handleShowTutorialRequest() {
+        showingTutorial = true
+    }
+
+    private func handleAddRecipeRequest() {
+        guard !model.isOfflineMode, model.currentSource != nil, !model.categories.isEmpty else { return }
+        showingAddRecipe = true
+    }
+
+    private func handleFeelingLuckyRequest(_ notification: Notification) {
+        guard let recipe = notification.object as? Recipe else { return }
+
+        if navPath.count > 0 {
+            navPath = NavigationPath()
+        }
+
+        model.saveLastViewedRecipe(recipe)
+        switch collectionType ?? lastCollectionType {
+        case .home:
+            model.saveAppLocation(.recipe(recipeID: recipe.id, categoryID: recipe.categoryID))
+        case .category(let category):
+            model.saveAppLocation(.recipe(recipeID: recipe.id, categoryID: category.id))
+        case .tag:
+            model.saveAppLocation(.recipe(recipeID: recipe.id, categoryID: recipe.categoryID))
+        }
+
+        navPath.append(recipe)
+    }
+
+    private func handleOnAppear() {
+        if !hasSeenTutorial {
+            showingTutorial = true
+        }
+        guard !didRestoreLastViewed,
+              let saved = model.loadAppLocation(),
+              model.currentSource?.id == saved.sourceID else { return }
+
+        switch saved.location {
+        case .allRecipes:
+            collectionType = .home
+            didRestoreLastViewed = true
+
+        case .category(let categoryID):
+            if let category = model.categories.first(where: { $0.id == categoryID }) {
+                collectionType = .category(category)
+                didRestoreLastViewed = true
+            }
+
+        case .tag(let tagID):
+            if let tag = model.tags.first(where: { $0.id == tagID }) {
+                collectionType = .tag(tag)
+                didRestoreLastViewed = true
+            }
+
+        case .recipe(let recipeID, let categoryID):
+            if let catID = categoryID,
+               let category = model.categories.first(where: { $0.id == catID }) {
+                collectionType = .category(category)
+            } else {
+                collectionType = .home
+            }
+
+            if let recipe = model.recipes.first(where: { $0.id == recipeID }) ??
+                model.randomRecipes.first(where: { $0.id == recipeID }) {
+#if os(iOS)
+                Task {
+                    try? await Task.sleep(nanoseconds: 100_000_000)
                     suppressResetOnSourceChange = true
                     navPath.append(recipe)
                     didRestoreLastViewed = true
-                    #endif
                 }
+#else
+                suppressResetOnSourceChange = true
+                navPath.append(recipe)
+                didRestoreLastViewed = true
+#endif
             }
         }
     }

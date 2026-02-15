@@ -243,6 +243,17 @@ extension SourceSelector {
                         Text("App")
                             .font(.headline)
 
+                        SettingsRow(
+                            "Feeling Lucky",
+                            systemImage: "die.face.5",
+                            subtitle: "Enable a button to pick random recipes."
+                        ) {
+                            Toggle("", isOn: $enableFeelingLucky)
+                            .toggleStyle(.switch)
+                        }
+                        
+                        Divider()
+
                         HStack {
                             Text("Total Recipes")
                             Spacer()

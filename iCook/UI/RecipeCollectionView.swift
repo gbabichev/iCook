@@ -87,6 +87,7 @@ enum RecipeCollectionType: Hashable {
 struct RecipeCollectionView: View {
     let collectionType: RecipeCollectionType
     @EnvironmentObject private var model: AppViewModel
+    @AppStorage("EnableFeelingLucky") private var enableFeelingLucky = true
     
     // Toolbar state - passed from parent or locally managed
     @State private var showNewSourceSheet = false
@@ -223,6 +224,17 @@ struct RecipeCollectionView: View {
             return "Search in \(category.name)"
         case .tag(let tag):
             return "Search in \(tag.name)"
+        }
+    }
+
+    private var luckyRecipePool: [Recipe] {
+        switch collectionType {
+        case .home:
+            return model.recipes
+        case .category(let category):
+            return model.recipes.filter { $0.categoryID == category.id }
+        case .tag(let tag):
+            return model.recipes.filter { $0.tagIDs.contains(tag.id) }
         }
     }
 
@@ -790,6 +802,11 @@ struct RecipeCollectionView: View {
         }
     }
 
+    private func triggerFeelingLucky() {
+        guard let recipe = luckyRecipePool.randomElement() else { return }
+        NotificationCenter.default.post(name: .requestFeelingLucky, object: recipe)
+    }
+
     private func handleRefresh() async {
         guard !isRefreshInFlight else { return }
         isRefreshInFlight = true
@@ -908,6 +925,18 @@ struct RecipeCollectionView: View {
                         .scaleEffect(0.7)
                 }
                 .disabled(true)
+            }
+        }
+
+        if enableFeelingLucky {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    triggerFeelingLucky()
+                } label: {
+                    Image(systemName: "die.face.5")
+                }
+                .disabled(luckyRecipePool.isEmpty || isLoading)
+                .accessibilityLabel("Feeling Lucky")
             }
         }
 

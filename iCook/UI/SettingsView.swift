@@ -9,6 +9,7 @@ import AppKit
 struct SourceSelector: View {
     @EnvironmentObject var viewModel: AppViewModel
     @Environment(\.dismiss) var dismiss
+    @AppStorage("EnableFeelingLucky") var enableFeelingLucky = true
 
     @State var showNewSourceSheet = false
     @State var newSourceName = ""
@@ -149,6 +150,12 @@ struct SourceSelector: View {
                 }
 
                 Section("Settings") {
+                    Toggle(isOn: $enableFeelingLucky) {
+                        Label("Feeling Lucky", systemImage: "die.face.5")
+                    }
+                    .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
+
+
                     HStack {
                         Text("Total Recipes")
                         Spacer()
