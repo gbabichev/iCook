@@ -38,11 +38,31 @@ UI notes:
 - Share button on iOS Collections shows “Preparing share…” overlay while loading.
 - `.toolbarBackground(.hidden, for: .windowToolbar)` applied on macOS toolbars.
 - iPhone sidebar title only (no title on iPad).
+- DEBUG builds show `BetaTag()` overlay in bottom trailing app window.
+
+Navigation + window management:
+- App now uses single-scene window behavior on macOS (`Window` style flow) to avoid duplicate import handling across multiple windows.
+- Finder-opened `.icookexport` files are forwarded to an existing app window when possible.
+- If a transient import window is created by the system open event, import handling is deferred/forwarded and that extra window closes.
+- Import UI state is window-scoped to avoid duplicate dialogs.
 
 Docs updated:
 - `Documentation/PrivacyPolicy.html` and `Documentation/Support.html` reflect iCook.
 - README updated to iCook (App Store link still old—replace when known).
 - Generic cross-project sharing guide added: `Documentation/CloudKitSharingPlaybook.md`.
+
+Tags + filtering:
+- Tags are first-class sidebar items (clickable like categories) and support add/edit/delete.
+- `RecipeCollectionType` includes `.tag(Tag)` and recipe lists can be filtered by selected tag.
+- App location persistence supports tag destinations (`AppLocation.tag(tagID:)`) so restoring state works for tag views.
+- If a currently selected tag is deleted, UI automatically exits that tag view and returns to Home.
+- Tags are editable directly in recipe detail view (quick assignment/removal) without opening full edit flow.
+- Duplicate-name prevention exists for both tags and categories with inline validation messaging.
+
+Recent code optimization / cleanup:
+- Legacy navigation glue was simplified in favor of native SwiftUI navigation flows.
+- Removed stale/unused debug logging and periphery-reported dead paths where safe.
+- Kept platform-specific camera and sharing behavior isolated (e.g., `AddEditRecipeCamera+iOS.swift`) to reduce cross-platform conditionals.
 
 
 ## CloudKit Sharing
