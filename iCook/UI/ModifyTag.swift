@@ -159,7 +159,7 @@ struct AddTagView: View {
     private var macOSView: some View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
-                Image(systemName: "number")
+                Image(systemName: "tag")
                     .font(.title2)
                     .foregroundStyle(.secondary)
 

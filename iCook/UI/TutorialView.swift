@@ -17,7 +17,7 @@ struct TutorialView: View {
         Step(
             title: "Categories",
             message: "Categories organize recipes inside a collection. Think Breakfast, Dinner, or Desserts.",
-            systemImage: "tag"
+            systemImage: "tray"
         ),
         Step(
             title: "Recipes",

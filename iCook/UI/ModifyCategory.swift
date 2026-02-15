@@ -181,7 +181,7 @@ struct AddCategoryView: View {
     private var macOSView: some View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
-                Image(systemName: "tag")
+                Image(systemName: "tray")
                     .font(.title2)
                     .foregroundStyle(.secondary)
 

@@ -95,7 +95,7 @@ struct CategoryList: View {
                     } else {
                         ForEach(model.tags) { tag in
                             HStack(spacing: 6) {
-                                Image(systemName: "number")
+                                Image(systemName: "tag")
                                     .foregroundStyle(.secondary)
                                     .frame(width: 24)
                                 Text(tag.name)
@@ -163,14 +163,14 @@ struct CategoryList: View {
                     Button {
                         showingAddCategory = true
                     } label: {
-                        Label("Add Category", systemImage: "tag")
+                        Label("Add Category", systemImage: "tray")
                     }
                     .disabled(model.currentSource == nil)
 
                     Button {
                         showingAddTag = true
                     } label: {
-                        Label("Add Tag", systemImage: "number")
+                        Label("Add Tag", systemImage: "tag")
                     }
                     .disabled(model.currentSource == nil)
                     
