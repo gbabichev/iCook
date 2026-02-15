@@ -29,6 +29,21 @@ struct AddCategoryView: View {
         ("Baked & Desserts", ["🥐", "🍞", "🥖", "🧁", "🍰", "🍪", "🍩", "🍫", "🍨"])
     ]
     var isEditing: Bool { editingCategory != nil }
+
+    private var trimmedCategoryName: String {
+        categoryName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var hasDuplicateName: Bool {
+        model.categories.contains {
+            if let editingCategory, $0.id == editingCategory.id { return false }
+            return $0.name.compare(trimmedCategoryName, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
+        }
+    }
+
+    private var showDuplicateWarning: Bool {
+        hasDuplicateName && !isSaving
+    }
     
     init(editingCategory: Category? = nil) {
         self.editingCategory = editingCategory
@@ -85,6 +100,22 @@ struct AddCategoryView: View {
                     TextField("Category Name", text: $categoryName)
                         .disabled(!canEdit)
                 }
+
+                if showDuplicateWarning {
+                    Section {
+                        HStack(spacing: 10) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.orange)
+                            Text("A category with this name already exists.")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                            Spacer(minLength: 0)
+                        }
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+                    }
+                }
                 
                 Section("Choose an Icon") {
                     iconPickerGrid
@@ -106,7 +137,7 @@ struct AddCategoryView: View {
                             await saveCategory()
                         }
                     }
-                    .disabled(!canEdit || categoryName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSaving)
+                    .disabled(!canEdit || trimmedCategoryName.isEmpty || hasDuplicateName || isSaving)
                 }
             }
         }
@@ -163,6 +194,19 @@ struct AddCategoryView: View {
                     }
                     .padding(14)
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+
+                    if showDuplicateWarning {
+                        HStack(spacing: 10) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.orange)
+                            Text("A category with this name already exists.")
+                                .font(.callout)
+                            Spacer(minLength: 0)
+                        }
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+                    }
 
                     VStack(alignment: .leading, spacing: 12) {
                         Text("Choose an Icon")
@@ -243,7 +287,7 @@ struct AddCategoryView: View {
     }
 
     private var saveButtonDisabled: Bool {
-        !canEdit || categoryName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSaving
+        !canEdit || trimmedCategoryName.isEmpty || hasDuplicateName || isSaving
     }
     
     private var canEdit: Bool {
@@ -254,12 +298,14 @@ struct AddCategoryView: View {
     @MainActor
     private func saveCategory() async {
         isSaving = true
-        defer { isSaving = false }
         
-        let trimmedName = categoryName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedName = trimmedCategoryName
         let trimmedIcon = selectedIcon.trimmingCharacters(in: .whitespacesAndNewlines)
         
-        guard !trimmedName.isEmpty && !trimmedIcon.isEmpty else { return }
+        guard !trimmedName.isEmpty && !trimmedIcon.isEmpty && !hasDuplicateName else {
+            isSaving = false
+            return
+        }
         
         let success: Bool
         if let category = editingCategory {
@@ -270,6 +316,9 @@ struct AddCategoryView: View {
         
         if success {
             dismiss()
+            return
         }
+
+        isSaving = false
     }
 }

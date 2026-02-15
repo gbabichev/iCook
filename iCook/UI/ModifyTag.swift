@@ -100,9 +100,17 @@ struct AddTagView: View {
 
                 if showDuplicateWarning {
                     Section {
-                        Text("A tag with this name already exists.")
-                            .font(.caption)
-                            .foregroundStyle(.orange)
+                        HStack(spacing: 10) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.orange)
+                            Text("A tag with this name already exists.")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                            Spacer(minLength: 0)
+                        }
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
                     }
                 }
 
@@ -205,8 +213,10 @@ struct AddTagView: View {
                                 .foregroundStyle(.orange)
                             Text("A tag with this name already exists.")
                                 .font(.callout)
+                            Spacer(minLength: 0)
                         }
                         .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                         .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
                     }
 
