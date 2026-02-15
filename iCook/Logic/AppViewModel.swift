@@ -6,6 +6,7 @@ import UniformTypeIdentifiers
 @MainActor
 final class AppViewModel: ObservableObject {
     @Published var categories: [Category] = []
+    @Published var tags: [Tag] = []
     @Published var recipes: [Recipe] = []
     @Published var randomRecipes: [Recipe] = []
     @Published var recipeCounts: [CKRecord.ID: Int] = [:]
@@ -47,6 +48,7 @@ final class AppViewModel: ObservableObject {
         if let source = currentSource {
             cloudKitManager.loadCachedData(for: source)
             categories = cloudKitManager.categories
+            tags = cloudKitManager.tags
             recipeCounts = cloudKitManager.recipeCounts
             recipes = cloudKitManager.recipes
             randomRecipes = recipes
@@ -87,11 +89,13 @@ final class AppViewModel: ObservableObject {
                 if let current = self.currentSource {
                     self.cloudKitManager.loadCachedData(for: current)
                     self.categories = self.cloudKitManager.categories
+                    self.tags = self.cloudKitManager.tags
                     self.recipeCounts = self.cloudKitManager.recipeCounts
                     self.recipes = self.cloudKitManager.recipes
                     self.randomRecipes = self.cloudKitManager.recipes
                 } else {
                     self.categories.removeAll()
+                    self.tags.removeAll()
                     self.recipes.removeAll()
                     self.randomRecipes.removeAll()
                     self.recipeCounts.removeAll()
@@ -109,6 +113,7 @@ final class AppViewModel: ObservableObject {
         await cloudKitManager.loadSources()
         sources = cloudKitManager.sources
         currentSource = cloudKitManager.currentSource
+        tags = currentSource == nil ? [] : cloudKitManager.tags
         refreshOfflineState()
     }
     
@@ -128,6 +133,7 @@ final class AppViewModel: ObservableObject {
         // (the new source might not be indexed in CloudKit yet)
         sources = cloudKitManager.sources
         currentSource = cloudKitManager.currentSource
+        tags = cloudKitManager.tags
         cloudKitManager.saveCurrentSourceID()
         error = cloudKitManager.error
         refreshOfflineState()
@@ -139,6 +145,7 @@ final class AppViewModel: ObservableObject {
         // Copy sources directly from CloudKitManager without re-querying
         sources = cloudKitManager.sources
         currentSource = cloudKitManager.currentSource
+        tags = cloudKitManager.tags
         cloudKitManager.saveCurrentSourceID()
         refreshOfflineState()
         return true
@@ -153,6 +160,7 @@ final class AppViewModel: ObservableObject {
         } else {
             currentSource = cloudKitManager.currentSource
         }
+        tags = cloudKitManager.tags
         cloudKitManager.saveCurrentSourceID()
         refreshOfflineState()
         return cloudKitManager.error == nil
@@ -169,6 +177,7 @@ final class AppViewModel: ObservableObject {
                 return
             } else {
                 categories.removeAll()
+                tags.removeAll()
                 recipes.removeAll()
                 recipeCounts.removeAll()
             }
@@ -217,6 +226,7 @@ final class AppViewModel: ObservableObject {
         // Keep cached categories visible; just fetch latest and then swap in
         await cloudKitManager.loadCategories(for: source)
         categories = cloudKitManager.categories
+        tags = cloudKitManager.tags
         await cloudKitManager.loadRecipeCounts(for: source)
         recipeCounts = cloudKitManager.recipeCounts
         error = cloudKitManager.error
@@ -261,6 +271,44 @@ final class AppViewModel: ObservableObject {
         categories = cloudKitManager.categories
         recipeCounts = cloudKitManager.recipeCounts
         refreshOfflineState()
+    }
+
+    // MARK: - Tag Management
+    func createTag(name: String) async -> Bool {
+        guard let source = currentSource else { return false }
+        error = nil
+
+        await cloudKitManager.createTag(name: name, in: source)
+        error = cloudKitManager.error
+        tags = cloudKitManager.tags
+        refreshOfflineState()
+        return error == nil
+    }
+
+    func updateTag(id: CKRecord.ID, name: String) async -> Bool {
+        guard let source = currentSource else { return false }
+        guard let tag = tags.first(where: { $0.id == id }) else { return false }
+
+        var updatedTag = tag
+        updatedTag.name = name
+        updatedTag.lastModified = Date()
+
+        await cloudKitManager.updateTag(updatedTag, in: source)
+        error = cloudKitManager.error
+        tags = cloudKitManager.tags
+        refreshOfflineState()
+        return error == nil
+    }
+
+    func deleteTag(id: CKRecord.ID) async -> Bool {
+        guard let source = currentSource else { return false }
+        guard let tag = tags.first(where: { $0.id == id }) else { return false }
+
+        await cloudKitManager.deleteTag(tag, in: source)
+        error = cloudKitManager.error
+        tags = cloudKitManager.tags
+        refreshOfflineState()
+        return error == nil
     }
     
     // MARK: - Recipe Management
@@ -491,7 +539,8 @@ final class AppViewModel: ObservableObject {
         recipeTime: Int?,
         details: String?,
         image: Data?,
-        recipeSteps: [RecipeStep]?
+        recipeSteps: [RecipeStep]?,
+        tagIDs: [CKRecord.ID] = []
     ) async -> Bool {
         guard let source = currentSource else { return false }
         
@@ -507,7 +556,8 @@ final class AppViewModel: ObservableObject {
             recipeTime: recipeTime ?? 0,
             details: details,
             imageAsset: nil,
-            recipeSteps: recipeSteps ?? []
+            recipeSteps: recipeSteps ?? [],
+            tagIDs: tagIDs
         )
         
         // Handle image if provided
@@ -556,7 +606,8 @@ final class AppViewModel: ObservableObject {
         recipeTime: Int?,
         details: String?,
         image: Data?,
-        recipeSteps: [RecipeStep]?
+        recipeSteps: [RecipeStep]?,
+        tagIDs: [CKRecord.ID]? = nil
     ) async -> Bool {
         guard let source = currentSource else {
             printD("DEBUG: updateRecipeWithSteps failed - no currentSource")
@@ -587,6 +638,7 @@ final class AppViewModel: ObservableObject {
         if let details = details { updatedRecipe.details = details }
         if let categoryId = categoryId { updatedRecipe.categoryID = categoryId }
         if let recipeSteps = recipeSteps { updatedRecipe.recipeSteps = recipeSteps }
+        if let tagIDs = tagIDs { updatedRecipe.tagIDs = tagIDs }
         
         // Handle image if provided
         var tempImageURL: URL?

@@ -177,6 +177,85 @@ extension Category: Codable {
     }
 }
 
+// MARK: - Tag (Belongs to a Source)
+struct Tag: Identifiable, Hashable {
+    var id: CKRecord.ID
+    var sourceID: CKRecord.ID // Reference to Source
+    var name: String
+    var lastModified: Date
+
+    init(id: CKRecord.ID, sourceID: CKRecord.ID, name: String, lastModified: Date = Date()) {
+        self.id = id
+        self.sourceID = sourceID
+        self.name = name
+        self.lastModified = lastModified
+    }
+
+    /// Convert to CloudKit CKRecord
+    func toCKRecord() -> CKRecord {
+        let record = CKRecord(recordType: "Tag", recordID: id)
+        record["name"] = name
+        record["sourceID"] = CKRecord.Reference(recordID: sourceID, action: .deleteSelf)
+        record["lastModified"] = lastModified
+        return record
+    }
+
+    /// Create from CloudKit CKRecord
+    static func from(_ record: CKRecord) -> Tag? {
+        guard let name = record["name"] as? String,
+              let sourceRef = record["sourceID"] as? CKRecord.Reference else {
+            return nil
+        }
+
+        let lastModified = (record["lastModified"] as? Date) ?? Date()
+        return Tag(id: record.recordID, sourceID: sourceRef.recordID, name: name, lastModified: lastModified)
+    }
+}
+
+extension Tag: Codable {
+    enum CodingKeys: String, CodingKey {
+        case recordName
+        case zoneName
+        case zoneOwnerName
+        case sourceRecordName
+        case sourceZoneName
+        case sourceZoneOwnerName
+        case name
+        case lastModified
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id.recordName, forKey: .recordName)
+        try container.encode(id.zoneID.zoneName, forKey: .zoneName)
+        try container.encode(id.zoneID.ownerName, forKey: .zoneOwnerName)
+        try container.encode(sourceID.recordName, forKey: .sourceRecordName)
+        try container.encode(sourceID.zoneID.zoneName, forKey: .sourceZoneName)
+        try container.encode(sourceID.zoneID.ownerName, forKey: .sourceZoneOwnerName)
+        try container.encode(name, forKey: .name)
+        try container.encode(lastModified, forKey: .lastModified)
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        let recordName = try container.decode(String.self, forKey: .recordName)
+        let zoneName = try container.decode(String.self, forKey: .zoneName)
+        let zoneOwner = try container.decode(String.self, forKey: .zoneOwnerName)
+        let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: zoneOwner)
+        self.id = CKRecord.ID(recordName: recordName, zoneID: zoneID)
+
+        let sourceRecordName = try container.decode(String.self, forKey: .sourceRecordName)
+        let sourceZoneName = try container.decode(String.self, forKey: .sourceZoneName)
+        let sourceZoneOwner = try container.decode(String.self, forKey: .sourceZoneOwnerName)
+        let sourceZoneID = CKRecordZone.ID(zoneName: sourceZoneName, ownerName: sourceZoneOwner)
+        self.sourceID = CKRecord.ID(recordName: sourceRecordName, zoneID: sourceZoneID)
+
+        self.name = try container.decode(String.self, forKey: .name)
+        self.lastModified = try container.decode(Date.self, forKey: .lastModified)
+    }
+}
+
 // MARK: - Recipe Step
 struct RecipeStep: Codable, Hashable {
     var stepNumber: Int
@@ -201,6 +280,7 @@ struct Recipe: Identifiable, Hashable {
     var imageAsset: CKAsset? // CloudKit asset instead of URL
     var cachedImagePath: String?
     var recipeSteps: [RecipeStep]
+    var tagIDs: [CKRecord.ID] // Many-to-many via Tag record IDs
     var lastModified: Date
     
     init(
@@ -213,6 +293,7 @@ struct Recipe: Identifiable, Hashable {
         imageAsset: CKAsset? = nil,
         cachedImagePath: String? = nil,
         recipeSteps: [RecipeStep] = [],
+        tagIDs: [CKRecord.ID] = [],
         lastModified: Date = Date()
     ) {
         self.id = id
@@ -224,6 +305,7 @@ struct Recipe: Identifiable, Hashable {
         self.imageAsset = imageAsset
         self.cachedImagePath = cachedImagePath
         self.recipeSteps = recipeSteps
+        self.tagIDs = tagIDs
         self.lastModified = lastModified
     }
     
@@ -241,6 +323,7 @@ struct Recipe: Identifiable, Hashable {
         record["details"] = details
         record["sourceID"] = CKRecord.Reference(recordID: sourceID, action: .deleteSelf)
         record["categoryID"] = CKRecord.Reference(recordID: categoryID, action: .none)
+        record["tagIDs"] = tagIDs.map(\.recordName)
         record["lastModified"] = lastModified
         
         // Store image asset
@@ -271,6 +354,8 @@ struct Recipe: Identifiable, Hashable {
         let details = record["details"] as? String
         let imageAsset = record["imageAsset"] as? CKAsset
         let lastModified = (record["lastModified"] as? Date) ?? Date()
+        let tagRecordNames = (record["tagIDs"] as? [String]) ?? []
+        let tagIDs = tagRecordNames.map { CKRecord.ID(recordName: $0, zoneID: sourceRef.recordID.zoneID) }
         
         var recipeSteps: [RecipeStep] = []
         if let stepsJSON = record["recipeSteps"] as? String,
@@ -291,6 +376,7 @@ struct Recipe: Identifiable, Hashable {
             details: details,
             imageAsset: imageAsset,
             recipeSteps: recipeSteps,
+            tagIDs: tagIDs,
             lastModified: lastModified
         )
     }
@@ -321,6 +407,7 @@ extension Recipe: Codable {
         case details
         case cachedImagePath
         case recipeSteps
+        case tagRecordNames
         case lastModified
     }
     
@@ -340,6 +427,7 @@ extension Recipe: Codable {
         try container.encode(details, forKey: .details)
         try container.encodeIfPresent(cachedImagePath, forKey: .cachedImagePath)
         try container.encode(recipeSteps, forKey: .recipeSteps)
+        try container.encode(tagIDs.map(\.recordName), forKey: .tagRecordNames)
         try container.encode(lastModified, forKey: .lastModified)
     }
     
@@ -369,6 +457,8 @@ extension Recipe: Codable {
         self.details = try container.decodeIfPresent(String.self, forKey: .details)
         self.cachedImagePath = try container.decodeIfPresent(String.self, forKey: .cachedImagePath)
         self.recipeSteps = try container.decode([RecipeStep].self, forKey: .recipeSteps)
+        let tagRecordNames = try container.decodeIfPresent([String].self, forKey: .tagRecordNames) ?? []
+        self.tagIDs = tagRecordNames.map { CKRecord.ID(recordName: $0, zoneID: sourceZoneID) }
         self.lastModified = try container.decode(Date.self, forKey: .lastModified)
         self.imageAsset = nil
     }

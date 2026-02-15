@@ -24,6 +24,10 @@ struct CategoryList: View {
     private func recipeCount(for category: Category) -> Int {
         model.recipeCounts[category.id] ?? 0
     }
+
+    private func recipeCount(for tag: Tag) -> Int {
+        model.recipes.filter { $0.tagIDs.contains(tag.id) }.count
+    }
     
     private func refreshCategoriesSmooth() async {
         guard model.currentSource != nil else { return }
@@ -90,6 +94,31 @@ struct CategoryList: View {
                                 Label("Delete Category", systemImage: "trash")
                             }
                             .disabled(model.isOfflineMode)
+                        }
+                    }
+                }
+            }
+
+            if model.currentSource != nil {
+                Section("Tags") {
+                    if model.tags.isEmpty {
+                        Text("No tags yet")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(model.tags) { tag in
+                            HStack(spacing: 6) {
+                                Image(systemName: "number")
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 24)
+                                Text(tag.name)
+
+                                Spacer()
+
+                                Text("\(recipeCount(for: tag))")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     }
                 }

@@ -22,6 +22,7 @@ class CloudKitManager: ObservableObject {
     @Published var currentSource: Source?
     @Published var sources: [Source] = []
     @Published var categories: [Category] = []
+    @Published var tags: [Tag] = []
     @Published var recipes: [Recipe] = []
     @Published var recipeCounts: [CKRecord.ID: Int] = [:]
     @Published var isLoading = false
@@ -43,9 +44,11 @@ class CloudKitManager: ObservableObject {
     // Caches
     private var sourceCache: [CKRecord.ID: Source] = [:]
     private var categoryCache: [CKRecord.ID: Category] = [:]
+    private var tagCache: [CKRecord.ID: Tag] = [:]
     private var recipeCache: [CKRecord.ID: Recipe] = [:]
     private enum CacheFileType: String {
         case categories
+        case tags
         case recipes
         case recipeCounts
     }
@@ -377,6 +380,29 @@ class CloudKitManager: ObservableObject {
             return nil
         }
     }
+
+    private func saveTagsLocalCache(_ tags: [Tag], for source: Source) {
+        let url = cacheFileURL(for: .tags, sourceID: source.id)
+        do {
+            let encoded = try JSONEncoder().encode(tags)
+            try encoded.write(to: url, options: .atomic)
+            printD("Cached \(tags.count) tags for \(source.name)")
+        } catch {
+            printD("Error saving tags cache: \(error.localizedDescription)")
+        }
+    }
+
+    private func loadTagsLocalCache(for source: Source) -> [Tag]? {
+        let url = cacheFileURL(for: .tags, sourceID: source.id)
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        do {
+            let data = try Data(contentsOf: url)
+            return try JSONDecoder().decode([Tag].self, from: data)
+        } catch {
+            printD("Error loading tags cache: \(error.localizedDescription)")
+            return nil
+        }
+    }
     
     private func saveRecipesLocalCache(_ recipes: [Recipe], for source: Source, categoryID: CKRecord.ID?) {
         let url = cacheFileURL(for: .recipes, sourceID: source.id, categoryID: categoryID)
@@ -428,6 +454,11 @@ class CloudKitManager: ObservableObject {
     func loadCachedData(for source: Source) {
         if let cachedCategories = loadCategoriesLocalCache(for: source) {
             categories = cachedCategories
+        }
+        if let cachedTags = loadTagsLocalCache(for: source) {
+            tags = cachedTags
+        } else {
+            tags = []
         }
         let cachedCounts = loadRecipeCountsLocalCache(for: source)
         if !cachedCounts.isEmpty {
@@ -1343,6 +1374,68 @@ class CloudKitManager: ObservableObject {
                 self.recipeCounts = cachedCounts
             }
         }
+
+        await loadTags(for: source)
+    }
+
+    func loadTags(for source: Source) async {
+        let sourceID = source.id
+        let isOwner = isSharedOwner(source)
+
+        if let cachedTags = loadTagsLocalCache(for: source) {
+            self.tags = cachedTags
+        }
+
+        guard isCloudKitAvailable else {
+            return
+        }
+
+        do {
+            let predicate = NSPredicate(format: "sourceID == %@", CKRecord.Reference(recordID: sourceID, action: .none))
+            let query = CKQuery(recordType: "Tag", predicate: predicate)
+            query.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true)]
+
+            let database = isOwner || source.isPersonal ? privateDatabase : sharedDatabase
+            let zoneID = isOwner || source.isPersonal ? personalZoneID : source.id.zoneID
+
+            let (results, _) = try await database.records(matching: query, inZoneWith: zoneID)
+            let fetchedTags = results.compactMap { _, result -> Tag? in
+                guard case .success(let record) = result,
+                      let tag = Tag.from(record) else {
+                    return nil
+                }
+                tagCache[tag.id] = tag
+                return tag
+            }
+
+            self.tags = fetchedTags
+            saveTagsLocalCache(fetchedTags, for: source)
+            markOnlineIfNeeded()
+        } catch {
+            if isSharedSource(source), isShareRevokedError(error) {
+                printD("Share revoked or inaccessible while loading tags for \(source.name); removing locally")
+                await removeSharedSourceLocally(source)
+                return
+            }
+            if handleOfflineFallback(for: error) {
+                if let cachedTags = loadTagsLocalCache(for: source) {
+                    self.tags = cachedTags
+                } else {
+                    self.tags = []
+                }
+            } else {
+                let errorDesc = error.localizedDescription
+                // Silently handle schema bootstrapping
+                if !errorDesc.contains("Did not find record type") {
+                    printD("Error loading tags: \(errorDesc)")
+                }
+                if let cachedTags = loadTagsLocalCache(for: source) {
+                    self.tags = cachedTags
+                } else {
+                    self.tags = []
+                }
+            }
+        }
     }
     
     private func isShareRevokedError(_ error: Error) -> Bool {
@@ -1523,6 +1616,76 @@ class CloudKitManager: ObservableObject {
         } catch {
             printD("Error deleting category: \(error.localizedDescription)")
             self.error = "Failed to delete category"
+        }
+    }
+
+    // MARK: - Tag Management
+    func createTag(name: String, in source: Source) async {
+        do {
+            if source.isPersonal {
+                await ensurePersonalZoneExists()
+            }
+            let recordID = makeRecordID(for: source)
+            let tag = Tag(id: recordID, sourceID: source.id, name: name)
+
+            let owner = isSharedOwner(source)
+            let shared = isSharedSource(source)
+            let database = owner || !shared ? privateDatabase : sharedDatabase
+            let record = tag.toCKRecord()
+            if shared, record.parent == nil {
+                record.parent = CKRecord.Reference(recordID: source.id, action: .none)
+            }
+            let savedRecord = try await database.save(record)
+
+            if let savedTag = Tag.from(savedRecord) {
+                tagCache[savedTag.id] = savedTag
+                self.tags = (tags + [savedTag]).sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+                saveTagsLocalCache(self.tags, for: source)
+                printD("Tag created: \(savedTag.name)")
+            }
+        } catch {
+            printD("Error creating tag: \(error.localizedDescription)")
+            self.error = "Failed to create tag"
+        }
+    }
+
+    func updateTag(_ tag: Tag, in source: Source) async {
+        do {
+            let owner = isSharedOwner(source)
+            let shared = isSharedSource(source)
+            let database = owner || !shared ? privateDatabase : sharedDatabase
+
+            let serverRecord = try await database.record(for: tag.id)
+            serverRecord["name"] = tag.name
+            serverRecord["lastModified"] = Date()
+
+            let savedRecord = try await database.save(serverRecord)
+
+            if let savedTag = Tag.from(savedRecord) {
+                tagCache[savedTag.id] = savedTag
+                self.tags = tags.map { $0.id == savedTag.id ? savedTag : $0 }
+                saveTagsLocalCache(self.tags, for: source)
+                printD("Tag updated: \(savedTag.name)")
+            }
+        } catch {
+            printD("Error updating tag: \(error.localizedDescription)")
+            self.error = "Failed to update tag"
+        }
+    }
+
+    func deleteTag(_ tag: Tag, in source: Source) async {
+        do {
+            let owner = isSharedOwner(source)
+            let shared = isSharedSource(source)
+            let database = owner || !shared ? privateDatabase : sharedDatabase
+            try await database.deleteRecord(withID: tag.id)
+            tagCache.removeValue(forKey: tag.id)
+            self.tags = tags.filter { $0.id != tag.id }
+            saveTagsLocalCache(self.tags, for: source)
+            printD("Tag deleted: \(tag.name)")
+        } catch {
+            printD("Error deleting tag: \(error.localizedDescription)")
+            self.error = "Failed to delete tag"
         }
     }
     
@@ -1778,6 +1941,7 @@ class CloudKitManager: ObservableObject {
             existingRecord["details"] = recipe.details
             existingRecord["sourceID"] = CKRecord.Reference(recordID: recipe.sourceID, action: .deleteSelf)
             existingRecord["categoryID"] = CKRecord.Reference(recordID: recipe.categoryID, action: .none)
+            existingRecord["tagIDs"] = recipe.tagIDs.map(\.recordName)
             existingRecord["lastModified"] = recipe.lastModified
             
             // Handle image asset: only update when we have a new asset. Avoid clearing an existing
@@ -2293,6 +2457,17 @@ class CloudKitManager: ObservableObject {
             let recipeQuery = CKQuery(recordType: "Recipe", predicate: recipePredicate)
             let (recipeResults, _) = try await privateDatabase.records(matching: recipeQuery, inZoneWith: personalZoneID)
             for (_, result) in recipeResults {
+                if case .success(let record) = result, record.parent == nil {
+                    record.parent = CKRecord.Reference(recordID: rootRecord.recordID, action: .none)
+                    recordsToSave.append(record)
+                }
+            }
+
+            // Fetch tags in the personal zone for this source
+            let tagPredicate = NSPredicate(format: "sourceID == %@", CKRecord.Reference(recordID: rootRecord.recordID, action: .none))
+            let tagQuery = CKQuery(recordType: "Tag", predicate: tagPredicate)
+            let (tagResults, _) = try await privateDatabase.records(matching: tagQuery, inZoneWith: personalZoneID)
+            for (_, result) in tagResults {
                 if case .success(let record) = result, record.parent == nil {
                     record.parent = CKRecord.Reference(recordID: rootRecord.recordID, action: .none)
                     recordsToSave.append(record)
