@@ -566,6 +566,12 @@ private struct AppWindowContent: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
+#if DEBUG
+        .overlay(alignment: .bottomTrailing) {
+            BetaTag()
+                .padding(12)
+        }
+#endif
 #if os(macOS)
         .frame(minWidth: 600, minHeight: 600)
         .fileExporter(
