@@ -279,7 +279,30 @@ struct AddEditRecipeView: View {
                     
                     if isEditing {
                         VStack(alignment: .leading, spacing: 10) {
-                            deleteRecipeButton
+                            Text("Danger Zone")
+                                .font(.headline)
+
+                            Button(role: .destructive) {
+                                showingDeleteAlert = true
+                            } label: {
+                                HStack {
+                                    Spacer()
+                                    if isDeletingRecipe {
+                                        ProgressView()
+                                            .controlSize(.small)
+                                        Text("Deleting...")
+                                    } else {
+                                        Text("Delete Recipe")
+                                            .fontWeight(.semibold)
+                                    }
+                                    Spacer()
+                                }
+                                .padding(.vertical, 8)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(.red)
+                            .disabled(!canEdit || isSaving || isDeletingRecipe)
+
                             Text("This action cannot be undone.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -393,7 +416,14 @@ struct AddEditRecipeView: View {
     private var deleteRecipeSection: some View {
         if isEditing {
             Section {
-                deleteRecipeButton
+                Button(role: .destructive) {
+                    showingDeleteAlert = true
+                } label: {
+                    Label("Delete Recipe", systemImage: "trash")
+                }
+                .disabled(!canEdit || isSaving || isDeletingRecipe)
+            } header: {
+                Text("Danger Zone")
             } footer: {
                 Text("This action cannot be undone.")
             }
@@ -471,18 +501,6 @@ struct AddEditRecipeView: View {
         }
     }
 
-    private var deleteRecipeButton: some View {
-        Button(role: .destructive) {
-            showingDeleteAlert = true
-        } label: {
-            Label("Delete Recipe", systemImage: "trash")
-        }
-#if os(macOS)
-        .foregroundStyle(.red)
-#endif
-        .disabled(!canEdit || isSaving || isDeletingRecipe)
-    }
-    
     // MARK: - Step Management
     
     private func expandAllSteps() {

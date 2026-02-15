@@ -19,6 +19,7 @@ struct AddCategoryView: View {
     @State private var categoryName: String = ""
     @State private var selectedIcon: String = "🍴"
     @State private var isSaving = false
+    @State private var isDeleting = false
     
     // Emoji icons grouped for quicker scanning
     private let iconGroups: [(title: String, icons: [String])] = [
@@ -43,6 +44,15 @@ struct AddCategoryView: View {
 
     private var showDuplicateWarning: Bool {
         hasDuplicateName && !isSaving
+    }
+
+    private var editingCategoryRecipeCount: Int {
+        guard let editingCategory else { return 0 }
+        return model.recipeCounts[editingCategory.id] ?? 0
+    }
+
+    private var canDeleteCategory: Bool {
+        canEdit && isEditing && editingCategoryRecipeCount == 0 && !isSaving && !isDeleting
     }
     
     init(editingCategory: Category? = nil) {
@@ -121,6 +131,30 @@ struct AddCategoryView: View {
                     iconPickerGrid
                     .padding(.vertical, 8)
                 }
+
+                if isEditing {
+                    Section {
+                        Button(role: .destructive) {
+                            Task {
+                                await deleteCategory()
+                            }
+                        } label: {
+                            if isDeleting {
+                                HStack {
+                                    ProgressView()
+                                    Text("Deleting...")
+                                }
+                            } else {
+                                Text("Delete Category")
+                            }
+                        }
+                        .disabled(!canDeleteCategory)
+                    } footer: {
+                        if editingCategoryRecipeCount > 0 {
+                            Text("Move or delete the \(editingCategoryRecipeCount == 1 ? "recipe" : "recipes") in this category before deleting it.")
+                        }
+                    }
+                }
             }
             .formStyle(.grouped)
             .navigationTitle(isEditing ? "Edit Category" : "Add Category")
@@ -137,7 +171,7 @@ struct AddCategoryView: View {
                             await saveCategory()
                         }
                     }
-                    .disabled(!canEdit || trimmedCategoryName.isEmpty || hasDuplicateName || isSaving)
+                    .disabled(!canEdit || trimmedCategoryName.isEmpty || hasDuplicateName || isSaving || isDeleting)
                 }
             }
         }
@@ -216,6 +250,44 @@ struct AddCategoryView: View {
                     }
                     .padding(14)
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+
+                    if isEditing {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Danger Zone")
+                                .font(.headline)
+
+                            Button(role: .destructive) {
+                                Task {
+                                    await deleteCategory()
+                                }
+                            } label: {
+                                HStack {
+                                    Spacer()
+                                    if isDeleting {
+                                        ProgressView()
+                                            .controlSize(.small)
+                                        Text("Deleting...")
+                                    } else {
+                                        Text("Delete Category")
+                                            .fontWeight(.semibold)
+                                    }
+                                    Spacer()
+                                }
+                                .padding(.vertical, 8)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(.red)
+                            .disabled(!canDeleteCategory)
+
+                            if editingCategoryRecipeCount > 0 {
+                                Text("Move or delete the \(editingCategoryRecipeCount == 1 ? "recipe" : "recipes") in this category before deleting it.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .padding(14)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    }
                 }
                 .padding(16)
             }
@@ -287,7 +359,7 @@ struct AddCategoryView: View {
     }
 
     private var saveButtonDisabled: Bool {
-        !canEdit || trimmedCategoryName.isEmpty || hasDuplicateName || isSaving
+        !canEdit || trimmedCategoryName.isEmpty || hasDuplicateName || isSaving || isDeleting
     }
     
     private var canEdit: Bool {
@@ -320,5 +392,21 @@ struct AddCategoryView: View {
         }
 
         isSaving = false
+    }
+
+    @MainActor
+    private func deleteCategory() async {
+        guard let category = editingCategory else { return }
+        guard editingCategoryRecipeCount == 0 else { return }
+
+        isDeleting = true
+        await model.deleteCategory(id: category.id)
+
+        if model.error == nil {
+            dismiss()
+            return
+        }
+
+        isDeleting = false
     }
 }

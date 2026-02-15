@@ -267,6 +267,7 @@ final class AppViewModel: ObservableObject {
         guard let category = categories.first(where: { $0.id == id }) else { return }
         
         await cloudKitManager.deleteCategory(category, in: source)
+        error = cloudKitManager.error
         // Copy directly from CloudKitManager without re-querying
         categories = cloudKitManager.categories
         recipeCounts = cloudKitManager.recipeCounts

@@ -17,7 +17,6 @@ struct CategoryList: View {
     @Binding var showingAddTag: Bool
     @Binding var collectionType: RecipeCollectionType?
     @State private var showSourcesOverlay = false
-    @State private var deleteAlertMessage: String?
     
     private var homeRecipeCount: Int {
         model.recipeCounts.values.reduce(0, +)
@@ -80,20 +79,6 @@ struct CategoryList: View {
                                 editingCategory = category
                             } label: {
                                 Label("Edit Category", systemImage: "pencil")
-                            }
-                            .disabled(model.isOfflineMode)
-                            
-                            Button(role: .destructive) {
-                                let count = recipeCount(for: category)
-                                if count > 0 {
-                                    deleteAlertMessage = "Move or delete the \(count == 1 ? "recipe" : "recipes") in '\(category.name)' before deleting the category."
-                                } else {
-                                    Task {
-                                        await model.deleteCategory(id: category.id)
-                                    }
-                                }
-                            } label: {
-                                Label("Delete Category", systemImage: "trash")
                             }
                             .disabled(model.isOfflineMode)
                         }
@@ -208,16 +193,6 @@ struct CategoryList: View {
 #if os(macOS)
                 .frame(minWidth: 400, minHeight: 300)
 #endif
-        }
-        .alert("Cannot Delete Category", isPresented: .init(
-            get: { deleteAlertMessage != nil },
-            set: { if !$0 { deleteAlertMessage = nil } }
-        )) {
-            Button("OK", role: .cancel) {
-                deleteAlertMessage = nil
-            }
-        } message: {
-            Text(deleteAlertMessage ?? "")
         }
     }
 }
