@@ -94,17 +94,19 @@ struct CategoryList: View {
                             .foregroundStyle(.secondary)
                     } else {
                         ForEach(model.tags) { tag in
-                            HStack(spacing: 6) {
-                                Image(systemName: "tag")
-                                    .foregroundStyle(.secondary)
-                                    .frame(width: 24)
-                                Text(tag.name)
+                            NavigationLink(value: RecipeCollectionType.tag(tag)) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "tag")
+                                        .foregroundStyle(.secondary)
+                                        .frame(width: 24)
+                                    Text(tag.name)
 
-                                Spacer()
+                                    Spacer()
 
-                                Text("\(recipeCount(for: tag))")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                                    Text("\(recipeCount(for: tag))")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
                             }
                             .contextMenu {
                                 Button {

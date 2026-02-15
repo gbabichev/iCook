@@ -92,6 +92,12 @@ struct ContentView: View {
                         didRestoreLastViewed = true
                     }
 
+                case .tag(let tagID):
+                    if let tag = model.tags.first(where: { $0.id == tagID }) {
+                        collectionType = .tag(tag)
+                        didRestoreLastViewed = true
+                    }
+
                 case .recipe(let recipeID, let categoryID):
                     // Set the collection type first
                     if let catID = categoryID,
@@ -183,6 +189,8 @@ struct ContentView: View {
                     model.saveAppLocation(.allRecipes)
                 case .category(let category):
                     model.saveAppLocation(.category(categoryID: category.id))
+                case .tag(let tag):
+                    model.saveAppLocation(.tag(tagID: tag.id))
                 }
             }
         }
@@ -195,6 +203,8 @@ struct ContentView: View {
                     model.saveAppLocation(.allRecipes)
                 case .category(let category):
                     model.saveAppLocation(.category(categoryID: category.id))
+                case .tag(let tag):
+                    model.saveAppLocation(.tag(tagID: tag.id))
                 case .none:
                     model.saveAppLocation(.allRecipes)
                 }
@@ -224,6 +234,12 @@ struct ContentView: View {
             case .category(let categoryID):
                 if let category = model.categories.first(where: { $0.id == categoryID }) {
                     collectionType = .category(category)
+                    didRestoreLastViewed = true
+                }
+
+            case .tag(let tagID):
+                if let tag = model.tags.first(where: { $0.id == tagID }) {
+                    collectionType = .tag(tag)
                     didRestoreLastViewed = true
                 }
 

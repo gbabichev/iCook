@@ -38,6 +38,7 @@ final class AppViewModel: ObservableObject {
     enum AppLocation {
         case allRecipes
         case category(categoryID: CKRecord.ID)
+        case tag(tagID: CKRecord.ID)
         case recipe(recipeID: CKRecord.ID, categoryID: CKRecord.ID?)
     }
 
@@ -466,6 +467,12 @@ final class AppViewModel: ObservableObject {
             dict["categoryZoneName"] = categoryID.zoneID.zoneName
             dict["categoryZoneOwner"] = categoryID.zoneID.ownerName
 
+        case .tag(let tagID):
+            dict["locationType"] = "tag"
+            dict["tagRecordName"] = tagID.recordName
+            dict["tagZoneName"] = tagID.zoneID.zoneName
+            dict["tagZoneOwner"] = tagID.zoneID.ownerName
+
         case .recipe(let recipeID, let categoryID):
             dict["locationType"] = "recipe"
             dict["recipeRecordName"] = recipeID.recordName
@@ -506,6 +513,16 @@ final class AppViewModel: ObservableObject {
             let catZoneID = CKRecordZone.ID(zoneName: catZone, ownerName: catOwner)
             let catID = CKRecord.ID(recordName: catRecord, zoneID: catZoneID)
             return (.category(categoryID: catID), sourceID)
+
+        case "tag":
+            guard let tagRecord = dict["tagRecordName"],
+                  let tagZone = dict["tagZoneName"],
+                  let tagOwner = dict["tagZoneOwner"] else {
+                return nil
+            }
+            let tagZoneID = CKRecordZone.ID(zoneName: tagZone, ownerName: tagOwner)
+            let tagID = CKRecord.ID(recordName: tagRecord, zoneID: tagZoneID)
+            return (.tag(tagID: tagID), sourceID)
 
         case "recipe":
             guard let recipeRecord = dict["recipeRecordName"],

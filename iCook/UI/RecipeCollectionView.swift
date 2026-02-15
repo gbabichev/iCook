@@ -11,6 +11,7 @@ import CloudKit
 enum RecipeCollectionType: Hashable {
     case home
     case category(Category)
+    case tag(Tag)
     
     var navigationTitle: String {
         switch self {
@@ -18,6 +19,8 @@ enum RecipeCollectionType: Hashable {
             return ""
         case .category(let category):
             return category.name
+        case .tag(let tag):
+            return tag.name
         }
     }
     
@@ -27,6 +30,8 @@ enum RecipeCollectionType: Hashable {
             return "Loading featured recipe..."
         case .category(let category):
             return "Loading \(category.name.lowercased()) recipes..."
+        case .tag(let tag):
+            return "Loading \(tag.name.lowercased()) recipes..."
         }
     }
     
@@ -36,6 +41,8 @@ enum RecipeCollectionType: Hashable {
             return "No recipes found"
         case .category(let category):
             return "No \(category.name.lowercased()) recipes found"
+        case .tag(let tag):
+            return "No recipes found for \(tag.name)"
         }
     }
     
@@ -45,6 +52,8 @@ enum RecipeCollectionType: Hashable {
             return "🍴"
         case .category(let category):
             return category.icon
+        case .tag:
+            return "🏷️"
         }
     }
     
@@ -54,6 +63,8 @@ enum RecipeCollectionType: Hashable {
             return true
         case (.category(let lhsCat), .category(let rhsCat)):
             return lhsCat.id == rhsCat.id
+        case (.tag(let lhsTag), .tag(let rhsTag)):
+            return lhsTag.id == rhsTag.id
         default:
             return false
         }
@@ -66,6 +77,9 @@ enum RecipeCollectionType: Hashable {
         case .category(let category):
             hasher.combine("category")
             hasher.combine(category.id)
+        case .tag(let tag):
+            hasher.combine("tag")
+            hasher.combine(tag.id)
         }
     }
 }
@@ -119,6 +133,10 @@ struct RecipeCollectionView: View {
             return model.recipes
                 .filter { $0.categoryID == category.id }
                 .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        case .tag(let tag):
+            return model.recipes
+                .filter { $0.tagIDs.contains(tag.id) }
+                .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         }
     }
     
@@ -144,7 +162,7 @@ struct RecipeCollectionView: View {
         switch collectionType {
         case .home:
             return featuredHomeRecipe ?? recipes.randomElement()
-        case .category:
+        case .category, .tag:
             // Resolve the stored selection against the latest shared recipes so name/image changes show up.
             if let selected = selectedFeaturedRecipe,
                let current = recipes.first(where: { $0.id == selected.id }) {
@@ -164,8 +182,11 @@ struct RecipeCollectionView: View {
     }
     
     // Check if we're showing a category
-    private var isCategory: Bool {
+    private var isFilteredCollection: Bool {
         if case .category = collectionType {
+            return true
+        }
+        if case .tag = collectionType {
             return true
         }
         return false
@@ -180,10 +201,14 @@ struct RecipeCollectionView: View {
     }
 
     private func categoryName(for recipe: Recipe) -> String? {
-        if case .category(let category) = collectionType {
+        switch collectionType {
+        case .category(let category):
             return category.name
+        case .tag:
+            return model.categories.first(where: { $0.id == recipe.categoryID })?.name
+        case .home:
+            return model.categories.first(where: { $0.id == recipe.categoryID })?.name
         }
-        return model.categories.first(where: { $0.id == recipe.categoryID })?.name
     }
     
     private var isSearchActive: Bool {
@@ -196,6 +221,8 @@ struct RecipeCollectionView: View {
             return "Search Recipes"
         case .category(let category):
             return "Search in \(category.name)"
+        case .tag(let tag):
+            return "Search in \(tag.name)"
         }
     }
 
@@ -278,6 +305,8 @@ struct RecipeCollectionView: View {
                             model.saveAppLocation(.recipe(recipeID: recipe.id, categoryID: recipe.categoryID))
                         case .category(let category):
                             model.saveAppLocation(.recipe(recipeID: recipe.id, categoryID: category.id))
+                        case .tag:
+                            model.saveAppLocation(.recipe(recipeID: recipe.id, categoryID: recipe.categoryID))
                         }
                     })
                 }
@@ -330,6 +359,8 @@ struct RecipeCollectionView: View {
                                         model.saveAppLocation(.recipe(recipeID: recipe.id, categoryID: recipe.categoryID))
                                     case .category(let category):
                                         model.saveAppLocation(.recipe(recipeID: recipe.id, categoryID: category.id))
+                                    case .tag:
+                                        model.saveAppLocation(.recipe(recipeID: recipe.id, categoryID: recipe.categoryID))
                                     }
                                 })
                             }
@@ -386,6 +417,8 @@ struct RecipeCollectionView: View {
                                 model.saveAppLocation(.recipe(recipeID: recipe.id, categoryID: recipe.categoryID))
                             case .category(let category):
                                 model.saveAppLocation(.recipe(recipeID: recipe.id, categoryID: category.id))
+                            case .tag:
+                                model.saveAppLocation(.recipe(recipeID: recipe.id, categoryID: recipe.categoryID))
                             }
                         })
                         .buttonStyle(.plain)
@@ -439,6 +472,8 @@ struct RecipeCollectionView: View {
                 await loadHomeRecipes(skipCache: skipCache)
             case .category(let category):
                 await loadCategoryRecipes(category, skipCache: skipCache)
+            case .tag(let tag):
+                await loadTagRecipes(tag, skipCache: skipCache)
             }
         }
         
@@ -497,6 +532,43 @@ struct RecipeCollectionView: View {
         guard case .category(let category) = collectionType else { return }
         await loadCategoryRecipes(category, skipCache: skipCache)
     }
+
+    @MainActor
+    private func loadTagRecipes(_ tag: Tag, skipCache: Bool = false) async {
+        guard !Task.isCancelled else { return }
+
+        error = nil
+        let cached = model.recipes.filter { $0.tagIDs.contains(tag.id) }
+        if !cached.isEmpty {
+            selectedFeaturedRecipe = cached.randomElement()
+            isLoading = false
+            if !model.isLoadingRecipes {
+                Task {
+                    showRefreshSpinner = true
+                    await model.loadRandomRecipes(skipCache: skipCache)
+                    showRefreshSpinner = false
+                }
+            }
+        } else {
+            isLoading = true
+            defer { isLoading = false }
+            await model.loadRandomRecipes(skipCache: skipCache)
+            let fresh = model.recipes.filter { $0.tagIDs.contains(tag.id) }
+            if !fresh.isEmpty {
+                selectedFeaturedRecipe = fresh.randomElement()
+            }
+        }
+
+        if let modelError = model.error {
+            self.error = modelError
+        }
+    }
+
+    @MainActor
+    private func refreshTagRecipes(skipCache: Bool = false) async {
+        guard case .tag(let tag) = collectionType else { return }
+        await loadTagRecipes(tag, skipCache: skipCache)
+    }
     
     @MainActor
     private func deleteRecipe(_ recipe: Recipe) async {
@@ -520,6 +592,8 @@ struct RecipeCollectionView: View {
         let base: [Recipe]
         if case .category(let category) = collectionType {
             base = model.recipes.filter { $0.categoryID == category.id }
+        } else if case .tag(let tag) = collectionType {
+            base = model.recipes.filter { $0.tagIDs.contains(tag.id) }
         } else {
             base = model.recipes
         }
@@ -625,6 +699,14 @@ struct RecipeCollectionView: View {
                     } else if selectedFeaturedRecipe == nil {
                         selectedFeaturedRecipe = categoryRecipes.randomElement()
                     }
+                } else if case .tag(let tag) = collectionType {
+                    let tagRecipes = newValue.filter { $0.tagIDs.contains(tag.id) }
+                    if let selected = selectedFeaturedRecipe,
+                       tagRecipes.contains(where: { $0.id == selected.id }) == false {
+                        selectedFeaturedRecipe = tagRecipes.randomElement()
+                    } else if selectedFeaturedRecipe == nil {
+                        selectedFeaturedRecipe = tagRecipes.randomElement()
+                    }
                 }
             }
             .onChange(of: searchText, initial: false) { _, newValue in
@@ -645,6 +727,8 @@ struct RecipeCollectionView: View {
             Task {
                 if case .category = collectionType {
                     await refreshCategoryRecipes()
+                } else if case .tag = collectionType {
+                    await refreshTagRecipes()
                 }
             }
         }
@@ -655,6 +739,8 @@ struct RecipeCollectionView: View {
             Task { @MainActor in
                 if case .category = collectionType {
                     await refreshCategoryRecipes(skipCache: true)
+                } else if case .tag = collectionType {
+                    await refreshTagRecipes(skipCache: true)
                 } else if case .home = collectionType {
                     await loadRecipes(skipCache: true)
                 }
@@ -663,6 +749,8 @@ struct RecipeCollectionView: View {
             Task { @MainActor in
                 if case .category = collectionType {
                     await refreshCategoryRecipes(skipCache: true)
+                } else if case .tag = collectionType {
+                    await refreshTagRecipes(skipCache: true)
                 } else if case .home = collectionType {
                     await loadRecipes(skipCache: true)
                 }
@@ -752,6 +840,10 @@ struct RecipeCollectionView: View {
             featuredHomeRecipe = nil
             let categoryRecipes = model.recipes.filter { $0.categoryID == category.id }
             selectedFeaturedRecipe = categoryRecipes.randomElement()
+        } else if case .tag(let tag) = collectionType {
+            featuredHomeRecipe = nil
+            let tagRecipes = model.recipes.filter { $0.tagIDs.contains(tag.id) }
+            selectedFeaturedRecipe = tagRecipes.randomElement()
         }
         showingSearchResults = false
         searchResults = []
@@ -840,7 +932,7 @@ struct RecipeCollectionView: View {
         GeometryReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 16) {
-                    if isLoading || (isCategory && featuredRecipe == nil && !recipes.isEmpty && !showingSearchResults) {
+                    if isLoading || (isFilteredCollection && featuredRecipe == nil && !recipes.isEmpty && !showingSearchResults) {
                         // Show loading spinner while data is loading OR while featured recipe is being selected (for categories)
                         VStack(spacing: 16) {
                             ProgressView()
