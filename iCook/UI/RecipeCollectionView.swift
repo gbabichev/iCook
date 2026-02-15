@@ -277,115 +277,97 @@ struct RecipeCollectionView: View {
     }
     
     // MARK: - Header Views
+
+    private func openRecipeFromHeader(_ recipe: Recipe) {
+        model.saveLastViewedRecipe(recipe)
+        // Save app location when navigating to recipe
+        switch collectionType {
+        case .home:
+            model.saveAppLocation(.recipe(recipeID: recipe.id, categoryID: recipe.categoryID))
+        case .category(let category):
+            model.saveAppLocation(.recipe(recipeID: recipe.id, categoryID: category.id))
+        case .tag:
+            model.saveAppLocation(.recipe(recipeID: recipe.id, categoryID: recipe.categoryID))
+        }
+    }
+
+    @ViewBuilder
+    private func headerRecipeLink(_ recipe: Recipe) -> some View {
+        NavigationLink(value: recipe) {
+            HStack {
+                Image(systemName: "eye")
+                Text("View Recipe")
+            }
+            .foregroundColor(.white)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+            .background(.ultraThinMaterial.opacity(0.8), in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .simultaneousGesture(TapGesture().onEnded {
+            openRecipeFromHeader(recipe)
+        })
+    }
+
+    private func renderHeroImage(_ image: Image, recipe: Recipe) -> some View {
+        image
+            .resizable()
+            .aspectRatio(contentMode: .fill)
+            .frame(minWidth: 0, maxWidth: .infinity, minHeight: 100, maxHeight: 350)
+            .clipped()
+            .ignoresSafeArea(edges: .top)
+            .backgroundExtensionEffect()
+            .overlay(alignment: .bottom) {
+                VStack(spacing: 8) {
+                    VStack(spacing: 8) {
+                        Text(recipe.name)
+                            .font(.largeTitle)
+                            .fontWeight(.bold)
+                            .foregroundColor(.white)
+                            .multilineTextAlignment(.center)
+                        Text("\(recipe.recipeTime) minutes")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                            .opacity(0.9)
+                        headerRecipeLink(recipe)
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 16)
+                    .background(
+                        RoundedRectangle(cornerRadius: 20, style: .continuous)
+                            .fill(Color.black.opacity(0.35))
+                    )
+                    .padding(.bottom, 24)
+                }
+            }
+    }
+
+    private func loadingHeroHeader() -> some View {
+        ZStack {
+            Rectangle()
+                .fill(.ultraThinMaterial)
+
+            VStack(spacing: 10) {
+                ProgressView()
+                Text("Loading image...")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: 350)
+        .ignoresSafeArea(edges: .top)
+        .backgroundExtensionEffect()
+    }
     
     @ViewBuilder
     private func featuredRecipeHeader(_ recipe: Recipe) -> some View {
         AsyncImage(url: recipe.imageURL) { phase in
             switch phase {
             case .empty:
-                VStack(spacing: 8) {
+                loadingHeroHeader()
                     
-                    Image(systemName: "fork.knife.circle")
-                        .font(.system(size: 80))
-                        .padding(.top, 100)
-                    
-                    Text(recipe.name)
-                        .font(.largeTitle)
-                        .fontWeight(.bold)
-                    
-                    Text("\(recipe.recipeTime) minutes")
-                        .font(.headline)
-                        .opacity(0.8)
-                    
-                    // Clickable button within the non-clickable header
-                    NavigationLink(value: recipe) {
-                        HStack {
-                            Image(systemName: "eye")
-                            Text("View Recipe")
-                        }
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 12)
-                        .background(.black.opacity(0.6))
-                        .cornerRadius(25)
-                    }
-                    .buttonStyle(.plain)
-                    .simultaneousGesture(TapGesture().onEnded {
-                        model.saveLastViewedRecipe(recipe)
-                        // Save app location when navigating to recipe
-                        switch collectionType {
-                        case .home:
-                            model.saveAppLocation(.recipe(recipeID: recipe.id, categoryID: recipe.categoryID))
-                        case .category(let category):
-                            model.saveAppLocation(.recipe(recipeID: recipe.id, categoryID: category.id))
-                        case .tag:
-                            model.saveAppLocation(.recipe(recipeID: recipe.id, categoryID: recipe.categoryID))
-                        }
-                    })
-                }
-                .padding(.bottom, 32)
-                .padding(.horizontal, 20)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-                #if os(iOS)
-                .frame(height: 450)
-                #else
-                .frame(height: 300)
-                #endif
-                
             case .success(let image):
-                image
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(minWidth: 0, maxWidth: .infinity, minHeight: 100, maxHeight: 350)
-                    .clipped()
-                    .ignoresSafeArea(edges: .top)
-                    .backgroundExtensionEffect()
-                    .overlay(alignment: .bottom) {
-                        VStack(spacing: 8) {
-                            VStack(spacing: 8) {
-                                Text(recipe.name)
-                                    .font(.largeTitle)
-                                    .fontWeight(.bold)
-                                    .foregroundColor(.white)
-                                    .multilineTextAlignment(.center)
-                                Text("\(recipe.recipeTime) minutes")
-                                    .font(.headline)
-                                    .foregroundColor(.white)
-                                    .opacity(0.9)
-                                // Clickable button within the non-clickable header
-                                NavigationLink(value: recipe) {
-                                    HStack {
-                                        Image(systemName: "eye")
-                                        Text("View Recipe")
-                                    }
-                                    .foregroundColor(.white)
-                                    .padding(.horizontal, 20)
-                                    .padding(.vertical, 12)
-                                    .background(.ultraThinMaterial.opacity(0.8), in: Capsule())
-                                }
-                                .buttonStyle(.plain)
-                                .simultaneousGesture(TapGesture().onEnded {
-                                    model.saveLastViewedRecipe(recipe)
-                                    // Save app location when navigating to recipe
-                                    switch collectionType {
-                                    case .home:
-                                        model.saveAppLocation(.recipe(recipeID: recipe.id, categoryID: recipe.categoryID))
-                                    case .category(let category):
-                                        model.saveAppLocation(.recipe(recipeID: recipe.id, categoryID: category.id))
-                                    case .tag:
-                                        model.saveAppLocation(.recipe(recipeID: recipe.id, categoryID: recipe.categoryID))
-                                    }
-                                })
-                            }
-                            .padding(.horizontal, 20)
-                            .padding(.vertical, 16)
-                            .background(
-                                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                                    .fill(Color.black.opacity(0.35))
-                            )
-                            .padding(.bottom, 24)
-                        }
-                    }
+                renderHeroImage(image, recipe: recipe)
                 
             case .failure:
                 headerPlaceholder()
@@ -496,6 +478,8 @@ struct RecipeCollectionView: View {
     @MainActor
     private func loadHomeRecipes(skipCache: Bool = false) async {
         currentLoadTask?.cancel()
+        isLoading = true
+        defer { isLoading = false }
         
         currentLoadTask = Task {
             await model.loadRandomRecipes(skipCache: skipCache)
@@ -839,11 +823,10 @@ struct RecipeCollectionView: View {
 
     private func initialLoadIfNeeded() async {
         if !hasLoadedInitially {
+            isLoading = true
             hasLoadedInitially = true
             selectedFeaturedRecipe = nil
-            if case .home = collectionType {
-                featuredHomeRecipe = model.recipes.randomElement()
-            }
+            featuredHomeRecipe = nil
             showingSearchResults = false
             searchResults = []
             searchText = ""
@@ -966,7 +949,7 @@ struct RecipeCollectionView: View {
         GeometryReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 16) {
-                    if isLoading || (isFilteredCollection && featuredRecipe == nil && !recipes.isEmpty && !showingSearchResults) {
+                    if !hasLoadedInitially || isLoading || (isFilteredCollection && featuredRecipe == nil && !recipes.isEmpty && !showingSearchResults) {
                         // Show loading spinner while data is loading OR while featured recipe is being selected (for categories)
                         VStack(spacing: 16) {
                             ProgressView()

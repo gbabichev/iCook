@@ -133,8 +133,9 @@ struct RecipeLargeButtonWithState: View {
                 ZStack {
                     Rectangle()
                         .fill(.ultraThinMaterial)
-                    ProgressView()
-                        .scaleEffect(0.8)
+                    Image(systemName: "fork.knife.circle")
+                        .font(.system(size: 64))
+                        .foregroundStyle(.secondary)
                 }
                 .frame(height: 140)
                 .frame(maxWidth: .infinity)

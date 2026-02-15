@@ -118,14 +118,18 @@ final class AppViewModel: ObservableObject {
         refreshOfflineState()
     }
     
-    func selectSource(_ source: Source) async {
+    func selectSource(_ source: Source, skipCacheOnLoad: Bool = true) async {
+        printD("[LaunchTrace] selectSource start source=\(source.name) skipCacheOnLoad=\(skipCacheOnLoad)")
         cloudKitManager.currentSource = source
         cloudKitManager.saveCurrentSourceID()
         currentSource = source
         sourceSelectionStamp = UUID()
         await loadCategories()
-        await loadRandomRecipes(skipCache: true)
+        printD("[LaunchTrace] selectSource after loadCategories source=\(source.name) categories=\(categories.count) tags=\(tags.count)")
+        await loadRandomRecipes(skipCache: skipCacheOnLoad)
+        printD("[LaunchTrace] selectSource after loadRandomRecipes source=\(source.name) recipes=\(recipes.count)")
         refreshOfflineState()
+        printD("[LaunchTrace] selectSource end source=\(source.name) offline=\(isOfflineMode)")
     }
     
     func createSource(name: String) async -> Bool {
@@ -323,19 +327,25 @@ final class AppViewModel: ObservableObject {
         guard let source = currentSource else { return }
         guard !isLoadingRecipes else { return }
         
+        printD("[LaunchTrace] loadRandomRecipes start source=\(source.name) skipCache=\(skipCache) currentRecipes=\(recipes.count)")
         isLoadingRecipes = true
         
         // Serve cached all-recipes immediately for snappier home load
         if !skipCache, let cached = cloudKitManager.cachedRecipes(for: source, categoryID: nil) {
+            printD("[LaunchTrace] loadRandomRecipes using cached all-recipes count=\(cached.count) source=\(source.name)")
             randomRecipes = cached
             recipes = cached
+        } else if !skipCache {
+            printD("[LaunchTrace] loadRandomRecipes no cached all-recipes found source=\(source.name)")
         }
         
         await cloudKitManager.loadRandomRecipes(for: source, skipCache: skipCache)
         let fetched = cloudKitManager.recipes
+        printD("[LaunchTrace] loadRandomRecipes cloud returned count=\(fetched.count) source=\(source.name)")
         
         // Only bump the refresh trigger if the fetched data is meaningfully different
         let unchanged = recipesEqual(randomRecipes, fetched)
+        printD("[LaunchTrace] loadRandomRecipes compare unchanged=\(unchanged) oldRandom=\(randomRecipes.count) fetched=\(fetched.count)")
         
         if !unchanged {
             randomRecipes = fetched
@@ -343,11 +353,13 @@ final class AppViewModel: ObservableObject {
             recipes = fetched
             // Increment trigger to force SwiftUI to detect the change
             recipesRefreshTrigger += 1
+            printD("[LaunchTrace] loadRandomRecipes applied fetched recipes count=\(recipes.count) refreshTrigger=\(recipesRefreshTrigger)")
         }
         
         error = cloudKitManager.error
         refreshOfflineState()
         isLoadingRecipes = false
+        printD("[LaunchTrace] loadRandomRecipes end source=\(source.name) error=\(error ?? "nil")")
     }
     
     func deleteRecipe(id: CKRecord.ID) async -> Bool {

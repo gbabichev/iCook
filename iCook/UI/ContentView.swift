@@ -31,6 +31,26 @@ struct ContentView: View {
         return nil
     }
 
+    private func logLaunch(_ message: String) {
+#if DEBUG
+        print("[LaunchTrace] \(message)")
+#endif
+    }
+
+    private func describeLocation(_ location: AppViewModel.AppLocation) -> String {
+        switch location {
+        case .allRecipes:
+            return "allRecipes"
+        case .category(let categoryID):
+            return "category:\(categoryID.recordName)"
+        case .tag(let tagID):
+            return "tag:\(tagID.recordName)"
+        case .recipe(let recipeID, let categoryID):
+            let categoryPart = categoryID?.recordName ?? "nil"
+            return "recipe:\(recipeID.recordName),category:\(categoryPart)"
+        }
+    }
+
     @ViewBuilder
     private var splitViewContent: some View {
         NavigationSplitView(preferredCompactColumn: $preferredColumn) {
@@ -146,37 +166,49 @@ struct ContentView: View {
 
     @MainActor
     private func handleInitialLoadTask() async {
+        logLaunch("handleInitialLoadTask start")
         await model.loadSources()
+        logLaunch("after loadSources sources=\(model.sources.count) currentSource=\(model.currentSource?.name ?? "nil")")
         if !didRestoreLastViewed,
            let saved = model.loadAppLocation(),
            let source = model.sources.first(where: { $0.id == saved.sourceID }) {
+            logLaunch("restoring saved location=\(describeLocation(saved.location)) source=\(source.name)")
             suppressResetOnSourceChange = true
-            await model.selectSource(source)
-            await model.loadRandomRecipes(skipCache: true)
+            await model.selectSource(source, skipCacheOnLoad: false)
+            logLaunch("after selectSource restored source=\(model.currentSource?.name ?? "nil") recipes=\(model.recipes.count) categories=\(model.categories.count)")
 
             switch saved.location {
             case .allRecipes:
                 collectionType = .home
                 didRestoreLastViewed = true
+                logLaunch("restored to home")
 
             case .category(let categoryID):
                 if let category = model.categories.first(where: { $0.id == categoryID }) {
                     collectionType = .category(category)
                     didRestoreLastViewed = true
+                    logLaunch("restored to category=\(category.name)")
+                } else {
+                    logLaunch("category restore miss id=\(categoryID.recordName)")
                 }
 
             case .tag(let tagID):
                 if let tag = model.tags.first(where: { $0.id == tagID }) {
                     collectionType = .tag(tag)
                     didRestoreLastViewed = true
+                    logLaunch("restored to tag=\(tag.name)")
+                } else {
+                    logLaunch("tag restore miss id=\(tagID.recordName)")
                 }
 
             case .recipe(let recipeID, let categoryID):
                 if let catID = categoryID,
                    let category = model.categories.first(where: { $0.id == catID }) {
                     collectionType = .category(category)
+                    logLaunch("restoring recipe path with category=\(category.name)")
                 } else {
                     collectionType = .home
+                    logLaunch("restoring recipe path with home fallback")
                 }
 
 #if os(iOS)
@@ -187,12 +219,32 @@ struct ContentView: View {
                     model.randomRecipes.first(where: { $0.id == recipeID }) {
                     navPath.append(recipe)
                     didRestoreLastViewed = true
+                    logLaunch("restored recipe push id=\(recipe.id.recordName) name=\(recipe.name)")
+                } else {
+                    logLaunch("recipe restore miss id=\(recipeID.recordName)")
                 }
             }
         } else if model.currentSource != nil {
+            // Avoid duplicate cold-launch loads when another restore/load path already populated state.
+            if didRestoreLastViewed {
+                logLaunch("skipping fallback load because didRestoreLastViewed already true")
+                return
+            }
+
+            logLaunch("no saved restore path, loading categories for currentSource=\(model.currentSource?.name ?? "nil")")
             await model.loadCategories()
-            await model.loadRandomRecipes()
+
+            if model.recipes.isEmpty {
+                logLaunch("fallback recipes empty -> loading random recipes")
+                await model.loadRandomRecipes()
+            } else {
+                logLaunch("fallback recipes already populated (\(model.recipes.count)) -> skipping redundant random load")
+            }
+            logLaunch("post fallback load categories=\(model.categories.count) recipes=\(model.recipes.count)")
+        } else {
+            logLaunch("no current source after loadSources")
         }
+        logLaunch("handleInitialLoadTask end didRestoreLastViewed=\(didRestoreLastViewed)")
     }
 
     private func handleCurrentSourceIDChange() {
