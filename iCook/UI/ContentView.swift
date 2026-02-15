@@ -145,6 +145,18 @@ struct ContentView: View {
             collectionType = .home
             model.clearLastViewedRecipe()
         }
+        .onChange(of: model.tags) { _, newTags in
+            guard case .tag(let selectedTag) = collectionType else { return }
+            let stillExists = newTags.contains(where: { $0.id == selectedTag.id })
+            guard !stillExists else { return }
+
+            navPath = NavigationPath()
+            navStackKey = UUID().uuidString
+            collectionType = .home
+            lastCollectionType = .home
+            model.clearLastViewedRecipe()
+            model.saveAppLocation(.allRecipes)
+        }
         .alert("Error",
             isPresented: .init(
                 get: { model.error != nil },
