@@ -854,6 +854,10 @@ struct RecipeCollectionView: View {
         searchResults = []
         searchText = ""
         searchTask?.cancel()
+        #if os(iOS)
+        // Keep category/tag/home switches consistent with search: always reset list position to top.
+        searchActivationScrollResetToken &+= 1
+        #endif
         // Don't reload data - it's already in model.recipes
         // Only reload on initial load or manual refresh
     }
