@@ -1,6 +1,6 @@
 //
 //  AboutView.swift
-//  Zippy
+//  iCook
 //
 
 #if os(macOS)
@@ -88,7 +88,7 @@ struct AboutView: View {
     private var appName: String {
         Bundle.main.infoDictionary?["CFBundleDisplayName"] as? String ??
         Bundle.main.infoDictionary?["CFBundleName"] as? String ??
-        "Zippy"
+        "iCook"
     }
 }
 
