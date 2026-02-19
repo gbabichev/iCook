@@ -683,6 +683,9 @@ struct RecipeCollectionView: View {
             .task { await initialLoadIfNeeded() }
             .onChange(of: collectionType) { _, _ in Task { await handleCollectionTypeChange() } }
             .searchable(text: $searchText, placement: .toolbar, prompt: searchPromptText)
+#if os(iOS)
+            .scrollDismissesKeyboard(.immediately)
+#endif
             .onSubmit(of: .search) { performSearch() }
             .onChange(of: model.recipes) { _, newValue in
                 if case .home = collectionType {
