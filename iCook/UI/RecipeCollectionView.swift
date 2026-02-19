@@ -16,7 +16,7 @@ enum RecipeCollectionType: Hashable {
     var navigationTitle: String {
         switch self {
         case .home:
-            return ""
+            return "All Recipes"
         case .category(let category):
             return category.name
         case .tag(let tag):
