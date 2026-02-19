@@ -554,6 +554,13 @@ private struct AppWindowContent: View {
                 .padding(16)
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
             }
+
+#if os(macOS)
+            if showAbout {
+                AboutOverlayView(isPresented: $showAbout)
+                    .zIndex(10)
+            }
+#endif
         }
         .overlay(alignment: .bottom) {
             if showImportCompletedToast {
@@ -599,9 +606,6 @@ private struct AppWindowContent: View {
             case .failure(let error):
                 showAlert(title: "Import Failed", message: error.localizedDescription)
             }
-        }
-        .sheet(isPresented: $showAbout) {
-            AboutView()
         }
         .sheet(item: $importPreview) { preview in
             ImportPreviewSheet(

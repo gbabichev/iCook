@@ -1,17 +1,41 @@
+//
+//  AboutView.swift
+//  Zippy
+//
+
 #if os(macOS)
 import SwiftUI
-import AppKit
+
+struct LiveAppIconView: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var refreshID = UUID()
+    
+    var body: some View {
+        Image(nsImage: NSApp.applicationIconImage)
+            .resizable()
+            .scaledToFit()
+            .id(refreshID) // force SwiftUI to re-evaluate the image
+            .frame(width: 72, height: 72)
+            .onChange(of: colorScheme) { _,_ in
+                // Let AppKit update its icon, then refresh the view
+                DispatchQueue.main.async {
+                    refreshID = UUID()
+                }
+            }
+    }
+}
 
 struct AboutView: View {
+
     var body: some View {
         VStack(spacing: 18) {
             
             LiveAppIconView()
             
             VStack(spacing: 4) {
-                Text("iCook")
+                Text(appName)
                     .font(.title.weight(.semibold))
-                Text("Cook together")
+                Text("Cook Together")
                     .foregroundColor(.secondary)
             }
             
@@ -60,6 +84,12 @@ struct AboutView: View {
     private var appBuild: String {
         Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "–"
     }
+
+    private var appName: String {
+        Bundle.main.infoDictionary?["CFBundleDisplayName"] as? String ??
+        Bundle.main.infoDictionary?["CFBundleName"] as? String ??
+        "Zippy"
+    }
 }
 
 private struct AboutRow: View {
@@ -79,23 +109,58 @@ private struct AboutRow: View {
     }
 }
 
-struct LiveAppIconView: View {
-    @Environment(\.colorScheme) private var colorScheme
-    @State private var refreshID = UUID()
+struct AboutOverlayView: View {
+    @Binding var isPresented: Bool
     
     var body: some View {
-        Image(nsImage: NSApp.applicationIconImage)
-            .resizable()
-            .scaledToFit()
-            .id(refreshID) // force SwiftUI to re-evaluate the image
-            .frame(width: 72, height: 72)
-            .onChange(of: colorScheme) { _,_ in
-                // Let AppKit update its icon, then refresh the view
-                DispatchQueue.main.async {
-                    refreshID = UUID()
+        ZStack {
+            // Match the subtle dimming used by system sheets instead of a full blurred wall.
+            Color.black.opacity(0.25)
+                .ignoresSafeArea()
+                .onTapGesture { dismiss() }
+            
+            VStack {
+                ZStack(alignment: .topTrailing) {
+                    AboutView()
+                        .frame(maxWidth: 380)
+                        .background(
+                            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                                .fill(Color(NSColor.windowBackgroundColor))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                                        .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                                )
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                        .shadow(color: Color.black.opacity(0.2), radius: 24, x: 0, y: 12)
+                    
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.title2)
+                            .symbolRenderingMode(.hierarchical)
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(12)
+                    .accessibilityLabel(Text("Close About"))
                 }
             }
+            .padding(40)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        }
+        .transition(.opacity)
+        .onExitCommand {
+            dismiss()
+        }
+    }
+    
+    private func dismiss() {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            isPresented = false
+        }
     }
 }
-#endif
 
+#endif
