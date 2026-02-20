@@ -1977,12 +1977,8 @@ class CloudKitManager: ObservableObject {
         isLoading = true
         defer { isLoading = false }
         
-        if skipCache {
-            // Only purge caches when we can actually fetch fresh data.
-            if isCloudKitAvailable {
-                removeRecipeCache(for: source)
-            }
-        } else if let cachedAllRecipes = loadRecipesLocalCache(for: source, categoryID: nil),
+        if !skipCache,
+           let cachedAllRecipes = loadRecipesLocalCache(for: source, categoryID: nil),
                   !cachedAllRecipes.isEmpty {
             // Seed from cache to avoid empty UI while loading
             self.recipes = cachedAllRecipes.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }

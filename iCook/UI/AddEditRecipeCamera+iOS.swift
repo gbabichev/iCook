@@ -1014,7 +1014,12 @@ extension CameraManager: AVCapturePhotoCaptureDelegate {
 
 final class PreviewView: UIView {
     override class var layerClass: AnyClass { AVCaptureVideoPreviewLayer.self }
-    var videoPreviewLayer: AVCaptureVideoPreviewLayer { layer as! AVCaptureVideoPreviewLayer }
+    var videoPreviewLayer: AVCaptureVideoPreviewLayer {
+        if let previewLayer = layer as? AVCaptureVideoPreviewLayer {
+            return previewLayer
+        }
+        return AVCaptureVideoPreviewLayer()
+    }
 }
 
 #endif

@@ -33,6 +33,7 @@ final class AppViewModel: ObservableObject {
     @Published var currentSource: Source?
     @Published var sources: [Source] = []
     @Published var sourceSelectionStamp = UUID()
+    private var notificationCancellables = Set<AnyCancellable>()
 
     // App location tracking
     enum AppLocation {
@@ -55,13 +56,10 @@ final class AppViewModel: ObservableObject {
             randomRecipes = recipes
         }
         
-        NotificationCenter.default.addObserver(
-            forName: .recipesRefreshed,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            guard let self else { return }
-            Task { @MainActor in
+        NotificationCenter.default.publisher(for: .recipesRefreshed)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
                 // Keep the current visible recipe list in sync, but avoid no-op churn
                 // that resets view state (e.g., featured recipe flicker in categories).
                 let incoming = self.cloudKitManager.recipes
@@ -69,15 +67,12 @@ final class AppViewModel: ObservableObject {
                     self.recipes = incoming
                 }
             }
-        }
+            .store(in: &notificationCancellables)
         
-        NotificationCenter.default.addObserver(
-            forName: .sourcesRefreshed,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            guard let self else { return }
-            Task { @MainActor in
+        NotificationCenter.default.publisher(for: .sourcesRefreshed)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
                 self.sources = self.cloudKitManager.sources
                 if let current = self.cloudKitManager.currentSource {
                     self.currentSource = current
@@ -102,7 +97,7 @@ final class AppViewModel: ObservableObject {
                     self.recipeCounts.removeAll()
                 }
             }
-        }
+            .store(in: &notificationCancellables)
     }
     
     private func refreshOfflineState() {
@@ -146,6 +141,8 @@ final class AppViewModel: ObservableObject {
     }
     
     func deleteSource(_ source: Source) async -> Bool {
+        error = nil
+        cloudKitManager.error = nil
         await cloudKitManager.deleteSource(source)
         error = cloudKitManager.error
         // Copy sources directly from CloudKitManager without re-querying
@@ -161,6 +158,8 @@ final class AppViewModel: ObservableObject {
     }
     
     func renameSource(_ source: Source, newName: String) async -> Bool {
+        error = nil
+        cloudKitManager.error = nil
         refreshOfflineState()
         guard canRenameSource(source) else {
             error = isOfflineMode
@@ -255,8 +254,10 @@ final class AppViewModel: ObservableObject {
     func createCategory(name: String, icon: String) async -> Bool {
         guard let source = currentSource else { return false }
         error = nil
+        cloudKitManager.error = nil
         
         await cloudKitManager.createCategory(name: name, icon: icon, in: source)
+        error = cloudKitManager.error
         // Copy directly from CloudKitManager without re-querying
         categories = cloudKitManager.categories
         recipeCounts = cloudKitManager.recipeCounts
@@ -267,12 +268,15 @@ final class AppViewModel: ObservableObject {
     func updateCategory(id: CKRecord.ID, name: String, icon: String) async -> Bool {
         guard let source = currentSource else { return false }
         guard let category = categories.first(where: { $0.id == id }) else { return false }
+        error = nil
+        cloudKitManager.error = nil
         
         var updatedCategory = category
         updatedCategory.name = name
         updatedCategory.icon = icon
         
         await cloudKitManager.updateCategory(updatedCategory, in: source)
+        error = cloudKitManager.error
         // Copy directly from CloudKitManager without re-querying
         categories = cloudKitManager.categories
         recipeCounts = cloudKitManager.recipeCounts
@@ -283,6 +287,8 @@ final class AppViewModel: ObservableObject {
     func deleteCategory(id: CKRecord.ID) async {
         guard let source = currentSource else { return }
         guard let category = categories.first(where: { $0.id == id }) else { return }
+        error = nil
+        cloudKitManager.error = nil
         
         await cloudKitManager.deleteCategory(category, in: source)
         error = cloudKitManager.error
@@ -296,6 +302,7 @@ final class AppViewModel: ObservableObject {
     func createTag(name: String) async -> Bool {
         guard let source = currentSource else { return false }
         error = nil
+        cloudKitManager.error = nil
 
         await cloudKitManager.createTag(name: name, in: source)
         error = cloudKitManager.error
@@ -307,6 +314,8 @@ final class AppViewModel: ObservableObject {
     func updateTag(id: CKRecord.ID, name: String) async -> Bool {
         guard let source = currentSource else { return false }
         guard let tag = tags.first(where: { $0.id == id }) else { return false }
+        error = nil
+        cloudKitManager.error = nil
 
         var updatedTag = tag
         updatedTag.name = name
@@ -322,6 +331,8 @@ final class AppViewModel: ObservableObject {
     func deleteTag(id: CKRecord.ID) async -> Bool {
         guard let source = currentSource else { return false }
         guard let tag = tags.first(where: { $0.id == id }) else { return false }
+        error = nil
+        cloudKitManager.error = nil
 
         await cloudKitManager.deleteTag(tag, in: source)
         error = cloudKitManager.error
@@ -377,6 +388,8 @@ final class AppViewModel: ObservableObject {
     
     func deleteRecipe(id: CKRecord.ID) async -> Bool {
         printD("deleteRecipe: Called with recipe ID: \(id.recordName)")
+        error = nil
+        cloudKitManager.error = nil
         
         refreshOfflineState()
         if isOfflineMode {
@@ -586,6 +599,8 @@ final class AppViewModel: ObservableObject {
         tagIDs: [CKRecord.ID] = []
     ) async -> Bool {
         guard let source = currentSource else { return false }
+        error = nil
+        cloudKitManager.error = nil
         
         isLoadingRecipes = true
         defer { isLoadingRecipes = false }
@@ -635,6 +650,11 @@ final class AppViewModel: ObservableObject {
             // Also add to random recipes
             self.randomRecipes = (randomRecipes + [recipeWithImage]).sorted { $0.lastModified > $1.lastModified }
             recipeCounts[categoryId, default: 0] += 1
+            // Persist caches immediately so cold launch/offline reflects the new recipe.
+            cloudKitManager.recipes = newRecipes
+            cloudKitManager.cacheRecipesSnapshot(newRecipes, for: source)
+            let categoryRecipes = newRecipes.filter { $0.categoryID == categoryId }
+            cloudKitManager.cacheRecipes(categoryRecipes, for: source, categoryID: categoryId)
             
             // Small delay to ensure UI updates before sheet dismisses
             try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 second
@@ -658,6 +678,8 @@ final class AppViewModel: ObservableObject {
             printD("DEBUG: updateRecipeWithSteps failed - no currentSource")
             return false
         }
+        error = nil
+        cloudKitManager.error = nil
         
         // If recipes array is empty, reload them
         if recipes.isEmpty {
