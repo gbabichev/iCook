@@ -424,14 +424,6 @@ struct RecipeCollectionView: View {
                                 Label("Edit Recipe", systemImage: "pencil")
                             }
                             .disabled(model.isOfflineMode)
-                            
-                            Button(role: .destructive) {
-                                deletingRecipe = recipe
-                                showingDeleteAlert = true
-                            } label: {
-                                Label("Delete Recipe", systemImage: "trash")
-                            }
-                            .disabled(model.isOfflineMode)
                         }
                     }
                 }
