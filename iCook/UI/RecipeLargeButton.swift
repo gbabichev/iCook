@@ -100,9 +100,21 @@ struct RobustAsyncImage<Content: View, Placeholder: View>: View {
 struct RecipeLargeButtonWithState: View {
     let recipe: Recipe
     let categoryName: String?
+    let tagNames: [String]
     let index: Int
     
     @State private var shouldLoadImage = false
+
+    private var subtitleText: String {
+        var parts: [String] = ["\(recipe.recipeTime) min"]
+        if let categoryName, !categoryName.isEmpty {
+            parts.append(categoryName)
+        }
+        if !tagNames.isEmpty {
+            parts.append(tagNames.joined(separator: ", "))
+        }
+        return parts.joined(separator: " • ")
+    }
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -147,15 +159,11 @@ struct RecipeLargeButtonWithState: View {
                     .font(.headline)
                     .lineLimit(2)
                 
-                if let categoryName {
-                    Text("\(recipe.recipeTime) min • \(categoryName)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text("\(recipe.recipeTime) min")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                Text(subtitleText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

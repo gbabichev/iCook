@@ -226,6 +226,20 @@ struct RecipeCollectionView: View {
             return model.categories.first(where: { $0.id == recipe.categoryID })?.name
         }
     }
+
+    private func tagNames(for recipe: Recipe) -> [String] {
+        guard !recipe.tagIDs.isEmpty, !model.tags.isEmpty else { return [] }
+        let namesByID = Dictionary(uniqueKeysWithValues: model.tags.map { ($0.id, $0.name) })
+        var seen = Set<String>()
+        var orderedNames: [String] = []
+        for tagID in recipe.tagIDs {
+            guard let name = namesByID[tagID], !name.isEmpty else { continue }
+            if seen.insert(name).inserted {
+                orderedNames.append(name)
+            }
+        }
+        return orderedNames
+    }
     
     private var isSearchActive: Bool {
         showingSearchResults || !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -445,6 +459,7 @@ struct RecipeCollectionView: View {
                             RecipeLargeButtonWithState(
                                 recipe: recipe,
                                 categoryName: categoryName(for: recipe),
+                                tagNames: tagNames(for: recipe),
                                 index: index
                             )
                         }
