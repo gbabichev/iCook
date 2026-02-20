@@ -77,6 +77,8 @@ struct RecipeDetailView: View {
 
                         recipeTagManagerContent
                     }
+
+                    detailsSection
                     
                     // Recipe Steps Section (NEW)
                     if !displayedRecipe.recipeSteps.isEmpty {
@@ -229,25 +231,6 @@ struct RecipeDetailView: View {
                         .padding()
                         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
                     }
-                    
-                    // Instructions Section (kept for backward compatibility)
-                    if let details = displayedRecipe.details, !details.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        VStack(alignment: .leading, spacing: 12) {
-                            HStack {
-                                Image(systemName: "text.alignleft")
-                                    .foregroundStyle(.secondary)
-                                Text("Instructions")
-                                    .font(.title2)
-                                    .bold()
-                            }
-                            
-                            Text(details)
-                                .font(.body)
-                                .lineSpacing(4)
-                        }
-                        .padding()
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-                    }
                 }
                 .padding(.horizontal)
                 
@@ -307,6 +290,29 @@ struct RecipeDetailView: View {
     private var canEditTags: Bool {
         guard let source = model.currentSource else { return false }
         return model.canEditSource(source) && !model.isOfflineMode
+    }
+
+    @ViewBuilder
+    private var detailsSection: some View {
+        if let details = displayedRecipe.details, !details.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Image(systemName: "text.alignleft")
+                        .foregroundStyle(.secondary)
+                    Text("Details")
+                        .font(.title2)
+                        .bold()
+                }
+
+                Text(details)
+                    .font(.body)
+                    .lineSpacing(4)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding()
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+        }
     }
 
     @ViewBuilder

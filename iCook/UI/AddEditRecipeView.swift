@@ -219,6 +219,16 @@ struct AddEditRecipeView: View {
                     .background(iOSCardBackground)
 
                     VStack(alignment: .leading, spacing: 12) {
+                        Text("Details")
+                            .font(.headline)
+                        detailsEditorContent
+                            .disabled(!canEdit)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(14)
+                    .background(iOSCardBackground)
+
+                    VStack(alignment: .leading, spacing: 12) {
                         recipeStepsHeader
                         recipeStepsEditorContent
                             .disabled(!canEdit)
@@ -353,7 +363,17 @@ struct AddEditRecipeView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(14)
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Details")
+                            .font(.headline)
+                        detailsEditorContent
+                            .disabled(!canEdit)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(14)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+
                     VStack(alignment: .leading, spacing: 12) {
                         recipeStepsHeader
                         recipeStepsEditorContent
@@ -513,6 +533,22 @@ struct AddEditRecipeView: View {
                     .foregroundStyle(.secondary)
             }
         }
+
+    }
+
+    private var detailsEditorContent: some View {
+        TextEditor(text: $recipeDetails)
+            .frame(maxWidth: .infinity, minHeight: 120, alignment: .leading)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.secondary.opacity(0.08))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+            )
     }
 
     private var saveButtonEnabled: Bool {
