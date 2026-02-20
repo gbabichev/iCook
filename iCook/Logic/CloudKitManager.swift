@@ -685,25 +685,42 @@ class CloudKitManager: ObservableObject {
         var updatedRecipe = recipe
         let fm = FileManager.default
         let token = versionToken(for: recipe.lastModified)
-        
-        // If we already have a cached image path, ensure it matches the current version token; otherwise purge it.
+
+        // Prefer an already-cached file for the exact record version.
+        if let versionedPath = cachedImagePath(for: recipe.id, versionToken: token),
+           fm.fileExists(atPath: versionedPath) {
+            updatedRecipe.cachedImagePath = versionedPath
+            return updatedRecipe
+        }
+
+        // If we have a currently rendered image, keep it unless we can materialize a newer version.
+        // This avoids losing images for metadata-only updates (e.g. tag edits) where the asset itself
+        // did not change and CloudKit may not provide a fresh local asset file during save.
         if let current = recipe.cachedImagePath,
            fm.fileExists(atPath: current) {
             if current.contains("_\(token).asset") {
                 updatedRecipe.cachedImagePath = current
                 return updatedRecipe
-            } else {
-                removeCachedImages(for: recipe.id)
             }
+
+            if let asset = recipe.imageAsset,
+               let localPath = cacheImageAsset(asset, for: recipe.id, versionToken: token, existingPath: current),
+               fm.fileExists(atPath: localPath) {
+                updatedRecipe.cachedImagePath = localPath
+            } else {
+                updatedRecipe.cachedImagePath = current
+            }
+            return updatedRecipe
         }
-        
-        // Cache from CloudKit asset if available
+
+        // No current cache path; try to materialize from asset or any legacy cache.
         if let asset = recipe.imageAsset,
-           let localPath = cacheImageAsset(asset, for: recipe.id, versionToken: token, existingPath: nil) {
+           let localPath = cacheImageAsset(asset, for: recipe.id, versionToken: token, existingPath: nil),
+           fm.fileExists(atPath: localPath) {
             updatedRecipe.cachedImagePath = localPath
-        } else if let cachedPath = cachedImagePath(for: recipe.id, versionToken: token),
-                  fm.fileExists(atPath: cachedPath) {
-            updatedRecipe.cachedImagePath = cachedPath
+        } else if let fallback = cachedImagePath(for: recipe.id),
+                  fm.fileExists(atPath: fallback) {
+            updatedRecipe.cachedImagePath = fallback
         } else {
             updatedRecipe.cachedImagePath = nil
         }

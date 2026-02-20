@@ -613,6 +613,11 @@ final class AppViewModel: ObservableObject {
                 tempImageURL = result.tempURL
             }
         }
+        defer {
+            if let tempImageURL {
+                try? FileManager.default.removeItem(at: tempImageURL)
+            }
+        }
         
         await cloudKitManager.createRecipe(recipeWithImage, in: source)
         error = cloudKitManager.error
@@ -620,9 +625,6 @@ final class AppViewModel: ObservableObject {
         // Add recipe directly to local array without re-querying CloudKit
         // (newly created recipe won't be indexed in CloudKit immediately)
         if error == nil {
-            if let tempImageURL {
-                try? FileManager.default.removeItem(at: tempImageURL)
-            }
             printD("Recipe created successfully, adding to local list")
             let newRecipes = (recipes + [recipeWithImage]).sorted { $0.lastModified > $1.lastModified }
             printD("Before: recipes.count = \(recipes.count)")
@@ -686,12 +688,15 @@ final class AppViewModel: ObservableObject {
         // Handle image if provided
         var tempImageURL: URL?
         if let imageData = image {
-            // Clear any old cached variants before saving a new one
-            cloudKitManager.purgeCachedImages(for: recipe.id)
             if let result = await cloudKitManager.saveImage(imageData, for: updatedRecipe) {
                 updatedRecipe.imageAsset = result.asset
                 updatedRecipe.cachedImagePath = result.cachedPath
                 tempImageURL = result.tempURL
+            }
+        }
+        defer {
+            if let tempImageURL {
+                try? FileManager.default.removeItem(at: tempImageURL)
             }
         }
         
@@ -700,9 +705,6 @@ final class AppViewModel: ObservableObject {
         
         // Update the recipe in the local array immediately
         if error == nil {
-            if let tempImageURL {
-                try? FileManager.default.removeItem(at: tempImageURL)
-            }
             if let categoryId = categoryId, categoryId != recipe.categoryID {
                 let oldID = recipe.categoryID
                 let newID = categoryId
@@ -729,9 +731,9 @@ final class AppViewModel: ObservableObject {
             }
             // Nudge the UI to rebuild lists (including search views) with the latest recipe metadata
             recipesRefreshTrigger += 1
-            // Force refresh from CloudKit to pull latest fields and bust stale cache
+            // Refresh from CloudKit without purging local cache first.
             await loadCategories()
-            await loadRecipesForCategory(skipCache: true)
+            await loadRecipesForCategory()
         }
         
         refreshOfflineState()
