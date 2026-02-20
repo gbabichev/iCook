@@ -255,24 +255,19 @@ struct SourceSelector: View {
 
     func deleteSource(_ source: Source) async {
         printD("Deleting source: \(source.name)")
-
-        let categoriesToDelete = viewModel.categories.filter { $0.sourceID == source.id }
-        for category in categoriesToDelete {
-            await viewModel.deleteCategory(id: category.id)
-            printD("Deleted category: \(category.name)")
+        let deletedCurrentSource = viewModel.currentSource?.id == source.id
+        let deleted = await viewModel.deleteSource(source)
+        if deleted {
+            printD("Deleted source: \(source.name)")
+            sourceToDelete = nil
+            await viewModel.loadSources()
+            if deletedCurrentSource, let fallbackSource = viewModel.currentSource {
+                await viewModel.selectSource(fallbackSource, skipCacheOnLoad: false)
+            }
+            await refreshRecipeTotals()
+        } else {
+            printD("Failed to delete source: \(source.name)")
         }
-
-        let recipesToDelete = viewModel.recipes.filter { $0.sourceID == source.id }
-        for recipe in recipesToDelete {
-            _ = await viewModel.deleteRecipe(id: recipe.id)
-            printD("Deleted recipe: \(recipe.name)")
-        }
-
-        _ = await viewModel.deleteSource(source)
-        printD("Deleted source: \(source.name)")
-
-        sourceToDelete = nil
-        await viewModel.loadSources()
     }
 }
 struct NewSourceSheet: View {

@@ -147,13 +147,17 @@ final class AppViewModel: ObservableObject {
     
     func deleteSource(_ source: Source) async -> Bool {
         await cloudKitManager.deleteSource(source)
+        error = cloudKitManager.error
         // Copy sources directly from CloudKitManager without re-querying
         sources = cloudKitManager.sources
         currentSource = cloudKitManager.currentSource
+        categories = cloudKitManager.categories
         tags = cloudKitManager.tags
+        recipes = cloudKitManager.recipes
+        recipeCounts = cloudKitManager.recipeCounts
         cloudKitManager.saveCurrentSourceID()
         refreshOfflineState()
-        return true
+        return cloudKitManager.error == nil
     }
     
     func renameSource(_ source: Source, newName: String) async -> Bool {

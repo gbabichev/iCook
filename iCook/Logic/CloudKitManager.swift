@@ -1025,19 +1025,139 @@ class CloudKitManager: ObservableObject {
     }
     
     func deleteSource(_ source: Source) async {
+        error = nil
+        guard source.isPersonal || isSharedOwner(source) else {
+            self.error = "Only collection owners can delete it."
+            return
+        }
+
         do {
-            let database = source.isPersonal ? privateDatabase : sharedDatabase
+            let isOwner = isSharedOwner(source)
+            let database = isOwner || source.isPersonal ? privateDatabase : sharedDatabase
+            let zoneID = source.id.zoneID
+            let childRecordIDs = try await fetchChildRecordIDs(for: source.id, in: database, zoneID: zoneID)
+
+            if !childRecordIDs.recipes.isEmpty {
+                try await deleteRecords(withIDs: childRecordIDs.recipes, in: database)
+            }
+            if !childRecordIDs.categories.isEmpty {
+                try await deleteRecords(withIDs: childRecordIDs.categories, in: database)
+            }
+            if !childRecordIDs.tags.isEmpty {
+                try await deleteRecords(withIDs: childRecordIDs.tags, in: database)
+            }
+
             try await database.deleteRecord(withID: source.id)
+
+            for recipeID in childRecordIDs.recipes {
+                recipeCache.removeValue(forKey: recipeID)
+                removeCachedImages(for: recipeID)
+            }
+            for categoryID in childRecordIDs.categories {
+                categoryCache.removeValue(forKey: categoryID)
+                recipeCounts.removeValue(forKey: categoryID)
+            }
+            for tagID in childRecordIDs.tags {
+                tagCache.removeValue(forKey: tagID)
+            }
+
+            categories.removeAll { $0.sourceID == source.id }
+            tags.removeAll { $0.sourceID == source.id }
+            recipes.removeAll { $0.sourceID == source.id }
+
+            removeLocalCacheFiles(for: source)
+
             sourceCache.removeValue(forKey: source.id)
             // Remove from local array - reassign to ensure SwiftUI detects change
             self.sources = sources.filter { $0.id != source.id }
+            unmarkSharedSource(id: source.id)
+            let sourceKey = cacheIdentifier(for: source.id)
+            sharedSourceIDs.remove(sourceKey)
+            recentlyUnsharedIDs.remove(sourceKey)
+            saveSharedSourceIDs()
+
             if currentSource?.id == source.id {
                 currentSource = self.sources.first
+                if currentSource == nil {
+                    categories.removeAll()
+                    tags.removeAll()
+                    recipes.removeAll()
+                    recipeCounts.removeAll()
+                }
             }
+
+            updateSharedEditabilityFlag()
             saveSourcesLocalCache()
+            saveCurrentSourceID()
+            printD("Deleted source and child records: \(source.name) (categories=\(childRecordIDs.categories.count), recipes=\(childRecordIDs.recipes.count), tags=\(childRecordIDs.tags.count))")
         } catch {
             printD("Error deleting source: \(error.localizedDescription)")
             self.error = "Failed to delete source"
+        }
+    }
+
+    private struct ChildRecordIDs {
+        var categories: [CKRecord.ID] = []
+        var recipes: [CKRecord.ID] = []
+        var tags: [CKRecord.ID] = []
+    }
+
+    private func fetchChildRecordIDs(for sourceID: CKRecord.ID, in database: CKDatabase, zoneID: CKRecordZone.ID) async throws -> ChildRecordIDs {
+        let sourceRef = CKRecord.Reference(recordID: sourceID, action: .none)
+        let categories = try await fetchRecordIDs(recordType: "Category", sourceRef: sourceRef, in: database, zoneID: zoneID)
+        let recipes = try await fetchRecordIDs(recordType: "Recipe", sourceRef: sourceRef, in: database, zoneID: zoneID)
+        let tags = try await fetchRecordIDs(recordType: "Tag", sourceRef: sourceRef, in: database, zoneID: zoneID)
+        return ChildRecordIDs(categories: categories, recipes: recipes, tags: tags)
+    }
+
+    private func fetchRecordIDs(
+        recordType: String,
+        sourceRef: CKRecord.Reference,
+        in database: CKDatabase,
+        zoneID: CKRecordZone.ID
+    ) async throws -> [CKRecord.ID] {
+        let predicate = NSPredicate(format: "sourceID == %@", sourceRef)
+        let query = CKQuery(recordType: recordType, predicate: predicate)
+        let (results, _) = try await database.records(matching: query, inZoneWith: zoneID)
+        return results.compactMap { _, result in
+            switch result {
+            case .success(let record):
+                return record.recordID
+            case .failure(let error):
+                printD("Failed to resolve \(recordType) during source deletion: \(error.localizedDescription)")
+                return nil
+            }
+        }
+    }
+
+    private func deleteRecords(withIDs recordIDs: [CKRecord.ID], in database: CKDatabase) async throws {
+        for recordID in recordIDs {
+            do {
+                try await database.deleteRecord(withID: recordID)
+            } catch let ckError as CKError where ckError.code == .unknownItem {
+                continue
+            }
+        }
+    }
+
+    private func removeLocalCacheFiles(for source: Source) {
+        let fm = FileManager.default
+        let directFiles = [
+            cacheFileURL(for: .categories, sourceID: source.id),
+            cacheFileURL(for: .tags, sourceID: source.id),
+            cacheFileURL(for: .recipes, sourceID: source.id, categoryID: nil),
+            cacheFileURL(for: .recipeCounts, sourceID: source.id)
+        ]
+
+        for url in directFiles where fm.fileExists(atPath: url.path) {
+            try? fm.removeItem(at: url)
+        }
+
+        if let files = try? fm.contentsOfDirectory(at: cacheDirectoryURL, includingPropertiesForKeys: nil) {
+            let recipePrefix = "recipes_\(cacheIdentifier(for: source.id))_"
+            for url in files where url.lastPathComponent.hasPrefix(recipePrefix) {
+                try? fm.removeItem(at: url)
+            }
         }
     }
     
