@@ -271,6 +271,21 @@ extension SourceSelector {
                                 .monospacedDigit()
                         }
                         .font(.callout)
+
+                        Divider()
+
+                        SettingsRow(
+                            "Help",
+                            systemImage: "questionmark.circle",
+                            subtitle: "Open the tutorial again."
+                        ) {
+                            Button("Open") {
+                                Task { @MainActor in
+                                    reopenTutorialFromSettings()
+                                }
+                            }
+                            .buttonStyle(.bordered)
+                        }
                     }
                     .padding(14)
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
