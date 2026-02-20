@@ -124,6 +124,7 @@ struct SourceSelector: View {
 #endif
     }
 
+    #if os(iOS)
     var sourcesListView: some View {
         VStack(spacing: 0) {
             if let error = viewModel.cloudKitManager.error {
@@ -216,6 +217,7 @@ struct SourceSelector: View {
             .environmentObject(viewModel)
         }
     }
+    #endif
 
     func beginRenaming(_ source: Source) {
         guard viewModel.canRenameSource(source) else { return }
@@ -302,6 +304,7 @@ struct NewSourceSheet: View {
         }
     }
 
+    #if os(iOS)
     private var iOSView: some View {
         NavigationStack {
             Form {
@@ -356,6 +359,7 @@ struct NewSourceSheet: View {
             }
         }
     }
+    #endif
 
 #if os(macOS)
     private var macOSView: some View {
@@ -631,6 +635,7 @@ struct SourceRowWrapper: View {
     }
 }
 
+#if os(iOS)
 struct RenameSourceSheet: View {
     @Binding var isPresented: Bool
     @EnvironmentObject private var viewModel: AppViewModel
@@ -709,3 +714,4 @@ struct RenameSourceSheet: View {
     }
 #endif
 }
+#endif

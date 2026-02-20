@@ -205,6 +205,7 @@ struct AddEditRecipeView: View {
         }
     }
 
+    #if os(iOS)
     private var iOSView: some View {
         NavigationStack {
             ScrollView {
@@ -327,6 +328,7 @@ struct AddEditRecipeView: View {
             }
         }
     }
+    #endif
 
 #if os(macOS)
     private var macOSView: some View {
@@ -481,40 +483,6 @@ struct AddEditRecipeView: View {
             .padding(12)
             .background(.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
         }
-    }
-
-    @ViewBuilder
-    private var readOnlyBannerSection: some View {
-        if let source = model.currentSource, !model.canEditSource(source) {
-            Section {
-                HStack {
-                    Image(systemName: "lock.fill")
-                        .foregroundColor(.orange)
-                    Text("This source is read-only")
-                        .foregroundColor(.orange)
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var saveErrorSection: some View {
-        if let errorMessage = saveErrorMessage {
-            Section {
-                HStack {
-                    Image(systemName: "exclamationmark.circle.fill")
-                        .foregroundColor(.red)
-                    Text(errorMessage)
-                        .foregroundColor(.red)
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var basicInformationContent: some View {
-        basicInformationFieldsContent
-        recipeTagSelectionContent
     }
 
     @ViewBuilder
@@ -679,32 +647,6 @@ struct AddEditRecipeView: View {
         isFormValid && !isSaving && !isDeletingRecipe && canEdit
     }
 
-    private var recipeStepsSection: some View {
-        Section {
-            recipeStepsEditorContent
-        } header: {
-            recipeStepsHeader
-        }
-    }
-
-    @ViewBuilder
-    private var deleteRecipeSection: some View {
-        if isEditing {
-            Section {
-                Button(role: .destructive) {
-                    showingDeleteAlert = true
-                } label: {
-                    Label("Delete Recipe", systemImage: "trash")
-                }
-                .disabled(!canEdit || isSaving || isDeletingRecipe)
-            } header: {
-                Text("Danger Zone")
-            } footer: {
-                Text("This action cannot be undone.")
-            }
-        }
-    }
-
     private var recipeStepsHeader: some View {
         HStack {
             Text("Recipe Steps")
@@ -778,13 +720,11 @@ struct AddEditRecipeView: View {
         }
     }
 
+    #if os(iOS)
     private var editorBackgroundColor: Color {
-#if os(iOS)
         return Color(uiColor: .systemGroupedBackground)
-#else
-        return Color(nsColor: .windowBackgroundColor)
-#endif
     }
+    #endif
 
     private var recipeStepsEditorContent: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -858,10 +798,12 @@ struct AddEditRecipeView: View {
         }
     }
 
+    #if os(iOS)
     private var iOSCardBackground: some View {
         RoundedRectangle(cornerRadius: 14, style: .continuous)
             .fill(.regularMaterial)
     }
+    #endif
 
     // MARK: - Step Management
     

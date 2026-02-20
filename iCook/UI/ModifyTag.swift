@@ -73,6 +73,7 @@ struct AddTagView: View {
         )
     }
 
+    #if os(iOS)
     private var iOSView: some View {
         NavigationStack {
             Form {
@@ -178,6 +179,7 @@ struct AddTagView: View {
             }
         }
     }
+    #endif
 
 #if os(macOS)
     private var macOSView: some View {

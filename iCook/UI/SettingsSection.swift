@@ -8,6 +8,7 @@
 import SwiftUI
 // MARK: - Reusable building blocks
 
+#if os(macOS)
 struct SettingsRow<Control: View>: View {
     let systemImage: String?
     let title: String
@@ -51,6 +52,7 @@ struct SettingsRow<Control: View>: View {
         }
     }
 }
+#endif
 
 extension View {
     @ViewBuilder

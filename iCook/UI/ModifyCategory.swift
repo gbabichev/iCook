@@ -86,6 +86,7 @@ struct AddCategoryView: View {
         )
     }
 
+    #if os(iOS)
     private var iOSView: some View {
         NavigationStack {
             Form {
@@ -200,6 +201,7 @@ struct AddCategoryView: View {
             }
         }
     }
+    #endif
 
 #if os(macOS)
     private var macOSView: some View {
@@ -382,9 +384,11 @@ struct AddCategoryView: View {
         }
     }
 
+    #if os(macOS)
     private var saveButtonDisabled: Bool {
         !canEdit || trimmedCategoryName.isEmpty || hasDuplicateName || isSaving || isDeleting
     }
+    #endif
     
     private var canEdit: Bool {
         guard let source = model.currentSource else { return false }
