@@ -156,7 +156,6 @@ final class AppViewModel: ObservableObject {
         return true
     }
     
-    #if os(iOS)
     func renameSource(_ source: Source, newName: String) async -> Bool {
         await cloudKitManager.updateSource(source, newName: newName)
         sources = cloudKitManager.sources
@@ -171,7 +170,6 @@ final class AppViewModel: ObservableObject {
         refreshOfflineState()
         return cloudKitManager.error == nil
     }
-    #endif
 #if os(macOS)
     func leaveSharedSource(_ source: Source) async {
         _ = await cloudKitManager.leaveSharedSource(source)

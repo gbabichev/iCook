@@ -1041,7 +1041,6 @@ class CloudKitManager: ObservableObject {
         }
     }
     
-    #if os(iOS)
     func updateSource(_ source: Source, newName: String) async {
         let trimmedName = newName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty else { return }
@@ -1082,7 +1081,6 @@ class CloudKitManager: ObservableObject {
             self.error = "Failed to rename collection"
         }
     }
-    #endif
     
     func isSharedSource(_ source: Source) -> Bool {
         let key = cacheIdentifier(for: source.id)

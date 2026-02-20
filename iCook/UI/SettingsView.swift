@@ -61,6 +61,16 @@ struct SourceSelector: View {
         .task(id: sourceTotalsRefreshKey) {
             await refreshRecipeTotals()
         }
+        .sheet(item: $editingSource) { source in
+            EditSourceSheet(
+                isPresented: Binding(
+                    get: { editingSource != nil },
+                    set: { if !$0 { editingSource = nil } }
+                ),
+                source: source
+            )
+            .environmentObject(viewModel)
+        }
     }
 
     @ViewBuilder
@@ -78,11 +88,6 @@ struct SourceSelector: View {
             onShare: {
                 Task {
                     await shareSource(for: source)
-                }
-            },
-            onStopSharing: {
-                Task {
-                    await viewModel.stopSharingSource(source)
                 }
             },
             onRename: {
@@ -205,16 +210,6 @@ struct SourceSelector: View {
         }
         .onAppear {
             viewModel.clearErrors()
-        }
-        .sheet(item: $editingSource) { source in
-            RenameSourceSheet(
-                isPresented: Binding(
-                    get: { editingSource != nil },
-                    set: { if !$0 { editingSource = nil } }
-                ),
-                source: source
-            )
-            .environmentObject(viewModel)
         }
     }
     #endif
@@ -467,9 +462,6 @@ struct SourceRowWrapper: View {
     let isSelected: Bool
     let onSelect: () -> Void
     let onShare: () -> Void
-#if os(macOS)
-    let onStopSharing: (() -> Void)?
-#endif
     let onRename: () -> Void
     let onDelete: () -> Void
 #if os(iOS)
@@ -517,8 +509,10 @@ struct SourceRowWrapper: View {
         let canRename = isOwner
         let canDelete = isOwner
         let shareState = shareUIState(isShared: isShared, isOwner: isOwner)
-        let shareLabel = shareLabel(for: shareState)
         let shareSystemImage = shareSystemImage(for: shareState)
+#if os(iOS)
+        let shareLabel = shareLabel(for: shareState)
+#endif
 
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
@@ -577,38 +571,12 @@ struct SourceRowWrapper: View {
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
         .contextMenu {
-            Button(action: onSelect) {
-                Label("Open", systemImage: "checkmark.circle")
-            }
-            
             if canRename {
                 Button(action: onRename) {
                     Label("Rename", systemImage: "pencil")
                 }
+                .disabled(viewModel.isOfflineMode)
             }
-            
-#if os(macOS)
-            if isOwner, isShared {
-                Button(action: onShare) {
-                    Label("Share With…", systemImage: "square.and.arrow.up")
-                }
-                Button(role: .destructive, action: onStopSharing ?? {}) {
-                    Label("Stop Sharing", systemImage: "xmark.circle")
-                }
-            } else if isOwner {
-                Button(action: onShare) {
-                    Label("Start Sharing", systemImage: "square.and.arrow.up")
-                }
-            } else {
-                Button(action: onShare) {
-                    Label("Leave Share", systemImage: "person.crop.circle.badge.xmark")
-                }
-            }
-#else
-            Button(action: onShare) {
-                Label(shareLabel, systemImage: shareSystemImage)
-            }
-#endif
             
             if canDelete {
                 Button(role: .destructive, action: onDelete) {
@@ -636,7 +604,12 @@ struct SourceRowWrapper: View {
 }
 
 #if os(iOS)
-struct RenameSourceSheet: View {
+private func dismissKeyboard() {
+    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+}
+#endif
+
+struct EditSourceSheet: View {
     @Binding var isPresented: Bool
     @EnvironmentObject private var viewModel: AppViewModel
     let source: Source
@@ -648,27 +621,45 @@ struct RenameSourceSheet: View {
         self.source = source
         _sourceName = State(initialValue: source.name)
     }
+
+    private var trimmedSourceName: String {
+        sourceName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var isSaveDisabled: Bool {
+        trimmedSourceName.isEmpty || isSaving
+    }
     
     var body: some View {
+#if os(macOS)
+        macOSView
+#else
+        iOSView
+#endif
+    }
+
+#if os(iOS)
+    private var iOSView: some View {
         NavigationStack {
             Form {
                 Section("Collection Name") {
-                    TextField("Collection Name", text: $sourceName)
+                    TextField("e.g., Family Recipes", text: $sourceName)
                         .iOSModernInputFieldStyle()
-#if os(iOS)
                         .textInputAutocapitalization(.words)
-#endif
                         .labelsHidden()
+                }
+
+                Section("About Collections") {
+                    Label("Stored in iCloud and synced across your devices.", systemImage: "icloud")
+                        .foregroundStyle(.secondary)
+                    Label("Can be shared with family and friends.", systemImage: "person.2")
+                        .foregroundStyle(.secondary)
                 }
             }
             .formStyle(.grouped)
-#if os(iOS)
             .scrollDismissesKeyboard(.immediately)
-#endif
-            .navigationTitle("Rename Collection")
-#if os(iOS)
+            .navigationTitle("Edit Collection")
             .navigationBarTitleDisplayMode(.inline)
-#endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
@@ -682,36 +673,105 @@ struct RenameSourceSheet: View {
                             await save()
                         }
                     }
-                    .disabled(sourceName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSaving)
+                    .disabled(isSaveDisabled)
                 }
-#if os(iOS)
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
                     Button("Done") {
                         dismissKeyboard()
                     }
                 }
-#endif
             }
         }
     }
-    
+
+    #else
+    private var macOSView: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Image(systemName: "square.stack.3d.up.fill")
+                    .font(.title2)
+                    .foregroundStyle(.secondary)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Edit Collection")
+                        .font(.title2)
+                        .fontWeight(.semibold)
+                    Text("Rename your iCloud-synced recipe collection")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Button("Cancel") {
+                    isPresented = false
+                }
+                .keyboardShortcut(.cancelAction)
+
+                Button {
+                    Task {
+                        await save()
+                    }
+                } label: {
+                    if isSaving {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Saving...")
+                        }
+                    } else {
+                        Text("Save")
+                    }
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(isSaveDisabled)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+
+            Divider()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Collection Information")
+                            .font(.headline)
+
+                        TextField("e.g., Family Recipes", text: $sourceName)
+                            .iOSModernInputFieldStyle()
+                    }
+                    .padding(14)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("About Collections")
+                            .font(.headline)
+
+                        Label("Stored in iCloud and synced across your devices.", systemImage: "icloud")
+                            .foregroundStyle(.secondary)
+                        Label("Can be shared with family and friends.", systemImage: "person.2")
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(14)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+                .padding(16)
+            }
+        }
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+    #endif
+
     @MainActor
     private func save() async {
-        let trimmed = sourceName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmedSourceName.isEmpty else { return }
         isSaving = true
-        let success = await viewModel.renameSource(source, newName: trimmed)
+        let success = await viewModel.renameSource(source, newName: trimmedSourceName)
         isSaving = false
         if success {
             isPresented = false
         }
     }
-
-#if os(iOS)
-    private func dismissKeyboard() {
-        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-    }
-#endif
 }
-#endif
