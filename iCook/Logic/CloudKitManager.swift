@@ -2106,10 +2106,15 @@ class CloudKitManager: ObservableObject {
             existingRecord["tagIDs"] = recipe.tagIDs.map(\.recordName)
             existingRecord["lastModified"] = recipe.lastModified
             
-            // Handle image asset: only update when we have a new asset. Avoid clearing an existing
-            // CloudKit asset unless we explicitly support image removal (not currently exposed).
+            // Handle image asset: only update when we have a new, readable local asset file.
+            // Avoid clearing an existing CloudKit asset unless we explicitly support image removal.
             if let imageAsset = recipe.imageAsset {
-                existingRecord["imageAsset"] = imageAsset
+                if let imageURL = imageAsset.fileURL,
+                   FileManager.default.fileExists(atPath: imageURL.path) {
+                    existingRecord["imageAsset"] = imageAsset
+                } else {
+                    printD("Skipping recipe imageAsset update; local file is unavailable.")
+                }
             }
             
             // Handle recipe steps

@@ -699,6 +699,9 @@ final class AppViewModel: ObservableObject {
         defer { isLoadingRecipes = false }
         
         var updatedRecipe = recipe
+        // Only attach image assets when the user selected a new image in this edit session.
+        // This avoids reusing stale CKAsset file URLs from previously fetched records.
+        updatedRecipe.imageAsset = nil
         updatedRecipe.lastModified = Date()
         if let name = name { updatedRecipe.name = name }
         if let recipeTime = recipeTime { updatedRecipe.recipeTime = recipeTime }
