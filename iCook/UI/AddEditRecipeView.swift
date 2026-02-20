@@ -49,6 +49,7 @@ struct AddEditRecipeView: View {
     @State private var selectedPhotoItem: PhotosPickerItem?
     @State private var showingImageActionSheet = false
     @State private var showingCamera = false
+    @State private var showingRecipeTimePicker = false
 #endif
     
     private var isFormValid: Bool {
@@ -57,6 +58,21 @@ struct AddEditRecipeView: View {
         Int(recipeTime.trimmingCharacters(in: .whitespacesAndNewlines)) != nil
         return nameValid && timeValid
     }
+
+#if os(iOS)
+    private var recipeTimeMinuteRange: ClosedRange<Int> { 1...600 }
+    private var recipeTimeDefaultMinutes: Int { 30 }
+
+    private var clampedRecipeTimeMinutes: Int {
+        let raw = Int(recipeTime.trimmingCharacters(in: .whitespacesAndNewlines)) ?? recipeTimeDefaultMinutes
+        return min(max(raw, recipeTimeMinuteRange.lowerBound), recipeTimeMinuteRange.upperBound)
+    }
+
+    private var selectedCategoryForDisplay: Category? {
+        guard let selectedCategoryId else { return nil }
+        return model.categories.first { $0.id == selectedCategoryId }
+    }
+#endif
     
     private var canEdit: Bool {
         guard let source = model.currentSource else { return false }
@@ -135,6 +151,11 @@ struct AddEditRecipeView: View {
             AddTagView()
                 .environmentObject(model)
         }
+#if os(iOS)
+        .sheet(isPresented: $showingRecipeTimePicker) {
+            recipeTimePickerSheet
+        }
+#endif
 #if os(iOS)
         .photosPicker(
             isPresented: $showingImagePicker,
@@ -504,14 +525,53 @@ struct AddEditRecipeView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
+#if os(iOS)
+                Menu {
+                    ForEach(model.categories) { category in
+                        Button {
+                            selectedCategoryId = category.id
+                        } label: {
+                            HStack {
+                                Text("\(category.icon) \(category.name)")
+                                Spacer()
+                                if selectedCategoryId == category.id {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 8) {
+                        if let selected = selectedCategoryForDisplay {
+                            Text(selected.icon)
+                            Text(selected.name)
+                                .foregroundStyle(.primary)
+                        } else {
+                            Text("Select Category")
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .iOSModernInputFieldStyle()
+                .accessibilityLabel("Category")
+#else
                 Picker("Category", selection: $selectedCategoryId) {
                     ForEach(model.categories) { category in
-                        Text(category.name).tag(category.id as CKRecord.ID?)
+                        Text("\(category.icon) \(category.name)").tag(category.id as CKRecord.ID?)
                     }
                 }
                 .pickerStyle(.menu)
                 .labelsHidden()
                 .accessibilityLabel("Category")
+#endif
             }
         } else {
             Text("No categories available")
@@ -533,16 +593,40 @@ struct AddEditRecipeView: View {
             Text("Time to Cook")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+#if os(iOS)
+            VStack(alignment: .leading, spacing: 6) {
+                Button {
+                    dismissKeyboard()
+                    showingRecipeTimePicker = true
+                } label: {
+                    HStack(spacing: 8) {
+                        Text("\(clampedRecipeTimeMinutes)")
+                            .fontWeight(.semibold)
+                            .monospacedDigit()
+                            .foregroundStyle(.primary)
+                        Text("minutes")
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .iOSModernInputFieldStyle()
+            }
+#else
             HStack(spacing: 8) {
                 TextField("Required", text: $recipeTime)
                     .iOSModernInputFieldStyle()
-#if os(iOS)
-                    .keyboardType(.numberPad)
-#endif
                 Text("minutes")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
+#endif
         }
 
     }
@@ -574,6 +658,22 @@ struct AddEditRecipeView: View {
                 .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
         )
     }
+
+#if os(iOS)
+    private var recipeTimePickerSheet: some View {
+        RecipeTimePickerSheet(
+            minuteRange: recipeTimeMinuteRange,
+            initialMinutes: clampedRecipeTimeMinutes,
+            onCancel: {
+                showingRecipeTimePicker = false
+            },
+            onDone: { selected in
+                recipeTime = String(selected)
+                showingRecipeTimePicker = false
+            }
+        )
+    }
+#endif
 
     private var saveButtonEnabled: Bool {
         isFormValid && !isSaving && !isDeletingRecipe && canEdit
@@ -874,6 +974,10 @@ struct AddEditRecipeView: View {
                 }
             }
         }
+
+#if os(iOS)
+        recipeTime = String(clampedRecipeTimeMinutes)
+#endif
     }
     
     private func handleCategoryChanges(_ newCategories: [Category]) {
@@ -1426,6 +1530,60 @@ struct AddEditRecipeView: View {
     }
 #endif
 }
+
+#if os(iOS)
+private struct RecipeTimePickerSheet: View {
+    let minuteRange: ClosedRange<Int>
+    let onCancel: () -> Void
+    let onDone: (Int) -> Void
+
+    @State private var selectedMinutes: Int
+
+    init(
+        minuteRange: ClosedRange<Int>,
+        initialMinutes: Int,
+        onCancel: @escaping () -> Void,
+        onDone: @escaping (Int) -> Void
+    ) {
+        self.minuteRange = minuteRange
+        self.onCancel = onCancel
+        self.onDone = onDone
+        _selectedMinutes = State(initialValue: initialMinutes)
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                Picker("Time to Cook", selection: $selectedMinutes) {
+                    ForEach(minuteRange, id: \.self) { minute in
+                        Text("\(minute) min").tag(minute)
+                    }
+                }
+                .pickerStyle(.wheel)
+                .labelsHidden()
+                .frame(maxWidth: .infinity)
+                .clipped()
+            }
+            .navigationTitle("Time to Cook")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        onCancel()
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        onDone(selectedMinutes)
+                    }
+                }
+            }
+        }
+        .presentationDetents([.height(320)])
+        .presentationDragIndicator(.visible)
+    }
+}
+#endif
 
 // MARK: - Step Edit View
 
