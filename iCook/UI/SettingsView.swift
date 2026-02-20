@@ -283,8 +283,26 @@ struct NewSourceSheet: View {
     @EnvironmentObject private var viewModel: AppViewModel
     @Binding var sourceName: String
     @State private var isCreating = false
+
+    private var trimmedSourceName: String {
+        sourceName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var isCreateDisabled: Bool {
+        trimmedSourceName.isEmpty || isCreating
+    }
     
     var body: some View {
+        Group {
+#if os(macOS)
+            macOSView
+#else
+            iOSView
+#endif
+        }
+    }
+
+    private var iOSView: some View {
         NavigationStack {
             Form {
                 Section("Collection Name") {
@@ -292,10 +310,11 @@ struct NewSourceSheet: View {
                         .labelsHidden()
                 }
                 
-                Section {
-                    Text("Collections are stored in iCloud, and can be shared with others.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                Section("About Collections") {
+                    Label("Stored in iCloud and synced across your devices.", systemImage: "icloud")
+                        .foregroundStyle(.secondary)
+                    Label("Can be shared with family and friends.", systemImage: "person.2")
+                        .foregroundStyle(.secondary)
                 }
             }
             .formStyle(.grouped)
@@ -313,19 +332,106 @@ struct NewSourceSheet: View {
                 
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Create") {
-                        isCreating = true
                         Task {
-                            let created = await viewModel.createSource(name: sourceName)
-                            if created {
-                                isPresented = false
-                                sourceName = ""
-                            }
-                            isCreating = false
+                            await createCollection()
                         }
                     }
-                    .disabled(sourceName.trimmingCharacters(in: .whitespaces).isEmpty || isCreating)
+                    .disabled(isCreateDisabled)
                 }
             }
+        }
+    }
+
+#if os(macOS)
+    private var macOSView: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Image(systemName: "square.stack.3d.up.fill")
+                    .font(.title2)
+                    .foregroundStyle(.secondary)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Add Collection")
+                        .font(.title2)
+                        .fontWeight(.semibold)
+                    Text("Create a new iCloud-synced recipe collection")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Button("Cancel") {
+                    isPresented = false
+                    sourceName = ""
+                }
+                .keyboardShortcut(.cancelAction)
+
+                Button {
+                    Task {
+                        await createCollection()
+                    }
+                } label: {
+                    if isCreating {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Creating...")
+                        }
+                    } else {
+                        Text("Create")
+                    }
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(isCreateDisabled)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+
+            Divider()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Collection Information")
+                            .font(.headline)
+
+                        TextField("e.g., Family Recipes", text: $sourceName)
+                            .textFieldStyle(.roundedBorder)
+                    }
+                    .padding(14)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("About Collections")
+                            .font(.headline)
+
+                        Label("Stored in iCloud and synced across your devices.", systemImage: "icloud")
+                            .foregroundStyle(.secondary)
+                        Label("Can be shared with family and friends.", systemImage: "person.2")
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(14)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+                .padding(16)
+            }
+        }
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+#endif
+
+    @MainActor
+    private func createCollection() async {
+        guard !isCreateDisabled else { return }
+        isCreating = true
+        defer { isCreating = false }
+
+        let created = await viewModel.createSource(name: trimmedSourceName)
+        if created {
+            isPresented = false
+            sourceName = ""
         }
     }
 }

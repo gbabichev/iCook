@@ -98,6 +98,12 @@ struct AddTagView: View {
                         .disabled(!canEdit)
                 }
 
+                Section {
+                    Text("Label recipes with flexible keywords")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
                 if showDuplicateWarning {
                     Section {
                         HStack(spacing: 10) {

@@ -111,6 +111,12 @@ struct AddCategoryView: View {
                         .disabled(!canEdit)
                 }
 
+                Section {
+                    Text("Organize recipes with category names and icons")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
                 if showDuplicateWarning {
                     Section {
                         HStack(spacing: 10) {
