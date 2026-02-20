@@ -919,7 +919,7 @@ class CloudKitManager: ObservableObject {
         let predicate = NSPredicate(format: "lastModified >= %@", Date.distantPast as NSDate)
         let query = CKQuery(recordType: "Source", predicate: predicate)
         let zoneID: CKRecordZone.ID? = isPersonal ? personalZoneID : nil
-        let (results, _) = try await database.records(matching: query, inZoneWith: zoneID)
+        let results = try await fetchAllQueryMatchResults(matching: query, in: database, zoneID: zoneID)
         
         return results.compactMap { _, result in
             guard case .success(let record) = result,
@@ -941,6 +941,28 @@ class CloudKitManager: ObservableObject {
             }
             return source
         }
+    }
+
+    private typealias QueryMatchResults = [CKRecord.ID: Result<CKRecord, Error>]
+
+    private func fetchAllQueryMatchResults(
+        matching query: CKQuery,
+        in database: CKDatabase,
+        zoneID: CKRecordZone.ID?
+    ) async throws -> QueryMatchResults {
+        var allResults: QueryMatchResults = [:]
+
+        let (initialResults, initialCursor) = try await database.records(matching: query, inZoneWith: zoneID)
+        allResults.merge(initialResults) { existing, _ in existing }
+
+        var nextCursor = initialCursor
+        while let currentCursor = nextCursor {
+            let (pageResults, fetchedNextCursor) = try await database.records(continuingMatchFrom: currentCursor)
+            allResults.merge(pageResults) { existing, _ in existing }
+            nextCursor = fetchedNextCursor
+        }
+
+        return allResults
     }
     
     func createSource(name: String, isPersonal: Bool = true) async -> Bool {
@@ -1118,7 +1140,7 @@ class CloudKitManager: ObservableObject {
     ) async throws -> [CKRecord.ID] {
         let predicate = NSPredicate(format: "sourceID == %@", sourceRef)
         let query = CKQuery(recordType: recordType, predicate: predicate)
-        let (results, _) = try await database.records(matching: query, inZoneWith: zoneID)
+        let results = try await fetchAllQueryMatchResults(matching: query, in: database, zoneID: zoneID)
         return results.compactMap { _, result in
             switch result {
             case .success(let record):
@@ -1395,7 +1417,7 @@ class CloudKitManager: ObservableObject {
                 let predicate = NSPredicate(value: true)
                 let query = CKQuery(recordType: "Source", predicate: predicate)
                 do {
-                    let (results, _) = try await sharedDatabase.records(matching: query, inZoneWith: zone.zoneID)
+                    let results = try await fetchAllQueryMatchResults(matching: query, in: sharedDatabase, zoneID: zone.zoneID)
                     let sourcesInZone = results.compactMap { _, result -> Source? in
                         guard case .success(let record) = result,
                               var source = Source.from(record) else {
@@ -1446,7 +1468,7 @@ class CloudKitManager: ObservableObject {
             let database = isOwner || source.isPersonal ? privateDatabase : sharedDatabase
             let zoneID = isOwner || source.isPersonal ? personalZoneID : source.id.zoneID
             do {
-                let (results, _) = try await database.records(matching: query, inZoneWith: zoneID)
+                let results = try await fetchAllQueryMatchResults(matching: query, in: database, zoneID: zoneID)
                 let categories = results.compactMap { _, result -> Category? in
                     guard case .success(let record) = result,
                           let category = Category.from(record) else {
@@ -1522,7 +1544,7 @@ class CloudKitManager: ObservableObject {
             let database = isOwner || source.isPersonal ? privateDatabase : sharedDatabase
             let zoneID = isOwner || source.isPersonal ? personalZoneID : source.id.zoneID
 
-            let (results, _) = try await database.records(matching: query, inZoneWith: zoneID)
+            let results = try await fetchAllQueryMatchResults(matching: query, in: database, zoneID: zoneID)
             let fetchedTags = results.compactMap { _, result -> Tag? in
                 guard case .success(let record) = result,
                       let tag = Tag.from(record) else {
@@ -1587,7 +1609,7 @@ class CloudKitManager: ObservableObject {
         let zoneID = isOwner || source.isPersonal ? personalZoneID : source.id.zoneID
         
         do {
-            let (results, _) = try await database.records(matching: query, inZoneWith: zoneID)
+            let results = try await fetchAllQueryMatchResults(matching: query, in: database, zoneID: zoneID)
             var counts: [CKRecord.ID: Int] = [:]
             
             for (_, result) in results {
@@ -1635,7 +1657,7 @@ class CloudKitManager: ObservableObject {
         let zoneID = isOwner || source.isPersonal ? personalZoneID : source.id.zoneID
 
         do {
-            let (results, _) = try await database.records(matching: query, inZoneWith: zoneID)
+            let results = try await fetchAllQueryMatchResults(matching: query, in: database, zoneID: zoneID)
             var counts: [CKRecord.ID: Int] = [:]
             var total = 0
 
@@ -1864,7 +1886,7 @@ class CloudKitManager: ObservableObject {
             let database = isOwner || source.isPersonal ? privateDatabase : sharedDatabase
             let zoneID = isOwner || source.isPersonal ? personalZoneID : source.id.zoneID
             do {
-                let (results, _) = try await database.records(matching: query, inZoneWith: zoneID)
+                let results = try await fetchAllQueryMatchResults(matching: query, in: database, zoneID: zoneID)
                 let recipes = results.compactMap { _, result -> Recipe? in
                     guard case .success(let record) = result,
                           let recipe = Recipe.from(record) else {
@@ -1965,7 +1987,7 @@ class CloudKitManager: ObservableObject {
             let database = isOwner || source.isPersonal ? privateDatabase : sharedDatabase
             let zoneID = isOwner || source.isPersonal ? personalZoneID : source.id.zoneID
             do {
-                let (results, _) = try await database.records(matching: query, inZoneWith: zoneID)
+                let results = try await fetchAllQueryMatchResults(matching: query, in: database, zoneID: zoneID)
                 let recipes = results.compactMap { _, result -> Recipe? in
                     guard case .success(let record) = result,
                           let recipe = Recipe.from(record) else {
@@ -2568,7 +2590,7 @@ class CloudKitManager: ObservableObject {
             // Fetch categories in the personal zone for this source
             let catPredicate = NSPredicate(format: "sourceID == %@", CKRecord.Reference(recordID: rootRecord.recordID, action: .none))
             let catQuery = CKQuery(recordType: "Category", predicate: catPredicate)
-            let (catResults, _) = try await privateDatabase.records(matching: catQuery, inZoneWith: personalZoneID)
+            let catResults = try await fetchAllQueryMatchResults(matching: catQuery, in: privateDatabase, zoneID: personalZoneID)
             for (_, result) in catResults {
                 if case .success(let record) = result, record.parent == nil {
                     record.parent = CKRecord.Reference(recordID: rootRecord.recordID, action: .none)
@@ -2579,7 +2601,7 @@ class CloudKitManager: ObservableObject {
             // Fetch recipes in the personal zone for this source
             let recipePredicate = NSPredicate(format: "sourceID == %@", CKRecord.Reference(recordID: rootRecord.recordID, action: .none))
             let recipeQuery = CKQuery(recordType: "Recipe", predicate: recipePredicate)
-            let (recipeResults, _) = try await privateDatabase.records(matching: recipeQuery, inZoneWith: personalZoneID)
+            let recipeResults = try await fetchAllQueryMatchResults(matching: recipeQuery, in: privateDatabase, zoneID: personalZoneID)
             for (_, result) in recipeResults {
                 if case .success(let record) = result, record.parent == nil {
                     record.parent = CKRecord.Reference(recordID: rootRecord.recordID, action: .none)
@@ -2590,7 +2612,7 @@ class CloudKitManager: ObservableObject {
             // Fetch tags in the personal zone for this source
             let tagPredicate = NSPredicate(format: "sourceID == %@", CKRecord.Reference(recordID: rootRecord.recordID, action: .none))
             let tagQuery = CKQuery(recordType: "Tag", predicate: tagPredicate)
-            let (tagResults, _) = try await privateDatabase.records(matching: tagQuery, inZoneWith: personalZoneID)
+            let tagResults = try await fetchAllQueryMatchResults(matching: tagQuery, in: privateDatabase, zoneID: personalZoneID)
             for (_, result) in tagResults {
                 if case .success(let record) = result, record.parent == nil {
                     record.parent = CKRecord.Reference(recordID: rootRecord.recordID, action: .none)
