@@ -1477,6 +1477,7 @@ class CloudKitManager: ObservableObject {
                     categoryCache[category.id] = category
                     return category
                 }
+                .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
                 allCategories.append(contentsOf: categories)
             } catch {
                 let errorDesc = error.localizedDescription
@@ -1553,6 +1554,7 @@ class CloudKitManager: ObservableObject {
                 tagCache[tag.id] = tag
                 return tag
             }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
 
             self.tags = fetchedTags
             saveTagsLocalCache(fetchedTags, for: source)
@@ -1896,6 +1898,7 @@ class CloudKitManager: ObservableObject {
                     recipeCache[recipeWithImage.id] = recipeWithImage
                     return recipeWithImage
                 }
+                .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
                 allRecipes.append(contentsOf: recipes)
             } catch {
                 let errorDesc = error.localizedDescription
