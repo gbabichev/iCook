@@ -186,23 +186,87 @@ struct AddEditRecipeView: View {
 
     private var iOSView: some View {
         NavigationStack {
-            Form {
-                readOnlyBannerSection
-                saveErrorSection
-                
-                Section("Basic Information") {
-                    basicInformationContent
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    statusBanners
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Recipe")
+                            .font(.headline)
+                        basicInformationFieldsContent
+                            .disabled(!canEdit)
+                    }
+                    .padding(14)
+                    .background(iOSCardBackground)
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Tags")
+                            .font(.headline)
+                        recipeTagSelectionContent
+                            .disabled(!canEdit)
+                    }
+                    .padding(14)
+                    .background(iOSCardBackground)
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Image")
+                            .font(.headline)
+                        imageSection
+                            .disabled(!canEdit)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(14)
+                    .background(iOSCardBackground)
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        recipeStepsHeader
+                        recipeStepsEditorContent
+                            .disabled(!canEdit)
+                    }
+                    .padding(14)
+                    .background(iOSCardBackground)
+
+                    if isEditing {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Danger Zone")
+                                .font(.headline)
+
+                            Button(role: .destructive) {
+                                showingDeleteAlert = true
+                            } label: {
+                                HStack {
+                                    Spacer()
+                                    if isDeletingRecipe {
+                                        ProgressView()
+                                            .controlSize(.small)
+                                        Text("Deleting...")
+                                    } else {
+                                        Text("Delete Recipe")
+                                            .fontWeight(.semibold)
+                                    }
+                                    Spacer()
+                                }
+                                .padding(.vertical, 8)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(.red)
+                            .disabled(!canEdit || isSaving || isDeletingRecipe)
+
+                            Text("This action cannot be undone.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(14)
+                        .background(iOSCardBackground)
+                    }
                 }
-                
-                Section("Image") {
-                    imageSection.disabled(!canEdit)
-                }
-                
-                recipeStepsSection
-                deleteRecipeSection
+                .padding(16)
             }
-            .formStyle(.grouped)
+            .background(editorBackgroundColor)
             .navigationTitle(isEditing ? "Edit Recipe" : "Add Recipe")
+#if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+#endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
@@ -264,9 +328,19 @@ struct AddEditRecipeView: View {
                     statusBanners
                     
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Basic Information")
+                        Text("Recipe")
                             .font(.headline)
-                        basicInformationContent
+                        basicInformationFieldsContent
+                            .disabled(!canEdit)
+                    }
+                    .padding(14)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Tags")
+                            .font(.headline)
+                        recipeTagSelectionContent
+                            .disabled(!canEdit)
                     }
                     .padding(14)
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -276,12 +350,14 @@ struct AddEditRecipeView: View {
                             .font(.headline)
                         imageSection.disabled(!canEdit)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(14)
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                     
                     VStack(alignment: .leading, spacing: 12) {
                         recipeStepsHeader
                         recipeStepsEditorContent
+                            .disabled(!canEdit)
                     }
                     .padding(14)
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -385,30 +461,58 @@ struct AddEditRecipeView: View {
 
     @ViewBuilder
     private var basicInformationContent: some View {
+        basicInformationFieldsContent
+        recipeTagSelectionContent
+    }
+
+    @ViewBuilder
+    private var basicInformationFieldsContent: some View {
         if !model.categories.isEmpty {
-            Picker("Category", selection: $selectedCategoryId) {
-                ForEach(model.categories) { category in
-                    Text(category.name).tag(category.id as CKRecord.ID?)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Category")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Picker("Category", selection: $selectedCategoryId) {
+                    ForEach(model.categories) { category in
+                        Text(category.name).tag(category.id as CKRecord.ID?)
+                    }
                 }
+                .pickerStyle(.menu)
+                .labelsHidden()
+                .accessibilityLabel("Category")
             }
-            .pickerStyle(.menu)
-            .disabled(!canEdit)
         } else {
             Text("No categories available")
                 .foregroundStyle(.secondary)
         }
-        
-        TextField("Recipe Name *", text: $recipeName)
-            .disabled(!canEdit)
-        
-        HStack {
-            TextField("Cooking Time *", text: $recipeTime)
-                .disabled(!canEdit)
-            Text("minutes")
+
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Recipe Name")
+                .font(.caption)
                 .foregroundStyle(.secondary)
+            TextField("Required", text: $recipeName)
+                .textFieldStyle(.roundedBorder)
+#if os(iOS)
+                .textInputAutocapitalization(.words)
+#endif
         }
 
-        recipeTagSelectionContent
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Time to Cook")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                TextField("Required", text: $recipeTime)
+                    .textFieldStyle(.roundedBorder)
+#if os(iOS)
+                    .keyboardType(.numberPad)
+#endif
+                Text("minutes")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 
     private var saveButtonEnabled: Bool {
@@ -460,12 +564,12 @@ struct AddEditRecipeView: View {
     private var recipeTagSelectionContent: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Label("Tags", systemImage: "tag")
-                    .font(.subheadline)
-                    .fontWeight(.medium)
+                Text("\(selectedTagIDs.count) selected")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
 
                 Spacer()
-
+                
                 Button {
                     showingAddTag = true
                 } label: {
@@ -514,40 +618,55 @@ struct AddEditRecipeView: View {
         }
     }
 
+    private var editorBackgroundColor: Color {
+#if os(iOS)
+        return Color(uiColor: .systemGroupedBackground)
+#else
+        return Color(nsColor: .windowBackgroundColor)
+#endif
+    }
+
     private var recipeStepsEditorContent: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Recipe Steps")
-                    .font(.headline)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Button {
+                    addNewStep()
+                } label: {
+                    Label("Add Step", systemImage: "plus.circle.fill")
+                }
+                .buttonStyle(.borderedProminent)
 
-                HStack {
-                    if !recipeSteps.isEmpty {
-                        Button("Collapse All") {
-                            collapseAllSteps()
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(!canEdit)
-
+                if !recipeSteps.isEmpty {
+                    Menu {
                         Button("Expand All") {
                             expandAllSteps()
                         }
-                        .buttonStyle(.bordered)
-                        .disabled(!canEdit)
-                    }
-                    Button("Add Step") {
-                        addNewStep()
+                        Button("Collapse All") {
+                            collapseAllSteps()
+                        }
+                    } label: {
+                        Label("View", systemImage: "list.bullet.indent")
                     }
                     .buttonStyle(.bordered)
-                    .disabled(!canEdit)
-
-                    Spacer()
                 }
+
+                Spacer()
             }
 
             if recipeSteps.isEmpty {
-                Text("No steps added yet. Add steps to structure your recipe with ingredients for each step.")
-                    .font(.caption)
-                    .padding(.vertical, 8)
+                VStack(spacing: 8) {
+                    Image(systemName: "list.bullet.rectangle.portrait")
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                    Text("No steps added yet")
+                        .font(.subheadline)
+                    Text("Add step-by-step instructions and optional per-step ingredients.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
             } else {
                 ForEach(Array(recipeSteps.enumerated()), id: \.element.stepNumber) { index, step in
                     StepEditView(
@@ -568,10 +687,20 @@ struct AddEditRecipeView: View {
                             }
                         )
                     )
+                    .padding(10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(Color.secondary.opacity(0.08))
+                    )
                 }
                 .onMove(perform: moveSteps)
             }
         }
+    }
+
+    private var iOSCardBackground: some View {
+        RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .fill(.regularMaterial)
     }
 
     // MARK: - Step Management
@@ -906,6 +1035,7 @@ struct AddEditRecipeView: View {
                         Image(uiImage: uiImage)
                             .resizable()
                             .aspectRatio(contentMode: .fill)
+                            .frame(maxWidth: .infinity)
                             .frame(height: 200)
                             .clipped()
                             .cornerRadius(8)
@@ -918,6 +1048,7 @@ struct AddEditRecipeView: View {
                         Image(nsImage: nsImage)
                             .resizable()
                             .aspectRatio(contentMode: .fill)
+                            .frame(maxWidth: .infinity)
                             .frame(height: 200)
                             .clipped()
                             .cornerRadius(8)
@@ -935,6 +1066,7 @@ struct AddEditRecipeView: View {
                         image
                             .resizable()
                             .aspectRatio(contentMode: .fill)
+                            .frame(maxWidth: .infinity)
                             .frame(height: 200)
                             .clipped()
                             .cornerRadius(8)
@@ -943,6 +1075,7 @@ struct AddEditRecipeView: View {
                     case .failure(_):
                         Rectangle()
                             .fill(.gray.opacity(0.2))
+                            .frame(maxWidth: .infinity)
                             .frame(height: 200)
                             .cornerRadius(8)
                             .overlay {
@@ -952,6 +1085,7 @@ struct AddEditRecipeView: View {
                     case .empty:
                         Rectangle()
                             .fill(.gray.opacity(0.2))
+                            .frame(maxWidth: .infinity)
                             .frame(height: 200)
                             .cornerRadius(8)
                             .overlay {
@@ -974,11 +1108,13 @@ struct AddEditRecipeView: View {
                 }
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
     
     private var placeholderImageView: some View {
         Rectangle()
             .fill(.gray.opacity(0.2))
+            .frame(maxWidth: .infinity)
             .frame(height: 200)
             .cornerRadius(8)
             .overlay {
