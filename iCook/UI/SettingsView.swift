@@ -307,6 +307,10 @@ struct NewSourceSheet: View {
             Form {
                 Section("Collection Name") {
                     TextField("e.g., Family Recipes", text: $sourceName)
+                        .iOSModernInputFieldStyle()
+#if os(iOS)
+                        .textInputAutocapitalization(.words)
+#endif
                         .labelsHidden()
                 }
                 
@@ -318,6 +322,9 @@ struct NewSourceSheet: View {
                 }
             }
             .formStyle(.grouped)
+#if os(iOS)
+            .scrollDismissesKeyboard(.immediately)
+#endif
             .navigationTitle("New Collection")
 #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -338,6 +345,14 @@ struct NewSourceSheet: View {
                     }
                     .disabled(isCreateDisabled)
                 }
+#if os(iOS)
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") {
+                        dismissKeyboard()
+                    }
+                }
+#endif
             }
         }
     }
@@ -397,7 +412,7 @@ struct NewSourceSheet: View {
                             .font(.headline)
 
                         TextField("e.g., Family Recipes", text: $sourceName)
-                            .textFieldStyle(.roundedBorder)
+                            .iOSModernInputFieldStyle()
                     }
                     .padding(14)
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -434,6 +449,12 @@ struct NewSourceSheet: View {
             sourceName = ""
         }
     }
+
+#if os(iOS)
+    private func dismissKeyboard() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
+#endif
 }
 
 struct SourceRowWrapper: View {
@@ -628,10 +649,17 @@ struct RenameSourceSheet: View {
             Form {
                 Section("Collection Name") {
                     TextField("Collection Name", text: $sourceName)
+                        .iOSModernInputFieldStyle()
+#if os(iOS)
+                        .textInputAutocapitalization(.words)
+#endif
                         .labelsHidden()
                 }
             }
             .formStyle(.grouped)
+#if os(iOS)
+            .scrollDismissesKeyboard(.immediately)
+#endif
             .navigationTitle("Rename Collection")
 #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -651,6 +679,14 @@ struct RenameSourceSheet: View {
                     }
                     .disabled(sourceName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSaving)
                 }
+#if os(iOS)
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") {
+                        dismissKeyboard()
+                    }
+                }
+#endif
             }
         }
     }
@@ -666,4 +702,10 @@ struct RenameSourceSheet: View {
             isPresented = false
         }
     }
+
+#if os(iOS)
+    private func dismissKeyboard() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
+#endif
 }

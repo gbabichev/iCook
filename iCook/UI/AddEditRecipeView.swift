@@ -272,6 +272,9 @@ struct AddEditRecipeView: View {
                 }
                 .padding(16)
             }
+#if os(iOS)
+            .scrollDismissesKeyboard(.immediately)
+#endif
             .background(editorBackgroundColor)
             .navigationTitle(isEditing ? "Edit Recipe" : "Add Recipe")
 #if os(iOS)
@@ -292,6 +295,14 @@ struct AddEditRecipeView: View {
                     }
                     .disabled(!saveButtonEnabled)
                 }
+#if os(iOS)
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") {
+                        dismissKeyboard()
+                    }
+                }
+#endif
             }
         }
     }
@@ -512,7 +523,7 @@ struct AddEditRecipeView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             TextField("Required", text: $recipeName)
-                .textFieldStyle(.roundedBorder)
+                .iOSModernInputFieldStyle()
 #if os(iOS)
                 .textInputAutocapitalization(.words)
 #endif
@@ -524,7 +535,7 @@ struct AddEditRecipeView: View {
                 .foregroundStyle(.secondary)
             HStack(spacing: 8) {
                 TextField("Required", text: $recipeTime)
-                    .textFieldStyle(.roundedBorder)
+                    .iOSModernInputFieldStyle()
 #if os(iOS)
                     .keyboardType(.numberPad)
 #endif
@@ -537,18 +548,31 @@ struct AddEditRecipeView: View {
     }
 
     private var detailsEditorContent: some View {
-        TextEditor(text: $recipeDetails)
-            .frame(maxWidth: .infinity, minHeight: 120, alignment: .leading)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color.secondary.opacity(0.08))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
-            )
+        ZStack(alignment: .topLeading) {
+            if recipeDetails.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text("Optional notes, substitutions, or serving tips")
+                    .font(.callout)
+                    .foregroundStyle(.tertiary)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 14)
+                    .allowsHitTesting(false)
+            }
+
+            TextEditor(text: $recipeDetails)
+                .font(.body)
+                .frame(maxWidth: .infinity, minHeight: 140, alignment: .leading)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .scrollContentBackground(.hidden)
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.primary.opacity(0.04))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+        )
     }
 
     private var saveButtonEnabled: Bool {
@@ -797,6 +821,12 @@ struct AddEditRecipeView: View {
         // Preserve expanded state - just keep the current expanded set
         // since we've renumbered everything sequentially
     }
+
+#if os(iOS)
+    private func dismissKeyboard() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
+#endif
     
     // MARK: - Initialization and State Management
     
@@ -1468,7 +1498,7 @@ struct StepEditView: View {
                             )
                         )
                         .focused($isInstructionFocused)
-                        .textFieldStyle(.roundedBorder)
+                        .iOSModernInputFieldStyle()
                         .labelsHidden()
                         .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -1484,7 +1514,7 @@ struct StepEditView: View {
                         HStack {
                             TextField("Add ingredient for step \(stepNumber)", text: $newIngredient)
                                 .focused($isNewIngredientFocused)
-                                .textFieldStyle(.roundedBorder)
+                                .iOSModernInputFieldStyle()
                                 .onSubmit {
                                     addIngredient()
                                 }
@@ -1509,7 +1539,7 @@ struct StepEditView: View {
                                             updateIngredient(at: index, with: newValue)
                                         }
                                     ))
-                                    .textFieldStyle(.roundedBorder)
+                                    .iOSModernInputFieldStyle()
                                     
                                     Button {
                                         removeIngredient(at: index)

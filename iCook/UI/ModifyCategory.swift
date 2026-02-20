@@ -6,6 +6,9 @@
 //
 
 import SwiftUI
+#if os(iOS)
+import UIKit
+#endif
 #if os(macOS)
 import AppKit
 #endif
@@ -108,6 +111,10 @@ struct AddCategoryView: View {
                 
                 Section("Category Information") {
                     TextField("Category Name", text: $categoryName)
+                        .iOSModernInputFieldStyle()
+#if os(iOS)
+                        .textInputAutocapitalization(.words)
+#endif
                         .disabled(!canEdit)
                 }
 
@@ -163,6 +170,9 @@ struct AddCategoryView: View {
                 }
             }
             .formStyle(.grouped)
+#if os(iOS)
+            .scrollDismissesKeyboard(.immediately)
+#endif
             .navigationTitle(isEditing ? "Edit Category" : "Add Category")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -179,6 +189,14 @@ struct AddCategoryView: View {
                     }
                     .disabled(!canEdit || trimmedCategoryName.isEmpty || hasDuplicateName || isSaving || isDeleting)
                 }
+#if os(iOS)
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") {
+                        dismissKeyboard()
+                    }
+                }
+#endif
             }
         }
     }
@@ -229,7 +247,7 @@ struct AddCategoryView: View {
                             .font(.headline)
 
                         TextField("Category Name", text: $categoryName)
-                            .textFieldStyle(.roundedBorder)
+                            .iOSModernInputFieldStyle()
                             .disabled(!canEdit)
                     }
                     .padding(14)
@@ -415,4 +433,10 @@ struct AddCategoryView: View {
 
         isDeleting = false
     }
+
+#if os(iOS)
+    private func dismissKeyboard() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
+#endif
 }

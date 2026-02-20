@@ -6,6 +6,9 @@
 //
 
 import SwiftUI
+#if os(iOS)
+import UIKit
+#endif
 
 struct AddTagView: View {
     @EnvironmentObject private var model: AppViewModel
@@ -95,6 +98,10 @@ struct AddTagView: View {
 
                 Section("Tag Information") {
                     TextField("Tag Name", text: $tagName)
+                        .iOSModernInputFieldStyle()
+#if os(iOS)
+                        .textInputAutocapitalization(.words)
+#endif
                         .disabled(!canEdit)
                 }
 
@@ -141,6 +148,9 @@ struct AddTagView: View {
                 }
             }
             .formStyle(.grouped)
+#if os(iOS)
+            .scrollDismissesKeyboard(.immediately)
+#endif
             .navigationTitle(isEditing ? "Edit Tag" : "Add Tag")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -157,6 +167,14 @@ struct AddTagView: View {
                     }
                     .disabled(saveButtonDisabled)
                 }
+#if os(iOS)
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") {
+                        dismissKeyboard()
+                    }
+                }
+#endif
             }
         }
     }
@@ -207,7 +225,7 @@ struct AddTagView: View {
                             .font(.headline)
 
                         TextField("Tag Name", text: $tagName)
-                            .textFieldStyle(.roundedBorder)
+                            .iOSModernInputFieldStyle()
                             .disabled(!canEdit)
                     }
                     .padding(14)
@@ -325,4 +343,10 @@ struct AddTagView: View {
 
         isDeleting = false
     }
+
+#if os(iOS)
+    private func dismissKeyboard() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
+#endif
 }
