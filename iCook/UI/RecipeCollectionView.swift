@@ -163,7 +163,11 @@ struct RecipeCollectionView: View {
         
         switch collectionType {
         case .home:
-            return featuredHomeRecipe ?? recipes.randomElement()
+            if let selected = featuredHomeRecipe,
+               let current = recipes.first(where: { $0.id == selected.id }) {
+                return current
+            }
+            return recipes.randomElement()
         case .category, .tag:
             // Resolve the stored selection against the latest shared recipes so name/image changes show up.
             if let selected = selectedFeaturedRecipe,
@@ -172,6 +176,16 @@ struct RecipeCollectionView: View {
             }
             return nil // Don't select here - do it in loadCategoryRecipes
         }
+    }
+
+    private func resolvedImageURL(for recipe: Recipe) -> URL? {
+        if let imageURL = recipe.imageURL {
+            return imageURL
+        }
+        if let cachedPath = model.cloudKitManager.cachedImagePathForRecipe(recipe.id) {
+            return URL(fileURLWithPath: cachedPath)
+        }
+        return nil
     }
     
     // Remaining recipes (excluding featured)
@@ -342,6 +356,42 @@ struct RecipeCollectionView: View {
             }
     }
 
+    private func fallbackHeroHeader(_ recipe: Recipe) -> some View {
+        ZStack {
+            LinearGradient(
+                colors: [Color.gray.opacity(0.45), Color.gray.opacity(0.25)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        }
+        .frame(minWidth: 0, maxWidth: .infinity, minHeight: 100, maxHeight: 350)
+        .ignoresSafeArea(edges: .top)
+        .backgroundExtensionEffect()
+        .overlay(alignment: .bottom) {
+            VStack(spacing: 8) {
+                VStack(spacing: 8) {
+                    Text(recipe.name)
+                        .font(.largeTitle)
+                        .fontWeight(.bold)
+                        .foregroundColor(.white)
+                        .multilineTextAlignment(.center)
+                    Text("\(recipe.recipeTime) minutes")
+                        .font(.headline)
+                        .foregroundColor(.white)
+                        .opacity(0.9)
+                    headerRecipeLink(recipe)
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 16)
+                .background(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .fill(Color.black.opacity(0.35))
+                )
+                .padding(.bottom, 24)
+            }
+        }
+    }
+
     private func loadingHeroHeader() -> some View {
         ZStack {
             Rectangle()
@@ -361,20 +411,14 @@ struct RecipeCollectionView: View {
     
     @ViewBuilder
     private func featuredRecipeHeader(_ recipe: Recipe) -> some View {
-        AsyncImage(url: recipe.imageURL) { phase in
-            switch phase {
-            case .empty:
-                loadingHeroHeader()
-                    
-            case .success(let image):
+        if let imageURL = resolvedImageURL(for: recipe) {
+            RobustAsyncImage(url: imageURL) { image in
                 renderHeroImage(image, recipe: recipe)
-                
-            case .failure:
-                headerPlaceholder()
-                
-            @unknown default:
-                EmptyView()
+            } placeholder: {
+                fallbackHeroHeader(recipe)
             }
+        } else {
+            fallbackHeroHeader(recipe)
         }
     }
     
@@ -469,17 +513,20 @@ struct RecipeCollectionView: View {
     
     @MainActor
     private func loadHomeRecipes(skipCache: Bool = false) async {
-        currentLoadTask?.cancel()
         isLoading = true
         defer { isLoading = false }
-        
-        currentLoadTask = Task {
-            await model.loadRandomRecipes(skipCache: skipCache)
+
+        await model.loadRandomRecipes(skipCache: skipCache)
+        guard !Task.isCancelled else { return }
+
+        if let currentFeatured = featuredHomeRecipe,
+           let refreshedFeatured = model.recipes.first(where: { $0.id == currentFeatured.id }) {
+            featuredHomeRecipe = refreshedFeatured
+        } else {
             featuredHomeRecipe = model.recipes.randomElement()
-            try? await Task.sleep(nanoseconds: 800_000_000) // 800ms minimum refresh time
         }
-        
-        await currentLoadTask?.value
+
+        try? await Task.sleep(nanoseconds: 800_000_000) // 800ms minimum refresh time
     }
     
     @MainActor
