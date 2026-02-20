@@ -26,6 +26,7 @@ struct LiveAppIconView: View {
 }
 
 struct AboutView: View {
+    private let developerWebsiteURL = URL(string: "https://georgebabichev.com")
 
     var body: some View {
         VStack(spacing: 18) {
@@ -59,8 +60,10 @@ struct AboutView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("George Babichev")
                             .font(.headline)
-                        Link("georgebabichev.com", destination: URL(string: "https://georgebabichev.com")!)
-                            .font(.subheadline)
+                        if let developerWebsiteURL {
+                            Link("georgebabichev.com", destination: developerWebsiteURL)
+                                .font(.subheadline)
+                        }
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
