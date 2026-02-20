@@ -622,7 +622,7 @@ struct EditSourceSheet: View {
     }
 
     private var isSaveDisabled: Bool {
-        trimmedSourceName.isEmpty || isSaving
+        trimmedSourceName.isEmpty || isSaving || !viewModel.canRenameSource(source)
     }
     
     var body: some View {

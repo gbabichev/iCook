@@ -1164,6 +1164,10 @@ class CloudKitManager: ObservableObject {
     func updateSource(_ source: Source, newName: String) async {
         let trimmedName = newName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty else { return }
+        guard isCloudKitAvailable && !isOfflineMode else {
+            self.error = "You're offline. Renaming collections is disabled."
+            return
+        }
         guard source.isPersonal || isSharedOwner(source) else {
             printD("Update source denied for collaborator: \(source.name)")
             self.error = "Only collection owners can rename it."

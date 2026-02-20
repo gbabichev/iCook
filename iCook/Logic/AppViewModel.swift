@@ -161,7 +161,16 @@ final class AppViewModel: ObservableObject {
     }
     
     func renameSource(_ source: Source, newName: String) async -> Bool {
+        refreshOfflineState()
+        guard canRenameSource(source) else {
+            error = isOfflineMode
+                ? "You're offline. Renaming collections is disabled."
+                : "Only collection owners can rename it."
+            return false
+        }
+
         await cloudKitManager.updateSource(source, newName: newName)
+        error = cloudKitManager.error
         sources = cloudKitManager.sources
         if let updated = sources.first(where: { $0.id == source.id }) {
             currentSource = updated
@@ -934,7 +943,7 @@ final class AppViewModel: ObservableObject {
     }
     
     func canRenameSource(_ source: Source) -> Bool {
-        return source.isPersonal || isSharedOwner(source)
+        !isOfflineMode && (source.isPersonal || isSharedOwner(source))
     }
     func markSourceSharedLocally(_ source: Source) {
         cloudKitManager.markSourceShared(source)
