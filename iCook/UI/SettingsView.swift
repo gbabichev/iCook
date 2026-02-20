@@ -114,6 +114,11 @@ struct SourceSelector: View {
             onDelete: {
                 sourceToDelete = source
                 showDeleteConfirmation = true
+            },
+            onSwipeDelete: {
+                Task {
+                    await deleteSource(source)
+                }
             }
         )
 #endif
@@ -336,6 +341,9 @@ struct SourceRowWrapper: View {
 #endif
     let onRename: () -> Void
     let onDelete: () -> Void
+#if os(iOS)
+    let onSwipeDelete: (() -> Void)?
+#endif
     @EnvironmentObject private var viewModel: AppViewModel
 
     private enum ShareUIState {
@@ -479,9 +487,9 @@ struct SourceRowWrapper: View {
             }
         }
 #if os(iOS)
-        .swipeActions(edge: .trailing) {
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             if source.isPersonal {
-                Button(role: .destructive, action: onDelete) {
+                Button(role: .destructive, action: onSwipeDelete ?? onDelete) {
                     Label("Delete", systemImage: "trash")
                 }
                 .disabled(viewModel.isOfflineMode)
