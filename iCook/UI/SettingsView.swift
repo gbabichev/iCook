@@ -165,7 +165,24 @@ struct SourceSelector: View {
                         Label("Feeling Lucky", systemImage: "die.face.5")
                     }
                     .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
+                }
 
+                Section("Help") {
+                    Button {
+                        Task { @MainActor in
+                            reopenTutorialFromSettings()
+                        }
+                    } label: {
+                        HStack {
+                            Label("Help", systemImage: "questionmark.circle")
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                    .buttonStyle(.plain)
 
                     HStack {
                         Text("Total Recipes")
@@ -182,22 +199,6 @@ struct SourceSelector: View {
                             .foregroundColor(.secondary)
                             .monospacedDigit()
                     }
-
-                    Button {
-                        Task { @MainActor in
-                            reopenTutorialFromSettings()
-                        }
-                    } label: {
-                        HStack {
-                            Label("Help", systemImage: "questionmark.circle")
-                                .foregroundStyle(.primary)
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.tertiary)
-                        }
-                    }
-                    .buttonStyle(.plain)
                 }
             }
             .listStyle(.automatic)
