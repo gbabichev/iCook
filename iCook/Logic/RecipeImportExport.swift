@@ -20,6 +20,7 @@ struct ExportedRecipe: Codable {
     let categoryName: String
     let recipeSteps: [RecipeStep]
     let imageFilename: String?
+    let linkedRecipeNames: [String]?
 }
 
 struct RecipeExportPackage: Codable {

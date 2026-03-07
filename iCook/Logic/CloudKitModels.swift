@@ -281,6 +281,7 @@ struct Recipe: Identifiable, Hashable {
     var cachedImagePath: String?
     var recipeSteps: [RecipeStep]
     var tagIDs: [CKRecord.ID] // Many-to-many via Tag record IDs
+    var linkedRecipeIDs: [CKRecord.ID] // Optional recipe-to-recipe links within a source
     var lastModified: Date
     
     init(
@@ -294,6 +295,7 @@ struct Recipe: Identifiable, Hashable {
         cachedImagePath: String? = nil,
         recipeSteps: [RecipeStep] = [],
         tagIDs: [CKRecord.ID] = [],
+        linkedRecipeIDs: [CKRecord.ID] = [],
         lastModified: Date = Date()
     ) {
         self.id = id
@@ -306,6 +308,7 @@ struct Recipe: Identifiable, Hashable {
         self.cachedImagePath = cachedImagePath
         self.recipeSteps = recipeSteps
         self.tagIDs = tagIDs
+        self.linkedRecipeIDs = linkedRecipeIDs
         self.lastModified = lastModified
     }
     
@@ -324,6 +327,7 @@ struct Recipe: Identifiable, Hashable {
         record["sourceID"] = CKRecord.Reference(recordID: sourceID, action: .deleteSelf)
         record["categoryID"] = CKRecord.Reference(recordID: categoryID, action: .none)
         record["tagIDs"] = tagIDs.map(\.recordName)
+        record["linkedRecipeIDs"] = linkedRecipeIDs.map(\.recordName)
         record["lastModified"] = lastModified
         
         // Store image asset
@@ -356,6 +360,8 @@ struct Recipe: Identifiable, Hashable {
         let lastModified = (record["lastModified"] as? Date) ?? Date()
         let tagRecordNames = (record["tagIDs"] as? [String]) ?? []
         let tagIDs = tagRecordNames.map { CKRecord.ID(recordName: $0, zoneID: sourceRef.recordID.zoneID) }
+        let linkedRecipeRecordNames = (record["linkedRecipeIDs"] as? [String]) ?? []
+        let linkedRecipeIDs = linkedRecipeRecordNames.map { CKRecord.ID(recordName: $0, zoneID: sourceRef.recordID.zoneID) }
         
         var recipeSteps: [RecipeStep] = []
         if let stepsJSON = record["recipeSteps"] as? String,
@@ -377,6 +383,7 @@ struct Recipe: Identifiable, Hashable {
             imageAsset: imageAsset,
             recipeSteps: recipeSteps,
             tagIDs: tagIDs,
+            linkedRecipeIDs: linkedRecipeIDs,
             lastModified: lastModified
         )
     }
@@ -408,6 +415,7 @@ extension Recipe: Codable {
         case cachedImagePath
         case recipeSteps
         case tagRecordNames
+        case linkedRecipeRecordNames
         case lastModified
     }
     
@@ -428,6 +436,7 @@ extension Recipe: Codable {
         try container.encodeIfPresent(cachedImagePath, forKey: .cachedImagePath)
         try container.encode(recipeSteps, forKey: .recipeSteps)
         try container.encode(tagIDs.map(\.recordName), forKey: .tagRecordNames)
+        try container.encode(linkedRecipeIDs.map(\.recordName), forKey: .linkedRecipeRecordNames)
         try container.encode(lastModified, forKey: .lastModified)
     }
     
@@ -459,6 +468,8 @@ extension Recipe: Codable {
         self.recipeSteps = try container.decode([RecipeStep].self, forKey: .recipeSteps)
         let tagRecordNames = try container.decodeIfPresent([String].self, forKey: .tagRecordNames) ?? []
         self.tagIDs = tagRecordNames.map { CKRecord.ID(recordName: $0, zoneID: sourceZoneID) }
+        let linkedRecipeRecordNames = try container.decodeIfPresent([String].self, forKey: .linkedRecipeRecordNames) ?? []
+        self.linkedRecipeIDs = linkedRecipeRecordNames.map { CKRecord.ID(recordName: $0, zoneID: sourceZoneID) }
         self.lastModified = try container.decode(Date.self, forKey: .lastModified)
         self.imageAsset = nil
     }

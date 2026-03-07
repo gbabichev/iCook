@@ -596,7 +596,8 @@ final class AppViewModel: ObservableObject {
         details: String?,
         image: Data?,
         recipeSteps: [RecipeStep]?,
-        tagIDs: [CKRecord.ID] = []
+        tagIDs: [CKRecord.ID] = [],
+        linkedRecipeIDs: [CKRecord.ID] = []
     ) async -> Bool {
         guard let source = currentSource else { return false }
         error = nil
@@ -615,7 +616,8 @@ final class AppViewModel: ObservableObject {
             details: details,
             imageAsset: nil,
             recipeSteps: recipeSteps ?? [],
-            tagIDs: tagIDs
+            tagIDs: tagIDs,
+            linkedRecipeIDs: linkedRecipeIDs
         )
         
         // Handle image if provided
@@ -672,7 +674,8 @@ final class AppViewModel: ObservableObject {
         details: String?,
         image: Data?,
         recipeSteps: [RecipeStep]?,
-        tagIDs: [CKRecord.ID]? = nil
+        tagIDs: [CKRecord.ID]? = nil,
+        linkedRecipeIDs: [CKRecord.ID]? = nil
     ) async -> Bool {
         guard let source = currentSource else {
             printD("DEBUG: updateRecipeWithSteps failed - no currentSource")
@@ -709,6 +712,7 @@ final class AppViewModel: ObservableObject {
         if let categoryId = categoryId { updatedRecipe.categoryID = categoryId }
         if let recipeSteps = recipeSteps { updatedRecipe.recipeSteps = recipeSteps }
         if let tagIDs = tagIDs { updatedRecipe.tagIDs = tagIDs }
+        if let linkedRecipeIDs = linkedRecipeIDs { updatedRecipe.linkedRecipeIDs = linkedRecipeIDs }
         
         // Handle image if provided
         var tempImageURL: URL?
@@ -779,6 +783,7 @@ final class AppViewModel: ObservableObject {
         recipes = cloudKitManager.recipes
         
         let categoryLookup = Dictionary(uniqueKeysWithValues: categories.map { ($0.id, $0.name) })
+        let recipeNameLookup = Dictionary(uniqueKeysWithValues: cloudKitManager.recipes.map { ($0.id, $0.name) })
         
         let exportedCategories = categories
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
@@ -792,13 +797,15 @@ final class AppViewModel: ObservableObject {
                 let imageData = imageInfo?.data
                 
                 let categoryName = categoryLookup[recipe.categoryID] ?? "Uncategorized"
+                let linkedRecipeNames = recipe.linkedRecipeIDs.compactMap { recipeNameLookup[$0] }
                 let exported = ExportedRecipe(
                     name: recipe.name,
                     recipeTime: recipe.recipeTime,
                     details: recipe.details,
                     categoryName: categoryName,
                     recipeSteps: recipe.recipeSteps,
-                    imageFilename: imageFilename
+                    imageFilename: imageFilename,
+                    linkedRecipeNames: linkedRecipeNames.isEmpty ? nil : linkedRecipeNames
                 )
                 return (exported, imageFilename, imageData)
             }
@@ -878,6 +885,7 @@ final class AppViewModel: ObservableObject {
         }
         
         var importedCount = 0
+        var importedRecipesByFingerprint: [String: CKRecord.ID] = [:]
         for recipe in selectedRecipes {
             guard let categoryID = categoryIDsByName[recipe.categoryName.lowercased()] else {
                 continue
@@ -892,6 +900,15 @@ final class AppViewModel: ObservableObject {
             )
             if created {
                 importedCount += 1
+                if let createdRecipe = recipes.last(where: {
+                    $0.name == recipe.name &&
+                    $0.categoryID == categoryID &&
+                    $0.recipeTime == recipe.recipeTime &&
+                    $0.details == recipe.details &&
+                    $0.recipeSteps == recipe.recipeSteps
+                }) {
+                    importedRecipesByFingerprint[importFingerprint(for: recipe)] = createdRecipe.id
+                }
             }
         }
         
@@ -899,12 +916,49 @@ final class AppViewModel: ObservableObject {
             error = "No recipes were imported."
             return false
         }
+
+        for recipe in selectedRecipes {
+            guard let linkedNames = recipe.linkedRecipeNames, !linkedNames.isEmpty else { continue }
+            guard let importedRecipeID = importedRecipesByFingerprint[importFingerprint(for: recipe)] else { continue }
+
+            let resolvedLinkedIDs = linkedNames.compactMap { linkedName in
+                recipes
+                    .filter { $0.id != importedRecipeID }
+                    .sorted { $0.lastModified > $1.lastModified }
+                    .first(where: { $0.name.caseInsensitiveCompare(linkedName) == .orderedSame })?
+                    .id
+            }
+
+            guard !resolvedLinkedIDs.isEmpty else { continue }
+
+            _ = await updateRecipeWithSteps(
+                id: importedRecipeID,
+                categoryId: nil,
+                name: nil,
+                recipeTime: nil,
+                details: nil,
+                image: nil,
+                recipeSteps: nil,
+                linkedRecipeIDs: orderedUniqueRecordIDs(resolvedLinkedIDs)
+            )
+        }
         
         await cloudKitManager.loadRecipeCounts(for: source)
         recipeCounts = cloudKitManager.recipeCounts
         await loadRandomRecipes()
         refreshOfflineState()
         return true
+    }
+
+    private func importFingerprint(for recipe: ExportedRecipe) -> String {
+        let category = recipe.categoryName.lowercased()
+        let details = recipe.details ?? ""
+        return "\(recipe.name.lowercased())|\(category)|\(recipe.recipeTime)|\(details)|\(recipe.recipeSteps.hashValue)"
+    }
+
+    private func orderedUniqueRecordIDs(_ ids: [CKRecord.ID]) -> [CKRecord.ID] {
+        var seen = Set<CKRecord.ID>()
+        return ids.filter { seen.insert($0).inserted }
     }
     
 #if os(macOS)

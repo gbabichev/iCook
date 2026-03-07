@@ -2104,6 +2104,7 @@ class CloudKitManager: ObservableObject {
             existingRecord["sourceID"] = CKRecord.Reference(recordID: recipe.sourceID, action: .deleteSelf)
             existingRecord["categoryID"] = CKRecord.Reference(recordID: recipe.categoryID, action: .none)
             existingRecord["tagIDs"] = recipe.tagIDs.map(\.recordName)
+            existingRecord["linkedRecipeIDs"] = recipe.linkedRecipeIDs.map(\.recordName)
             existingRecord["lastModified"] = recipe.lastModified
             
             // Handle image asset: only update when we have a new, readable local asset file.
