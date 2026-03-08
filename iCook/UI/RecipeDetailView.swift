@@ -5,7 +5,8 @@ struct RecipeDetailView: View {
     let recipe: Recipe
     @EnvironmentObject private var model: AppViewModel
     @Environment(\.dismiss) private var dismiss
-    @AppStorage("ShowInlineTitles") private var showInlineTitles = false
+    @AppStorage("ShowInlineTitles") private var showInlineTitles = true
+    @AppStorage("ShowRecipeDetailTags") private var showRecipeDetailTags = true
     
     @State private var editingRecipe: Recipe?
     @State private var checkedIngredients: Set<String> = []
@@ -86,7 +87,9 @@ struct RecipeDetailView: View {
                                         .foregroundStyle(.secondary)
                                 }
 
-                                recipeTagManagerContent
+                                if showRecipeDetailTags {
+                                    recipeTagManagerContent
+                                }
                             }
 
                             detailsSection

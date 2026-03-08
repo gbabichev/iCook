@@ -88,7 +88,7 @@ struct RecipeCollectionView: View {
     let collectionType: RecipeCollectionType
     @EnvironmentObject private var model: AppViewModel
     @AppStorage("EnableFeelingLucky") private var enableFeelingLucky = true
-    @AppStorage("ShowInlineTitles") private var showInlineTitles = false
+    @AppStorage("ShowInlineTitles") private var showInlineTitles = true
     
     // Toolbar state - passed from parent or locally managed
     @State private var showNewSourceSheet = false

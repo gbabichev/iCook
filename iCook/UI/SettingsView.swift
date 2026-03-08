@@ -10,7 +10,8 @@ struct SourceSelector: View {
     @EnvironmentObject var viewModel: AppViewModel
     @Environment(\.dismiss) var dismiss
     @AppStorage("EnableFeelingLucky") var enableFeelingLucky = true
-    @AppStorage("ShowInlineTitles") var showInlineTitles = false
+    @AppStorage("ShowInlineTitles") var showInlineTitles = true
+    @AppStorage("ShowRecipeDetailTags") var showRecipeDetailTags = true
 
     @State var showNewSourceSheet = false
     @State var newSourceName = ""
@@ -192,6 +193,22 @@ struct SourceSelector: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Inline Navigation Titles")
                                 Text("Show collection and recipe titles in the toolbar.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
+
+                    Toggle(isOn: $showRecipeDetailTags) {
+                        HStack(alignment: .center, spacing: 12) {
+                            Image(systemName: "tag")
+                                .frame(width: 20)
+                                .foregroundStyle(.primary)
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Show Recipe Tags")
+                                Text("Show tags on recipe pages, or hide them and manage them while editing.")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }

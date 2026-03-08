@@ -269,6 +269,17 @@ extension SourceSelector {
                         Divider()
 
                         SettingsRow(
+                            "Show Recipe Tags",
+                            systemImage: "tag",
+                            subtitle: "Show tags on recipe pages, or hide them and manage them while editing."
+                        ) {
+                            Toggle("", isOn: $showRecipeDetailTags)
+                                .toggleStyle(.switch)
+                        }
+
+                        Divider()
+
+                        SettingsRow(
                             "Help",
                             systemImage: "questionmark.circle",
                             subtitle: "Open the tutorial again."
