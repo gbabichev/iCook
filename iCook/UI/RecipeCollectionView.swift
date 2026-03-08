@@ -752,7 +752,12 @@ struct RecipeCollectionView: View {
             .onSubmit(of: .search) { performSearch() }
             .onChange(of: model.recipes) { _, newValue in
                 if case .home = collectionType {
-                    featuredHomeRecipe = newValue.randomElement()
+                    if let selected = featuredHomeRecipe,
+                       let refreshedFeatured = newValue.first(where: { $0.id == selected.id }) {
+                        featuredHomeRecipe = refreshedFeatured
+                    } else {
+                        featuredHomeRecipe = newValue.randomElement()
+                    }
                 } else if case .category(let category) = collectionType {
                     // Ensure the category view has a featured recipe once data arrives
                     let categoryRecipes = newValue.filter { $0.categoryID == category.id }
