@@ -21,6 +21,7 @@ struct SourceSelector: View {
     @State var sourceToDelete: Source?
     @State var showDeleteConfirmation = false
     @State var recipeTotalsBySource: [CKRecord.ID: Int] = [:]
+    @State private var hiddenSourceIDs = Set<CKRecord.ID>()
 #if os(macOS)
     @State var showShareCopiedToast = false
     @State var shareToastMessage = ""
@@ -44,8 +45,12 @@ struct SourceSelector: View {
         recipeTotalsBySource.values.reduce(0, +)
     }
 
+    var visibleSources: [Source] {
+        viewModel.sources.filter { !hiddenSourceIDs.contains($0.id) }
+    }
+
     var sourceTotalsRefreshKey: String {
-        viewModel.sources
+        visibleSources
             .map { "\($0.id.zoneID.ownerName)|\($0.id.zoneID.zoneName)|\($0.id.recordName)" }
             .sorted()
             .joined(separator: ",")
@@ -151,11 +156,11 @@ struct SourceSelector: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
 
-                    if viewModel.sources.isEmpty {
+                    if visibleSources.isEmpty {
                         Text("No Collections yet")
                             .foregroundColor(.secondary)
                     } else {
-                        ForEach(viewModel.sources, id: \.id) { source in
+                        ForEach(visibleSources, id: \.id) { source in
                             sourceRow(for: source)
                         }
                     }
@@ -250,7 +255,7 @@ struct SourceSelector: View {
     }
 
     func refreshRecipeTotals() async {
-        let sources = viewModel.sources
+        let sources = visibleSources
         guard !sources.isEmpty else {
             recipeTotalsBySource = [:]
             return
@@ -285,17 +290,18 @@ struct SourceSelector: View {
 
     func deleteSource(_ source: Source) async {
         printD("Deleting source: \(source.name)")
+        hiddenSourceIDs.insert(source.id)
         let deletedCurrentSource = viewModel.currentSource?.id == source.id
         let deleted = await viewModel.deleteSource(source)
         if deleted {
             printD("Deleted source: \(source.name)")
             sourceToDelete = nil
-            await viewModel.loadSources()
             if deletedCurrentSource, let fallbackSource = viewModel.currentSource {
                 await viewModel.selectSource(fallbackSource, skipCacheOnLoad: false)
             }
             await refreshRecipeTotals()
         } else {
+            hiddenSourceIDs.remove(source.id)
             printD("Failed to delete source: \(source.name)")
         }
     }

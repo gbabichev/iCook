@@ -68,6 +68,7 @@ class CloudKitManager: ObservableObject {
         return directory
     }()
     private var participantIdentityCache: [CKRecord.ID: CKUserIdentity] = [:]
+    private var locallyDeletedSourceIDs = Set<CKRecord.ID>()
     
     init() {
         self.container = CKContainer(identifier: "iCloud.com.georgebabichev.iCook")
@@ -887,6 +888,16 @@ class CloudKitManager: ObservableObject {
                 saveSharedSourceIDs()
             }
             
+            let fetchedSourceIDs = Set(allSources.map(\.id))
+            let confirmedDeletedSourceIDs = locallyDeletedSourceIDs.subtracting(fetchedSourceIDs)
+            if !confirmedDeletedSourceIDs.isEmpty {
+                locallyDeletedSourceIDs.subtract(confirmedDeletedSourceIDs)
+            }
+
+            if !locallyDeletedSourceIDs.isEmpty {
+                allSources.removeAll { locallyDeletedSourceIDs.contains($0.id) }
+            }
+
             if let current = currentSource,
                !allSources.contains(where: { $0.id == current.id }) {
                 currentSource = allSources.first
@@ -1070,6 +1081,8 @@ class CloudKitManager: ObservableObject {
             return
         }
 
+        locallyDeletedSourceIDs.insert(source.id)
+
         do {
             let isOwner = isSharedOwner(source)
             let database = isOwner || source.isPersonal ? privateDatabase : sharedDatabase
@@ -1130,6 +1143,7 @@ class CloudKitManager: ObservableObject {
             saveCurrentSourceID()
             printD("Deleted source and child records: \(source.name) (categories=\(childRecordIDs.categories.count), recipes=\(childRecordIDs.recipes.count), tags=\(childRecordIDs.tags.count))")
         } catch {
+            locallyDeletedSourceIDs.remove(source.id)
             printD("Error deleting source: \(error.localizedDescription)")
             self.error = "Failed to delete source"
         }
