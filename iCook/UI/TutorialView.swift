@@ -35,7 +35,7 @@ struct TutorialView: View {
             systemImage: "person.2"
         ),
         Step(
-            title: "Copy to Reminders",
+            title: "More",
             message: "Press the 'Copy' button next to Ingredients to copy items to paste directly into the Reminders app.",
             systemImage: "doc.on.clipboard"
         )

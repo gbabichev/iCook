@@ -251,6 +251,17 @@ extension SourceSelector {
                             Toggle("", isOn: $enableFeelingLucky)
                             .toggleStyle(.switch)
                         }
+
+                        Divider()
+
+                        SettingsRow(
+                            "Inline Navigation Titles",
+                            systemImage: "text.justify",
+                            subtitle: "Show collection and recipe titles in the toolbar."
+                        ) {
+                            Toggle("", isOn: $showInlineTitles)
+                                .toggleStyle(.switch)
+                        }
                         
                         Divider()
 

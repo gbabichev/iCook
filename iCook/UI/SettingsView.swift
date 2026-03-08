@@ -10,6 +10,7 @@ struct SourceSelector: View {
     @EnvironmentObject var viewModel: AppViewModel
     @Environment(\.dismiss) var dismiss
     @AppStorage("EnableFeelingLucky") var enableFeelingLucky = true
+    @AppStorage("ShowInlineTitles") var showInlineTitles = false
 
     @State var showNewSourceSheet = false
     @State var newSourceName = ""
@@ -162,7 +163,34 @@ struct SourceSelector: View {
 
                 Section("Settings") {
                     Toggle(isOn: $enableFeelingLucky) {
-                        Label("Feeling Lucky", systemImage: "die.face.5")
+                        HStack(alignment: .center, spacing: 12) {
+                            Image(systemName: "die.face.5")
+                                .frame(width: 20)
+                                .foregroundStyle(.primary)
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Feeling Lucky")
+                                Text("Enable a button to pick random recipes.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
+
+                    Toggle(isOn: $showInlineTitles) {
+                        HStack(alignment: .center, spacing: 12) {
+                            Image(systemName: "text.justify")
+                                .frame(width: 20)
+                                .foregroundStyle(.primary)
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Inline Navigation Titles")
+                                Text("Show collection and recipe titles in the toolbar.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
                     }
                     .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
                 }

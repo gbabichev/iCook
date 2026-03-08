@@ -32,14 +32,16 @@ struct RobustAsyncImage<Content: View, Placeholder: View>: View {
             switch loadingState {
             case .idle, .loading:
                 placeholder()
-                    .task(id: url) {
-                        await loadImage()
-                    }
             case .success(let image):
                 content(image)
             case .failed:
                 placeholder()
             }
+        }
+        .task(id: url) {
+            retryCount = 0
+            loadingState = .idle
+            await loadImage()
         }
     }
     

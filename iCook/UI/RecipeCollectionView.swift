@@ -88,6 +88,7 @@ struct RecipeCollectionView: View {
     let collectionType: RecipeCollectionType
     @EnvironmentObject private var model: AppViewModel
     @AppStorage("EnableFeelingLucky") private var enableFeelingLucky = true
+    @AppStorage("ShowInlineTitles") private var showInlineTitles = false
     
     // Toolbar state - passed from parent or locally managed
     @State private var showNewSourceSheet = false
@@ -337,14 +338,13 @@ struct RecipeCollectionView: View {
         })
     }
 
-    private func renderHeroImage(_ image: Image, recipe: Recipe) -> some View {
+    private func renderHeroImage(_ image: Image, recipe: Recipe, baseHeight: CGFloat) -> some View {
         image
             .resizable()
             .aspectRatio(contentMode: .fill)
-            .frame(minWidth: 0, maxWidth: .infinity, minHeight: 100, maxHeight: 350)
-            .clipped()
-            .ignoresSafeArea(edges: .top)
+            .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
             .backgroundExtensionEffect()
+            .collectionFlexibleHeaderContent(baseHeight: baseHeight)
             .overlay(alignment: .bottom) {
                 VStack(spacing: 8) {
                     VStack(spacing: 8) {
@@ -370,7 +370,7 @@ struct RecipeCollectionView: View {
             }
     }
 
-    private func fallbackHeroHeader(_ recipe: Recipe) -> some View {
+    private func fallbackHeroHeader(_ recipe: Recipe, baseHeight: CGFloat) -> some View {
         ZStack {
             LinearGradient(
                 colors: [Color.gray.opacity(0.45), Color.gray.opacity(0.25)],
@@ -378,9 +378,9 @@ struct RecipeCollectionView: View {
                 endPoint: .bottomTrailing
             )
         }
-        .frame(minWidth: 0, maxWidth: .infinity, minHeight: 100, maxHeight: 350)
-        .ignoresSafeArea(edges: .top)
+        .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
         .backgroundExtensionEffect()
+        .collectionFlexibleHeaderContent(baseHeight: baseHeight)
         .overlay(alignment: .bottom) {
             VStack(spacing: 8) {
                 VStack(spacing: 8) {
@@ -406,7 +406,7 @@ struct RecipeCollectionView: View {
         }
     }
 
-    private func loadingHeroHeader() -> some View {
+    private func loadingHeroHeader(baseHeight: CGFloat) -> some View {
         ZStack {
             Rectangle()
                 .fill(.ultraThinMaterial)
@@ -418,21 +418,21 @@ struct RecipeCollectionView: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: 350)
-        .ignoresSafeArea(edges: .top)
+        .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
         .backgroundExtensionEffect()
+        .collectionFlexibleHeaderContent(baseHeight: baseHeight)
     }
     
     @ViewBuilder
-    private func featuredRecipeHeader(_ recipe: Recipe) -> some View {
+    private func featuredRecipeHeader(_ recipe: Recipe, baseHeight: CGFloat) -> some View {
         if let imageURL = resolvedImageURL(for: recipe) {
             RobustAsyncImage(url: imageURL) { image in
-                renderHeroImage(image, recipe: recipe)
+                renderHeroImage(image, recipe: recipe, baseHeight: baseHeight)
             } placeholder: {
-                fallbackHeroHeader(recipe)
+                fallbackHeroHeader(recipe, baseHeight: baseHeight)
             }
         } else {
-            fallbackHeroHeader(recipe)
+            fallbackHeroHeader(recipe, baseHeight: baseHeight)
         }
     }
     
@@ -689,6 +689,10 @@ struct RecipeCollectionView: View {
     private var shouldShowEmptyState: Bool {
         !isLoading && recipes.isEmpty && !(isHome && model.recipes.isEmpty) && !showingSearchResults
     }
+
+    private var shouldUseHeroNavigationChrome: Bool {
+        !showingSearchResults && !shouldShowNoSourceState && !shouldShowWelcomeState && !shouldShowEmptyState
+    }
     
     private var offlineNoticeSheet: some View {
         VStack(spacing: 16) {
@@ -712,7 +716,12 @@ struct RecipeCollectionView: View {
     
     var body: some View {
         mainContent
-            .applyNavigationModifiers(collectionType: collectionType, showingSearchResults: showingSearchResults)
+            .applyNavigationModifiers(
+                collectionType: collectionType,
+                showingSearchResults: showingSearchResults,
+                showsFeaturedHeader: shouldUseHeroNavigationChrome,
+                showInlineTitles: showInlineTitles
+            )
             .navigationDestination(for: Recipe.self) { recipe in
                 RecipeDetailView(recipe: recipe)
             }
@@ -771,7 +780,12 @@ struct RecipeCollectionView: View {
             .sheet(isPresented: $showingOfflineNotice) { offlineNoticeSheet }
             .overlay { deletingOverlay }
             .overlay(alignment: .center) { debugOverlay }
-            .toolbar { buildToolbar() }
+            .toolbar {
+                buildToolbar(
+                    showsFeaturedHeader: shouldUseHeroNavigationChrome,
+                    showInlineTitles: showInlineTitles
+                )
+            }
     }
 
     // MARK: - Event Handlers (extracted to simplify body)
@@ -958,7 +972,7 @@ struct RecipeCollectionView: View {
     }
 
     @ToolbarContentBuilder
-    private func buildToolbar() -> some ToolbarContent {
+    private func buildToolbar(showsFeaturedHeader: Bool, showInlineTitles: Bool) -> some ToolbarContent {
         if model.isLoadingCategories {
             ToolbarItem(placement: .navigation) {
                 Button(action: {}) {
@@ -976,6 +990,12 @@ struct RecipeCollectionView: View {
                 .disabled(true)
             }
         }
+
+#if os(macOS)
+        if showsFeaturedHeader && !showInlineTitles {
+            ToolbarSpacer(.flexible)
+        }
+#endif
 
         if enableFeelingLucky {
             ToolbarItem(placement: .primaryAction) {
@@ -1063,7 +1083,7 @@ struct RecipeCollectionView: View {
                         .frame(maxWidth: .infinity, minHeight: proxy.size.height)
                     } else {
                         if !isSearchActive, let featuredRecipe = featuredRecipe {
-                            featuredRecipeHeader(featuredRecipe)
+                            featuredRecipeHeader(featuredRecipe, baseHeight: proxy.size.height * 0.4)
                         }
                         recipesGridSection()
                     }
@@ -1072,8 +1092,67 @@ struct RecipeCollectionView: View {
                 // Reset the scroll view when recipes change so category/home reflect updates.
                 .id(AnyHashable(model.recipesRefreshTrigger))
             }
+            .collectionFlexibleHeaderScrollView()
             .id(searchActivationScrollResetToken)
         }
+    }
+}
+
+private struct CollectionFlexibleHeaderContentModifier: ViewModifier {
+    let offset: CGFloat
+    let baseHeight: CGFloat
+
+    func body(content: Content) -> some View {
+        content
+            .frame(height: baseHeight - offset)
+            .padding(.bottom, offset)
+            .offset(y: offset)
+    }
+}
+
+private struct CollectionFlexibleHeaderScrollViewModifier: ViewModifier {
+    @State private var offset: CGFloat = 0
+
+    func body(content: Content) -> some View {
+        content
+            .onScrollGeometryChange(for: CGFloat.self) { geometry in
+                min(geometry.contentOffset.y + geometry.contentInsets.top, 0)
+            } action: { _, newOffset in
+                offset = newOffset
+            }
+            .environment(\.collectionFlexibleHeaderOffset, offset)
+    }
+}
+
+private struct CollectionFlexibleHeaderOffsetKey: EnvironmentKey {
+    static let defaultValue: CGFloat = 0
+}
+
+private extension EnvironmentValues {
+    var collectionFlexibleHeaderOffset: CGFloat {
+        get { self[CollectionFlexibleHeaderOffsetKey.self] }
+        set { self[CollectionFlexibleHeaderOffsetKey.self] = newValue }
+    }
+}
+
+private struct CollectionFlexibleHeaderContentEnvironmentModifier: ViewModifier {
+    @Environment(\.collectionFlexibleHeaderOffset) private var offset
+    let baseHeight: CGFloat
+
+    func body(content: Content) -> some View {
+        content.modifier(CollectionFlexibleHeaderContentModifier(offset: offset, baseHeight: baseHeight))
+    }
+}
+
+private extension ScrollView {
+    func collectionFlexibleHeaderScrollView() -> some View {
+        modifier(CollectionFlexibleHeaderScrollViewModifier())
+    }
+}
+
+private extension View {
+    func collectionFlexibleHeaderContent(baseHeight: CGFloat) -> some View {
+        modifier(CollectionFlexibleHeaderContentEnvironmentModifier(baseHeight: baseHeight))
     }
 }
 
@@ -1105,12 +1184,27 @@ private extension View {
 }
 
 extension View {
-    func applyNavigationModifiers(collectionType: RecipeCollectionType, showingSearchResults: Bool) -> some View {
-        self
-            .navigationTitle(showingSearchResults ? "Search Results" : collectionType.navigationTitle)
+    @ViewBuilder
+    func applyNavigationModifiers(
+        collectionType: RecipeCollectionType,
+        showingSearchResults: Bool,
+        showsFeaturedHeader: Bool,
+        showInlineTitles: Bool
+    ) -> some View {
+        if showsFeaturedHeader && !showInlineTitles {
+            self
+                .navigationTitle("")
+                .toolbar(removing: .title)
 #if os(iOS)
-            .navigationBarTitleDisplayMode(showingSearchResults ? .inline : .inline)
+                .navigationBarTitleDisplayMode(.inline)
 #endif
+        } else {
+            self
+                .navigationTitle(showingSearchResults ? "Search Results" : collectionType.navigationTitle)
+#if os(iOS)
+                .navigationBarTitleDisplayMode(.inline)
+#endif
+        }
     }
     
     func applyLifecycleModifiers(

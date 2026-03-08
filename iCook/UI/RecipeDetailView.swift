@@ -5,6 +5,7 @@ struct RecipeDetailView: View {
     let recipe: Recipe
     @EnvironmentObject private var model: AppViewModel
     @Environment(\.dismiss) private var dismiss
+    @AppStorage("ShowInlineTitles") private var showInlineTitles = false
     
     @State private var editingRecipe: Recipe?
     @State private var checkedIngredients: Set<String> = []
@@ -30,224 +31,250 @@ struct RecipeDetailView: View {
             displayedRecipe = updated
         }
     }
+
+    @ViewBuilder
+    private func heroHeader(baseHeight: CGFloat) -> some View {
+        AsyncImage(url: displayedRecipe.imageURL) { phase in
+            switch phase {
+            case .empty:
+                Image(systemName: "fork.knife.circle")
+                    .font(.system(size: 80))
+                    .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .center)
+                    .backgroundExtensionEffect()
+                    .recipeFlexibleHeaderContent(baseHeight: baseHeight)
+            case .success(let image):
+                image
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
+                    .backgroundExtensionEffect()
+                    .recipeFlexibleHeaderContent(baseHeight: baseHeight)
+            case .failure:
+                ZStack {
+                    Rectangle().opacity(0.08)
+                    Image(systemName: "photo")
+                }
+                .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
+                .backgroundExtensionEffect()
+                .recipeFlexibleHeaderContent(baseHeight: baseHeight)
+            @unknown default:
+                EmptyView()
+            }
+        }
+    }
     
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                AsyncImage(url: displayedRecipe.imageURL) { phase in
-                    switch phase {
-                    case .empty:
-                        Image(systemName: "fork.knife.circle")
-                            .font(.system(size: 80))
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-                            .frame(height: 200)
-                    case .success(let image):
-                        GeometryReader { geometry in
-                            image
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                                .frame(width: geometry.size.width, height: 350)
-                                .clipped()
-                        }
-                        .frame(height: 350)
-                        .backgroundExtensionEffect()
-                    case .failure:
-                        ZStack {
-                            Rectangle().opacity(0.08)
-                            Image(systemName: "photo")
-                        }
-                        .frame(height: 350)
-                        .backgroundExtensionEffect()
-                    @unknown default:
-                        EmptyView()
-                    }
-                }
-                
-                VStack(alignment: .leading, spacing: 20) {
-                    // Recipe Title and Time
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(displayedRecipe.name)
-                            .font(.largeTitle)
-                            .bold()
-                        
-                        HStack {
-                            Image(systemName: "clock")
-                                .foregroundStyle(.secondary)
-                            Text("\(displayedRecipe.recipeTime) minutes")
-                                .font(.headline)
-                                .foregroundStyle(.secondary)
-                        }
-
-                        recipeTagManagerContent
-                    }
-
-                    detailsSection
+        GeometryReader { proxy in
+            ScrollView(.vertical) {
+                VStack(alignment: .leading, spacing: 16) {
                     
-                    // Recipe Steps Section (NEW)
-                    if !displayedRecipe.recipeSteps.isEmpty {
-                        VStack(alignment: .leading, spacing: 12) {
-                            HStack {
-                                Image(systemName: "list.number")
-                                    .foregroundStyle(.secondary)
-                                Text("Steps")
-                                    .font(.title2)
+                    heroHeader(baseHeight: proxy.size.height * 0.4)
+
+                    VStack(alignment: .leading, spacing: 20) {
+                        // Recipe Title and Time
+                        VStack(alignment: .leading, spacing: 20) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(displayedRecipe.name)
+                                    .font(.largeTitle)
                                     .bold()
+                                
+                                HStack {
+                                    Image(systemName: "clock")
+                                        .foregroundStyle(.secondary)
+                                    Text("\(displayedRecipe.recipeTime) minutes")
+                                        .font(.headline)
+                                        .foregroundStyle(.secondary)
+                                }
+
+                                recipeTagManagerContent
                             }
+
+                            detailsSection
                             
-                            LazyVStack(alignment: .leading, spacing: 16) {
-                                ForEach(displayedRecipe.recipeSteps, id: \.stepNumber) { step in
-                                    VStack(alignment: .leading, spacing: 12) {
-                                        // Step header with checkbox
-                                        HStack(alignment: .top, spacing: 12) {
-                                            Button {
-                                                if checkedSteps.contains(step.stepNumber) {
-                                                    checkedSteps.remove(step.stepNumber)
-                                                } else {
-                                                    checkedSteps.insert(step.stepNumber)
-                                                }
-                                            } label: {
-                                                Image(systemName: checkedSteps.contains(step.stepNumber) ? "checkmark.circle.fill" : "circle")
-                                                    .foregroundStyle(checkedSteps.contains(step.stepNumber) ? .green : .secondary)
-                                                    .font(.title3)
-                                            }
-                                            .buttonStyle(.plain)
-                                            
-                                            VStack(alignment: .leading, spacing: 8) {
-                                                Text(step.instruction)
-                                                    .font(.body)
-                                                    .textSelection(.enabled)
-                                                    .fixedSize(horizontal: false, vertical: true)
-                                                    .strikethrough(checkedSteps.contains(step.stepNumber))
-                                                    .foregroundStyle(checkedSteps.contains(step.stepNumber) ? .secondary : .primary)
-                                            }
-                                            
-                                            Spacer()
-                                        }
-                                        
-                                        // Step ingredients with sub-checkboxes
-                                        if !step.ingredients.isEmpty {
-                                            VStack(alignment: .leading, spacing: 8) {
-                                                ForEach(Array(step.ingredients.enumerated()), id: \.offset) { ingredientIndex, ingredient in
-                                                    let checkboxKey = "\(step.stepNumber)-\(ingredientIndex)"
-                                                    
-                                                    HStack(alignment: .top, spacing: 12) {
-                                                        Spacer()
-                                                            .frame(width: 32) // Space for step checkbox alignment
-                                                        
-                                                        Button {
-                                                            if checkedStepIngredients.contains(checkboxKey) {
-                                                                checkedStepIngredients.remove(checkboxKey)
-                                                            } else {
-                                                                checkedStepIngredients.insert(checkboxKey)
-                                                            }
-                                                        } label: {
-                                                            Image(systemName: checkedStepIngredients.contains(checkboxKey) ? "checkmark.square.fill" : "square")
-                                                                .foregroundStyle(checkedStepIngredients.contains(checkboxKey) ? .blue : .secondary)
-                                                                .font(.body)
+                            // Recipe Steps Section (NEW)
+                            if !displayedRecipe.recipeSteps.isEmpty {
+                                VStack(alignment: .leading, spacing: 12) {
+                                    HStack {
+                                        Image(systemName: "list.number")
+                                            .foregroundStyle(.secondary)
+                                        Text("Steps")
+                                            .font(.title2)
+                                            .bold()
+                                    }
+                                    
+                                    LazyVStack(alignment: .leading, spacing: 16) {
+                                        ForEach(displayedRecipe.recipeSteps, id: \.stepNumber) { step in
+                                            VStack(alignment: .leading, spacing: 12) {
+                                                // Step header with checkbox
+                                                HStack(alignment: .top, spacing: 12) {
+                                                    Button {
+                                                        if checkedSteps.contains(step.stepNumber) {
+                                                            checkedSteps.remove(step.stepNumber)
+                                                        } else {
+                                                            checkedSteps.insert(step.stepNumber)
                                                         }
-                                                        .buttonStyle(.plain)
-                                                        
-                                                        Text("• \(ingredient)")
+                                                    } label: {
+                                                        Image(systemName: checkedSteps.contains(step.stepNumber) ? "checkmark.circle.fill" : "circle")
+                                                            .foregroundStyle(checkedSteps.contains(step.stepNumber) ? .green : .secondary)
+                                                            .font(.title3)
+                                                    }
+                                                    .buttonStyle(.plain)
+                                                    
+                                                    VStack(alignment: .leading, spacing: 8) {
+                                                        Text(step.instruction)
                                                             .font(.body)
                                                             .textSelection(.enabled)
                                                             .fixedSize(horizontal: false, vertical: true)
-                                                            .strikethrough(checkedStepIngredients.contains(checkboxKey))
-                                                            .foregroundStyle(checkedStepIngredients.contains(checkboxKey) ? .secondary : .primary)
-                                                        
-                                                        Spacer()
+                                                            .strikethrough(checkedSteps.contains(step.stepNumber))
+                                                            .foregroundStyle(checkedSteps.contains(step.stepNumber) ? .secondary : .primary)
+                                                    }
+                                                    
+                                                    Spacer()
+                                                }
+                                                
+                                                // Step ingredients with sub-checkboxes
+                                                if !step.ingredients.isEmpty {
+                                                    VStack(alignment: .leading, spacing: 8) {
+                                                        ForEach(Array(step.ingredients.enumerated()), id: \.offset) { ingredientIndex, ingredient in
+                                                            let checkboxKey = "\(step.stepNumber)-\(ingredientIndex)"
+                                                            
+                                                            HStack(alignment: .top, spacing: 12) {
+                                                                Spacer()
+                                                                    .frame(width: 32) // Space for step checkbox alignment
+                                                                
+                                                                Button {
+                                                                    if checkedStepIngredients.contains(checkboxKey) {
+                                                                        checkedStepIngredients.remove(checkboxKey)
+                                                                    } else {
+                                                                        checkedStepIngredients.insert(checkboxKey)
+                                                                    }
+                                                                } label: {
+                                                                    Image(systemName: checkedStepIngredients.contains(checkboxKey) ? "checkmark.square.fill" : "square")
+                                                                        .foregroundStyle(checkedStepIngredients.contains(checkboxKey) ? .blue : .secondary)
+                                                                        .font(.body)
+                                                                }
+                                                                .buttonStyle(.plain)
+                                                                
+                                                                Text("• \(ingredient)")
+                                                                    .font(.body)
+                                                                    .textSelection(.enabled)
+                                                                    .fixedSize(horizontal: false, vertical: true)
+                                                                    .strikethrough(checkedStepIngredients.contains(checkboxKey))
+                                                                    .foregroundStyle(checkedStepIngredients.contains(checkboxKey) ? .secondary : .primary)
+                                                                
+                                                                Spacer()
+                                                            }
+                                                        }
                                                     }
                                                 }
                                             }
+                                            .padding(.vertical, 8)
+                                            
+                                            if step.stepNumber < displayedRecipe.recipeSteps.count {
+                                                Divider()
+                                                    .padding(.horizontal)
+                                            }
                                         }
                                     }
-                                    .padding(.vertical, 8)
-                                    
-                                    if step.stepNumber < displayedRecipe.recipeSteps.count {
-                                        Divider()
-                                            .padding(.horizontal)
-                                    }
                                 }
-                            }
-                        }
-                        .padding()
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-                    }
-                    
-                    // Ingredients Section (UNCHANGED - keeping existing functionality)
-                    if let ingredients = displayedRecipe.ingredients, !ingredients.isEmpty {
-                        VStack(alignment: .leading, spacing: 12) {
-                            HStack {
-                                Image(systemName: "list.bullet")
-                                    .foregroundStyle(.secondary)
-                                Text("Ingredients")
-                                    .font(.title2)
-                                    .bold()
-                                
-                                Button {
-                                    copyToReminders(ingredients)
-                                    // Add the HUD animation
-                                    withAnimation(.easeInOut(duration: 0.3)) {
-                                        showCopiedHUD = true
-                                    }
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
-                                        withAnimation(.easeInOut(duration: 0.3)) {
-                                            showCopiedHUD = false
-                                        }
-                                    }
-                                } label: {
-                                    Image(systemName: "doc.on.clipboard")
-                                }
-                                .buttonStyle(.plain)
-                                
+                                .padding()
+                                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
                             }
                             
-                            LazyVGrid(columns: [
-                                GridItem(.flexible(), alignment: .leading)
-                            ], alignment: .leading, spacing: 8) {
-                                ForEach(ingredients, id: \.self) { ingredient in
-                                    HStack(alignment: .top, spacing: 12) {
+                            // Ingredients Section (UNCHANGED - keeping existing functionality)
+                            if let ingredients = displayedRecipe.ingredients, !ingredients.isEmpty {
+                                VStack(alignment: .leading, spacing: 12) {
+                                    HStack {
+                                        Image(systemName: "list.bullet")
+                                            .foregroundStyle(.secondary)
+                                        Text("Ingredients")
+                                            .font(.title2)
+                                            .bold()
+                                        
                                         Button {
-                                            if checkedIngredients.contains(ingredient) {
-                                                checkedIngredients.remove(ingredient)
-                                            } else {
-                                                checkedIngredients.insert(ingredient)
+                                            copyToReminders(ingredients)
+                                            // Add the HUD animation
+                                            withAnimation(.easeInOut(duration: 0.3)) {
+                                                showCopiedHUD = true
+                                            }
+                                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                                                withAnimation(.easeInOut(duration: 0.3)) {
+                                                    showCopiedHUD = false
+                                                }
                                             }
                                         } label: {
-                                            Image(systemName: checkedIngredients.contains(ingredient) ? "checkmark.circle.fill" : "circle")
-                                                .foregroundStyle(checkedIngredients.contains(ingredient) ? .green : .secondary)
-                                                .font(.title3)
+                                            Image(systemName: "doc.on.clipboard")
                                         }
                                         .buttonStyle(.plain)
                                         
-                                        Text(ingredient)
-                                            .textSelection(.enabled)
-                                            .font(.body)
-                                            .fixedSize(horizontal: false, vertical: true)
-                                            .strikethrough(checkedIngredients.contains(ingredient))
-                                            .foregroundStyle(checkedIngredients.contains(ingredient) ? .secondary : .primary)
-                                        
-                                        Spacer()
+                                    }
+                                    
+                                    LazyVGrid(columns: [
+                                        GridItem(.flexible(), alignment: .leading)
+                                    ], alignment: .leading, spacing: 8) {
+                                        ForEach(ingredients, id: \.self) { ingredient in
+                                            HStack(alignment: .top, spacing: 12) {
+                                                Button {
+                                                    if checkedIngredients.contains(ingredient) {
+                                                        checkedIngredients.remove(ingredient)
+                                                    } else {
+                                                        checkedIngredients.insert(ingredient)
+                                                    }
+                                                } label: {
+                                                    Image(systemName: checkedIngredients.contains(ingredient) ? "checkmark.circle.fill" : "circle")
+                                                        .foregroundStyle(checkedIngredients.contains(ingredient) ? .green : .secondary)
+                                                        .font(.title3)
+                                                }
+                                                .buttonStyle(.plain)
+                                                
+                                                Text(ingredient)
+                                                    .textSelection(.enabled)
+                                                    .font(.body)
+                                                    .fixedSize(horizontal: false, vertical: true)
+                                                    .strikethrough(checkedIngredients.contains(ingredient))
+                                                    .foregroundStyle(checkedIngredients.contains(ingredient) ? .secondary : .primary)
+                                                
+                                                Spacer()
+                                            }
+                                        }
                                     }
                                 }
+                                .padding()
+                                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
                             }
-                        }
-                        .padding()
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-                    }
 
-                    linkedRecipesSection
+                            linkedRecipesSection
+                        }
+                    }
+                    .padding(.horizontal)
+                    .padding(.bottom, 24)
                 }
-                .padding(.horizontal)
-                
-                Spacer()
             }
+            .recipeFlexibleHeaderScrollView()
         }
-        .navigationTitle(displayedRecipe.name)
-#if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-#endif
         .ignoresSafeArea(edges: .top)
+#if os(macOS)
+        .modifier(RecipeDetailMacTitleModifier(showInlineTitles: showInlineTitles, title: displayedRecipe.name))
+#endif
+#if os(iOS)
+        .modifier(RecipeDetailIOSTitleModifier(showInlineTitles: showInlineTitles, title: displayedRecipe.name))
+#endif
         .toolbar {
+#if os(macOS)
+            if !showInlineTitles {
+                ToolbarSpacer(.flexible)
+            }
+
+            ToolbarItem {
+                Button {
+                    editingRecipe = displayedRecipe
+                } label: {
+                    Image(systemName: "pencil")
+                }
+                .accessibilityLabel("Edit Recipe")
+                .disabled(model.isOfflineMode)
+            }
+#else
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     editingRecipe = displayedRecipe
@@ -257,6 +284,7 @@ struct RecipeDetailView: View {
                 .accessibilityLabel("Edit Recipe")
                 .disabled(model.isOfflineMode)
             }
+#endif
         }
         .sheet(item: $editingRecipe) { recipe in
             AddEditRecipeView(editingRecipe: recipe)
@@ -1011,6 +1039,96 @@ private struct LinkedRecipePickerSheet: View {
 
         isSaving = false
         dismiss()
+    }
+}
+
+#if os(macOS)
+private struct RecipeDetailMacTitleModifier: ViewModifier {
+    let showInlineTitles: Bool
+    let title: String
+
+    func body(content: Content) -> some View {
+        if showInlineTitles {
+            content.navigationTitle(title)
+        } else {
+            content.toolbar(removing: .title)
+        }
+    }
+}
+#endif
+
+#if os(iOS)
+private struct RecipeDetailIOSTitleModifier: ViewModifier {
+    let showInlineTitles: Bool
+    let title: String
+
+    func body(content: Content) -> some View {
+        if showInlineTitles {
+            content
+                .navigationTitle(title)
+                .navigationBarTitleDisplayMode(.inline)
+        } else {
+            content
+        }
+    }
+}
+#endif
+
+private struct RecipeFlexibleHeaderContentModifier: ViewModifier {
+    let offset: CGFloat
+    let baseHeight: CGFloat
+
+    func body(content: Content) -> some View {
+        content
+            .frame(height: baseHeight - offset)
+            .padding(.bottom, offset)
+            .offset(y: offset)
+    }
+}
+
+private struct RecipeFlexibleHeaderScrollViewModifier: ViewModifier {
+    @State private var offset: CGFloat = 0
+
+    func body(content: Content) -> some View {
+        content
+            .onScrollGeometryChange(for: CGFloat.self) { geometry in
+                min(geometry.contentOffset.y + geometry.contentInsets.top, 0)
+            } action: { _, newOffset in
+                offset = newOffset
+            }
+            .environment(\.recipeFlexibleHeaderOffset, offset)
+    }
+}
+
+private struct RecipeFlexibleHeaderOffsetKey: EnvironmentKey {
+    static let defaultValue: CGFloat = 0
+}
+
+private extension EnvironmentValues {
+    var recipeFlexibleHeaderOffset: CGFloat {
+        get { self[RecipeFlexibleHeaderOffsetKey.self] }
+        set { self[RecipeFlexibleHeaderOffsetKey.self] = newValue }
+    }
+}
+
+private struct RecipeFlexibleHeaderContentEnvironmentModifier: ViewModifier {
+    @Environment(\.recipeFlexibleHeaderOffset) private var offset
+    let baseHeight: CGFloat
+
+    func body(content: Content) -> some View {
+        content.modifier(RecipeFlexibleHeaderContentModifier(offset: offset, baseHeight: baseHeight))
+    }
+}
+
+private extension ScrollView {
+    func recipeFlexibleHeaderScrollView() -> some View {
+        modifier(RecipeFlexibleHeaderScrollViewModifier())
+    }
+}
+
+private extension View {
+    func recipeFlexibleHeaderContent(baseHeight: CGFloat) -> some View {
+        modifier(RecipeFlexibleHeaderContentEnvironmentModifier(baseHeight: baseHeight))
     }
 }
 
