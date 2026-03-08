@@ -468,11 +468,34 @@ final class AppViewModel: ObservableObject {
         }
         printD("deleteRecipe: Found recipe: \(recipe.name)")
         
+        let unlinkedRelatedRecipes = await synchronizeLinkedRecipes(
+            for: recipe.id,
+            from: recipe.linkedRecipeIDs,
+            to: [],
+            in: source
+        )
+        if !unlinkedRelatedRecipes {
+            error = cloudKitManager.error ?? "Failed to update linked recipes before deleting."
+            refreshOfflineState()
+            return false
+        }
+
         printD("deleteRecipe: Calling cloudKitManager.deleteRecipe...")
         let deleted = await cloudKitManager.deleteRecipe(recipe, in: source)
         printD("deleteRecipe: CloudKit deletion completed")
         if !deleted {
-            error = cloudKitManager.error
+            let deleteErrorMessage = cloudKitManager.error
+            let rollbackSucceeded = await synchronizeLinkedRecipes(
+                for: recipe.id,
+                from: [],
+                to: recipe.linkedRecipeIDs,
+                in: source
+            )
+            if !rollbackSucceeded {
+                error = "Failed to delete recipe and failed to restore linked recipes."
+            } else {
+                error = deleteErrorMessage
+            }
             refreshOfflineState()
             return false
         }
@@ -484,17 +507,6 @@ final class AppViewModel: ObservableObject {
         let oldCount = recipeCounts[recipe.categoryID, default: 1]
         recipeCounts[recipe.categoryID] = max(oldCount - 1, 0)
 
-        let removedLinkedRecipes = await synchronizeLinkedRecipes(
-            for: recipe.id,
-            from: recipe.linkedRecipeIDs,
-            to: [],
-            in: source
-        )
-        if !removedLinkedRecipes {
-            printD("deleteRecipe: Failed to remove reverse linked-recipe references for \(recipe.name)")
-            cloudKitManager.error = nil
-        }
-        
         // Persist updated caches so deleted recipes don't reappear offline
         cloudKitManager.recipes = recipes
         cloudKitManager.cacheRecipesSnapshot(recipes, for: source)
@@ -1393,8 +1405,7 @@ final class AppViewModel: ObservableObject {
         }
     }
     func canEditSource(_ source: Source) -> Bool {
-        // Allow edits on shared sources once the share is read-write
-        return source.isPersonal || cloudKitManager.canEditSharedSources
+        cloudKitManager.canEditSharedSource(source)
     }
     func debugNukeOwnedData() async {
         await cloudKitManager.debugNukeOwnedData()

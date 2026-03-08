@@ -68,6 +68,7 @@ class CloudKitManager: ObservableObject {
         return directory
     }()
     private var participantIdentityCache: [CKRecord.ID: CKUserIdentity] = [:]
+    private var sharedSourceEditability: [CKRecord.ID: Bool] = [:]
     private var locallyDeletedSourceIDs = Set<CKRecord.ID>()
     
     init() {
@@ -908,6 +909,7 @@ class CloudKitManager: ObservableObject {
             }
             
             self.sources = allSources
+            await refreshSharedSourceEditability(for: allSources)
             // Reset sharedSourceIDs to include any cached/shared markers plus fetched shared sources.
             let fetchedSharedKeys = Set(allSources.filter { !$0.isPersonal }.map { cacheIdentifier(for: $0.id) })
             let rebuiltSharedKeys = collectedSharedKeys.union(fetchedSharedKeys)
@@ -1283,6 +1285,13 @@ class CloudKitManager: ObservableObject {
         let ownsByRecord = source.owner == userIdentifier
         let ownsByZone = source.id.zoneID.ownerName == CKCurrentUserDefaultName
         return ownsByRecord || ownsByZone
+    }
+
+    func canEditSharedSource(_ source: Source) -> Bool {
+        if source.isPersonal || isSharedOwner(source) {
+            return true
+        }
+        return sharedSourceEditability[source.id] ?? false
     }
     
     private func isOwnedByCurrentUser(_ source: Source) -> Bool {
@@ -2666,10 +2675,41 @@ class CloudKitManager: ObservableObject {
         }
     }
     
+    private func refreshSharedSourceEditability(for sources: [Source]) async {
+        var nextEditability: [CKRecord.ID: Bool] = [:]
+
+        for source in sources {
+            if source.isPersonal || isSharedOwner(source) {
+                nextEditability[source.id] = true
+                continue
+            }
+
+            nextEditability[source.id] = await fetchSharedSourceWriteAccess(for: source)
+        }
+
+        sharedSourceEditability = nextEditability
+    }
+
+    private func fetchSharedSourceWriteAccess(for source: Source) async -> Bool {
+        do {
+            let rootRecord = try await sharedDatabase.record(for: source.id)
+            guard let shareRef = rootRecord.share,
+                  let share = try await sharedDatabase.record(for: shareRef.recordID) as? CKShare,
+                  let currentParticipant = share.currentUserParticipant else {
+                return false
+            }
+
+            return currentParticipant.permission == .readWrite
+        } catch {
+            printD("Failed to resolve shared editability for \(source.name): \(error.localizedDescription)")
+            return false
+        }
+    }
+
     private func updateSharedEditabilityFlag() {
-        // If we have any shared sources and sharing is enabled, allow editing of shared sources.
-        // For now we assume shares are created as readWrite (enforced in sharing flows).
-        canEditSharedSources = sources.contains { !$0.isPersonal }
+        let currentSourceIDs = Set(sources.map(\.id))
+        sharedSourceEditability = sharedSourceEditability.filter { currentSourceIDs.contains($0.key) }
+        canEditSharedSources = sources.contains { canEditSharedSource($0) && !$0.isPersonal }
     }
     
     private func fetchShareMetadata(for url: URL) async throws -> CKShare.Metadata {
