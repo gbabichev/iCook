@@ -483,6 +483,17 @@ final class AppViewModel: ObservableObject {
         randomRecipes.removeAll { $0.id == id }
         let oldCount = recipeCounts[recipe.categoryID, default: 1]
         recipeCounts[recipe.categoryID] = max(oldCount - 1, 0)
+
+        let removedLinkedRecipes = await synchronizeLinkedRecipes(
+            for: recipe.id,
+            from: recipe.linkedRecipeIDs,
+            to: [],
+            in: source
+        )
+        if !removedLinkedRecipes {
+            printD("deleteRecipe: Failed to remove reverse linked-recipe references for \(recipe.name)")
+            cloudKitManager.error = nil
+        }
         
         // Persist updated caches so deleted recipes don't reappear offline
         cloudKitManager.recipes = recipes
@@ -723,10 +734,20 @@ final class AppViewModel: ObservableObject {
             // Also add to random recipes
             self.randomRecipes = (randomRecipes + [recipeWithImage]).sorted { $0.lastModified > $1.lastModified }
             recipeCounts[categoryId, default: 0] += 1
+            let syncedLinkedRecipes = await synchronizeLinkedRecipes(
+                for: recipeWithImage.id,
+                from: [],
+                to: recipeWithImage.linkedRecipeIDs,
+                in: source
+            )
+            if !syncedLinkedRecipes {
+                error = cloudKitManager.error ?? "Failed to update linked recipes."
+            }
             // Persist caches immediately so cold launch/offline reflects the new recipe.
-            cloudKitManager.recipes = newRecipes
-            cloudKitManager.cacheRecipesSnapshot(newRecipes, for: source)
-            let categoryRecipes = newRecipes.filter { $0.categoryID == categoryId }
+            let currentRecipes = recipes
+            cloudKitManager.recipes = currentRecipes
+            cloudKitManager.cacheRecipesSnapshot(currentRecipes, for: source)
+            let categoryRecipes = currentRecipes.filter { $0.categoryID == categoryId }
             cloudKitManager.cacheRecipes(categoryRecipes, for: source, categoryID: categoryId)
             
             // Small delay to ensure UI updates before sheet dismisses
@@ -818,6 +839,15 @@ final class AppViewModel: ObservableObject {
             if let index = randomRecipes.firstIndex(where: { $0.id == id }) {
                 randomRecipes[index] = updatedRecipe
             }
+            let syncedLinkedRecipes = await synchronizeLinkedRecipes(
+                for: updatedRecipe.id,
+                from: recipe.linkedRecipeIDs,
+                to: updatedRecipe.linkedRecipeIDs,
+                in: source
+            )
+            if !syncedLinkedRecipes {
+                error = cloudKitManager.error ?? "Failed to update linked recipes."
+            }
             // Persist updated recipes to cache immediately to avoid stale data after relaunch
             cloudKitManager.recipes = recipes
             cloudKitManager.cacheRecipesSnapshot(recipes, for: source)
@@ -838,6 +868,66 @@ final class AppViewModel: ObservableObject {
         
         refreshOfflineState()
         return error == nil
+    }
+
+    private func synchronizeLinkedRecipes(
+        for recipeID: CKRecord.ID,
+        from previousLinkedIDs: [CKRecord.ID],
+        to nextLinkedIDs: [CKRecord.ID],
+        in source: Source
+    ) async -> Bool {
+        let previous = Set(previousLinkedIDs.filter { $0 != recipeID })
+        let next = Set(nextLinkedIDs.filter { $0 != recipeID })
+        let addedLinkedIDs = next.subtracting(previous)
+        let removedLinkedIDs = previous.subtracting(next)
+        let affectedRecipeIDs = addedLinkedIDs.union(removedLinkedIDs)
+
+        guard !affectedRecipeIDs.isEmpty else { return true }
+
+        let loadedRecipeIDs = Set(recipes.map(\.id))
+        if !affectedRecipeIDs.isSubset(of: loadedRecipeIDs) {
+            await cloudKitManager.loadRecipes(for: source, category: nil)
+            for fetchedRecipe in cloudKitManager.recipes {
+                if let existingIndex = recipes.firstIndex(where: { $0.id == fetchedRecipe.id }) {
+                    recipes[existingIndex] = fetchedRecipe
+                } else {
+                    recipes.append(fetchedRecipe)
+                }
+            }
+            recipes.sort { $0.lastModified > $1.lastModified }
+            randomRecipes = recipes
+        }
+
+        for affectedRecipeID in affectedRecipeIDs {
+            guard let recipeIndex = recipes.firstIndex(where: { $0.id == affectedRecipeID }) else {
+                continue
+            }
+
+            var relatedRecipe = recipes[recipeIndex]
+            var relatedLinkedIDs = relatedRecipe.linkedRecipeIDs.filter { $0 != recipeID }
+
+            if addedLinkedIDs.contains(affectedRecipeID) {
+                relatedLinkedIDs.append(recipeID)
+            }
+
+            let normalizedLinkedIDs = orderedUniqueRecordIDs(relatedLinkedIDs)
+            guard normalizedLinkedIDs != relatedRecipe.linkedRecipeIDs else { continue }
+
+            relatedRecipe.linkedRecipeIDs = normalizedLinkedIDs
+            relatedRecipe.lastModified = Date()
+
+            await cloudKitManager.updateRecipe(relatedRecipe, in: source)
+            guard cloudKitManager.error == nil else {
+                return false
+            }
+
+            recipes[recipeIndex] = relatedRecipe
+            if let randomRecipeIndex = randomRecipes.firstIndex(where: { $0.id == affectedRecipeID }) {
+                randomRecipes[randomRecipeIndex] = relatedRecipe
+            }
+        }
+
+        return true
     }
     
 #if os(macOS)

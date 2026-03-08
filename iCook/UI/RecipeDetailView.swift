@@ -712,11 +712,24 @@ private struct LinkedRecipePickerSheet: View {
 
     private var filteredCandidates: [Recipe] {
         let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return candidates }
+        let matchingCandidates: [Recipe]
 
-        return candidates.filter { recipe in
-            recipe.name.localizedCaseInsensitiveContains(trimmed) ||
-            (categoryName(recipe)?.localizedCaseInsensitiveContains(trimmed) ?? false)
+        if trimmed.isEmpty {
+            matchingCandidates = candidates
+        } else {
+            matchingCandidates = candidates.filter { recipe in
+                recipe.name.localizedCaseInsensitiveContains(trimmed) ||
+                (categoryName(recipe)?.localizedCaseInsensitiveContains(trimmed) ?? false)
+            }
+        }
+
+        return matchingCandidates.sorted { lhs, rhs in
+            let lhsSelected = draftSelection.contains(lhs.id)
+            let rhsSelected = draftSelection.contains(rhs.id)
+            if lhsSelected != rhsSelected {
+                return lhsSelected && !rhsSelected
+            }
+            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
         }
     }
 
