@@ -11,7 +11,6 @@ import UIKit
 struct CameraInfo: Identifiable, Hashable {
     let id: String
     let device: AVCaptureDevice
-    let displayName: String
     let position: AVCaptureDevice.Position
     let zoomLabel: String
     let zoomFactor: CGFloat?
@@ -19,7 +18,6 @@ struct CameraInfo: Identifiable, Hashable {
 
     init(
         device: AVCaptureDevice,
-        displayName: String,
         zoomLabel: String,
         zoomSortValue: CGFloat,
         zoomFactor: CGFloat? = nil
@@ -27,22 +25,21 @@ struct CameraInfo: Identifiable, Hashable {
         self.id = "\(device.uniqueID)|\(zoomLabel)"
         self.device = device
         self.position = device.position
-        self.displayName = displayName
         self.zoomLabel = zoomLabel
         self.zoomFactor = zoomFactor
         self.zoomSortValue = zoomSortValue
     }
 
     static func backUltra(_ device: AVCaptureDevice) -> CameraInfo {
-        CameraInfo(device: device, displayName: "Back 0.5x", zoomLabel: "0.5x", zoomSortValue: 0.5)
+        CameraInfo(device: device, zoomLabel: "0.5x", zoomSortValue: 0.5)
     }
 
     static func backWide(_ device: AVCaptureDevice) -> CameraInfo {
-        CameraInfo(device: device, displayName: "Back 1x", zoomLabel: "1x", zoomSortValue: 1.0)
+        CameraInfo(device: device, zoomLabel: "1x", zoomSortValue: 1.0)
     }
 
     static func front(_ device: AVCaptureDevice) -> CameraInfo {
-        CameraInfo(device: device, displayName: "Front 1x", zoomLabel: "1x", zoomSortValue: 1.0)
+        CameraInfo(device: device, zoomLabel: "1x", zoomSortValue: 1.0)
     }
 
     func hash(into hasher: inout Hasher) {

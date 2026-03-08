@@ -1063,9 +1063,9 @@ final class AppViewModel: ObservableObject {
         let images = preview.images
         
         await loadCategories()
-        if shouldCancelImport(importedCount: 0) {
-            return .cancelled(importedCount: 0)
-        }
+                if shouldCancelImport() {
+                    return .cancelled(importedCount: 0)
+                }
         
         var categoryIDsByName: [String: CKRecord.ID] = [:]
         for category in categories {
@@ -1085,13 +1085,13 @@ final class AppViewModel: ObservableObject {
         )
         
         for exportedCategory in package.categories where selectedCategoryNames.contains(exportedCategory.name.lowercased()) {
-            if shouldCancelImport(importedCount: 0) {
+            if shouldCancelImport() {
                 return .cancelled(importedCount: 0)
             }
             let key = exportedCategory.name.lowercased()
             if categoryIDsByName[key] == nil {
                 let created = await createCategory(name: exportedCategory.name, icon: exportedCategory.icon)
-                if shouldCancelImport(importedCount: 0) {
+                if shouldCancelImport() {
                     return .cancelled(importedCount: 0)
                 }
                 if created,
@@ -1106,7 +1106,7 @@ final class AppViewModel: ObservableObject {
         )
 
         for key in selectedTagNames.sorted() {
-            if shouldCancelImport(importedCount: 0) {
+            if shouldCancelImport() {
                 return .cancelled(importedCount: 0)
             }
             if tagIDsByName[key] == nil {
@@ -1114,7 +1114,7 @@ final class AppViewModel: ObservableObject {
                     .flatMap { $0.tagNames ?? [] }
                     .first(where: { $0.lowercased() == key }) ?? key
                 let created = await createTag(name: displayName)
-                if shouldCancelImport(importedCount: 0) {
+                if shouldCancelImport() {
                     return .cancelled(importedCount: 0)
                 }
                 if created,
@@ -1128,7 +1128,7 @@ final class AppViewModel: ObservableObject {
         var importedRecipesByIdentity: [String: CKRecord.ID] = [:]
         var importedRecipeIDsByLowercaseName: [String: [CKRecord.ID]] = [:]
         for recipe in selectedRecipes {
-            if shouldCancelImport(importedCount: importedCount) {
+            if shouldCancelImport() {
                 return .cancelled(importedCount: importedCount)
             }
             updateImportProgress(
@@ -1151,7 +1151,7 @@ final class AppViewModel: ObservableObject {
                 recipeSteps: recipe.recipeSteps,
                 tagIDs: orderedUniqueRecordIDs(recipeTagIDs)
             )
-            if shouldCancelImport(importedCount: importedCount) {
+            if shouldCancelImport() {
                 return .cancelled(importedCount: importedCount)
             }
             if let createdRecipeID {
@@ -1169,7 +1169,7 @@ final class AppViewModel: ObservableObject {
         }
 
         for recipe in recipesRequiringLinkUpdates {
-            if shouldCancelImport(importedCount: importedCount) {
+            if shouldCancelImport() {
                 return .cancelled(importedCount: importedCount)
             }
             guard let importedRecipeID = importedRecipesByIdentity[importIdentity(for: recipe)] else {
@@ -1204,7 +1204,7 @@ final class AppViewModel: ObservableObject {
                 recipeSteps: nil,
                 linkedRecipeIDs: orderedUniqueRecordIDs(resolvedLinkedIDs)
             )
-            if shouldCancelImport(importedCount: importedCount) {
+            if shouldCancelImport() {
                 return .cancelled(importedCount: importedCount)
             }
             advanceImportProgress(importedRecipes: importedCount)
@@ -1312,7 +1312,7 @@ final class AppViewModel: ObservableObject {
         )
     }
 
-    private func shouldCancelImport(importedCount: Int) -> Bool {
+    private func shouldCancelImport() -> Bool {
         if Task.isCancelled || isImportCancellationRequested {
             error = nil
             return true
@@ -1396,15 +1396,6 @@ final class AppViewModel: ObservableObject {
         // Allow edits on shared sources once the share is read-write
         return source.isPersonal || cloudKitManager.canEditSharedSources
     }
-#if os(macOS)
-    func stopSharingSource(_ source: Source) async {
-        let success = await cloudKitManager.stopSharingSource(source)
-        if success {
-
-            await loadSources()
-        }
-    }
-#endif
     func debugNukeOwnedData() async {
         await cloudKitManager.debugNukeOwnedData()
         await loadSources()

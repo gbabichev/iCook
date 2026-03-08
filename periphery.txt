@@ -1,0 +1,1 @@
+periphery scan --project iCook.xcodeproj --schemes iCook -- -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 17'

@@ -511,6 +511,7 @@ struct SourceRowWrapper: View {
         return .collaborator
     }
     
+    #if os(iOS)
     private func shareLabel(for state: ShareUIState) -> String {
         switch state {
         case .ownerPrivate:
@@ -521,6 +522,7 @@ struct SourceRowWrapper: View {
             return "Manage Access"
         }
     }
+    #endif
 
     private func shareSystemImage(for state: ShareUIState) -> String {
         switch state {

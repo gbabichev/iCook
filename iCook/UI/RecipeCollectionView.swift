@@ -406,23 +406,6 @@ struct RecipeCollectionView: View {
         }
     }
 
-    private func loadingHeroHeader(baseHeight: CGFloat) -> some View {
-        ZStack {
-            Rectangle()
-                .fill(.ultraThinMaterial)
-
-            VStack(spacing: 10) {
-                ProgressView()
-                Text("Loading image...")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
-        .backgroundExtensionEffect()
-        .collectionFlexibleHeaderContent(baseHeight: baseHeight)
-    }
-    
     @ViewBuilder
     private func featuredRecipeHeader(_ recipe: Recipe, baseHeight: CGFloat) -> some View {
         if let imageURL = resolvedImageURL(for: recipe) {
@@ -434,16 +417,6 @@ struct RecipeCollectionView: View {
         } else {
             fallbackHeroHeader(recipe, baseHeight: baseHeight)
         }
-    }
-    
-    @ViewBuilder
-    private func headerPlaceholder() -> some View {
-        ZStack {
-            Rectangle()
-                .fill(.ultraThinMaterial)
-        }
-        .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: 350)
-        .backgroundExtensionEffect()
     }
     
     // MARK: - Recipes Grid Section

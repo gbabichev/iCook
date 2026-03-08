@@ -668,11 +668,6 @@ class CloudKitManager: ObservableObject {
         loadRecipesLocalCache(for: source, categoryID: categoryID)
     }
 
-    /// Public helper to clear all cached image files for a recipe.
-    func purgeCachedImages(for recipeID: CKRecord.ID) {
-        removeCachedImages(for: recipeID)
-    }
-
     /// Public helper to cache recipes for a specific scope (all or per-category).
     func cacheRecipes(_ recipes: [Recipe], for source: Source, categoryID: CKRecord.ID?) {
         saveRecipesLocalCache(recipes, for: source, categoryID: categoryID)
@@ -1974,19 +1969,6 @@ class CloudKitManager: ObservableObject {
         }
     }
     
-    private func removeRecipeCache(for source: Source) {
-        let fm = FileManager.default
-        // Remove per-source recipe caches (all categories and per-category files)
-        if let files = try? fm.contentsOfDirectory(at: cacheDirectoryURL, includingPropertiesForKeys: nil) {
-            let prefix = "recipes_\(cacheIdentifier(for: source.id))"
-            for url in files where url.lastPathComponent.hasPrefix(prefix) {
-                try? fm.removeItem(at: url)
-            }
-        }
-        // Clear in-memory caches
-        recipeCache = recipeCache.filter { $0.key.zoneID != source.id.zoneID }
-    }
-    
     func loadRandomRecipes(for source: Source, skipCache: Bool = false) async {
         isLoading = true
         defer { isLoading = false }
@@ -2786,40 +2768,8 @@ class CloudKitManager: ObservableObject {
     }
     
 #if os(macOS)
-    /// Stop sharing a source
-    func stopSharingSource(_ source: Source) async -> Bool {
-        // Only the owner can stop sharing; ensure we target the private DB share record
-        guard isSharedOwner(source) else {
-            self.error = "Only the owner can stop sharing"
-            return false
-        }
-        
-        do {
-            // Fetch the source record from the private DB
-            let rootRecord = try await privateDatabase.record(for: source.id)
-            guard let shareRef = rootRecord.share else {
-                printD("No share reference found; marking unshared locally")
-                unmarkSharedSource(id: source.id)
-                recentlyUnsharedIDs.insert(cacheIdentifier(for: source.id))
-                saveSourcesLocalCache()
-                return true
-            }
-            // Delete the share record in the private DB
-            try await privateDatabase.deleteRecord(withID: shareRef.recordID)
-            
-            // Clear local markers
-            unmarkSharedSource(id: source.id)
-            recentlyUnsharedIDs.insert(cacheIdentifier(for: source.id))
-            printD("Stopped sharing source: \(source.name)")
-            return true
-        } catch {
-            printD("Error stopping share: \(error.localizedDescription)")
-            self.error = "Failed to stop sharing"
-            return false
-        }
-    }
     /// Generate a new CKRecord.ID for the appropriate zone based on the source.
-    #endif
+#endif
     func makeRecordID(for source: Source) -> CKRecord.ID {
         let owner = isSharedOwner(source)
         let shared = isSharedSource(source)

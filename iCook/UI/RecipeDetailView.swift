@@ -676,7 +676,9 @@ private struct LinkedRecipePickerSheet: View {
     let candidates: [Recipe]
     let categoryName: (Recipe) -> String?
     let onSave: @MainActor ([CKRecord.ID]) async -> String?
+#if os(macOS)
     let initialSelection: Set<CKRecord.ID>
+#endif
 
     @Environment(\.dismiss) private var dismiss
 
@@ -696,7 +698,9 @@ private struct LinkedRecipePickerSheet: View {
         self.candidates = candidates
         self.categoryName = categoryName
         self.onSave = onSave
+#if os(macOS)
         self.initialSelection = selectedIDs
+#endif
         _draftSelection = State(initialValue: selectedIDs)
     }
 
