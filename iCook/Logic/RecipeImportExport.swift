@@ -13,34 +13,45 @@ struct ExportedCategory: Codable {
     let icon: String
 }
 
+struct ExportedTag: Codable {
+    let name: String
+}
+
 struct ExportedRecipe: Codable {
+    let exportID: String?
     let name: String
     let recipeTime: Int
     let details: String?
     let categoryName: String
     let recipeSteps: [RecipeStep]
     let imageFilename: String?
+    let tagNames: [String]?
+    let linkedRecipeExportIDs: [String]?
     let linkedRecipeNames: [String]?
 }
 
 struct RecipeExportPackage: Codable {
     let categories: [ExportedCategory]
+    let tags: [ExportedTag]
     let recipes: [ExportedRecipe]
     
     enum CodingKeys: String, CodingKey {
         case categories
+        case tags
         case recipes
     }
     
     #if os(macOS)
-    init(categories: [ExportedCategory], recipes: [ExportedRecipe]) {
+    init(categories: [ExportedCategory], tags: [ExportedTag], recipes: [ExportedRecipe]) {
         self.categories = categories
+        self.tags = tags
         self.recipes = recipes
     }
     #endif
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.categories = try container.decode([ExportedCategory].self, forKey: .categories)
+        self.tags = try container.decodeIfPresent([ExportedTag].self, forKey: .tags) ?? []
         self.recipes = try container.decode([ExportedRecipe].self, forKey: .recipes)
     }
 }

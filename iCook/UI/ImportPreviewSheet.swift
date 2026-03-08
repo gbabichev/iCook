@@ -4,6 +4,7 @@ struct ImportPreviewSheet: View {
     let preview: AppViewModel.ImportPreview
     @Binding var selectedIndices: Set<Int>
     let isImporting: Bool
+    let importProgress: AppViewModel.ImportProgress?
     let onSelectAll: () -> Void
     let onDeselectAll: () -> Void
     let onCancel: () -> Void
@@ -63,19 +64,16 @@ struct ImportPreviewSheet: View {
                 Button("Cancel", action: onCancel)
                     .disabled(isImporting)
                 Spacer()
-                Button(action: onImport) {
-                    if isImporting {
-                        HStack(spacing: 8) {
-                            ProgressView()
-                                .controlSize(.small)
-                            Text("Importing...")
-                        }
-                    } else {
+                if isImporting, let importProgress {
+                    ImportProgressStatusView(progress: importProgress)
+                        .frame(maxWidth: 320, alignment: .trailing)
+                } else {
+                    Button(action: onImport) {
                         Text("Import Selected")
                     }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(selectedIndices.isEmpty || isImporting)
                 }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(selectedIndices.isEmpty || isImporting)
             }
         }
         .padding(20)
@@ -111,5 +109,68 @@ struct ImportPreviewSheet: View {
                 }
             }
         )
+    }
+}
+
+struct ImportProgressStatusView: View {
+    let progress: AppViewModel.ImportProgress
+
+    private static let durationFormatter: DateComponentsFormatter = {
+        let formatter = DateComponentsFormatter()
+        formatter.allowedUnits = [.minute, .second]
+        formatter.unitsStyle = .positional
+        formatter.zeroFormattingBehavior = [.pad]
+        return formatter
+    }()
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            let elapsed = max(context.date.timeIntervalSince(progress.startedAt), 0)
+            let remaining = estimatedRemaining(elapsed: elapsed)
+
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(progress.phase)
+                        .font(.subheadline.weight(.semibold))
+                    Spacer()
+                    Text("\(Int(progress.fractionCompleted * 100))%")
+                        .font(.subheadline.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+
+                ProgressView(value: progress.fractionCompleted)
+
+                HStack {
+                    Text("\(progress.importedRecipes) of \(progress.totalRecipes) recipes")
+                    Spacer()
+                    Text("Elapsed \(formattedDuration(elapsed))")
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+                if let remaining {
+                    Text("ETA \(formattedDuration(remaining))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                if let currentItemName = progress.currentItemName, !currentItemName.isEmpty {
+                    Text(currentItemName)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+        }
+    }
+
+    private func formattedDuration(_ duration: TimeInterval) -> String {
+        Self.durationFormatter.string(from: duration) ?? "0:00"
+    }
+
+    private func estimatedRemaining(elapsed: TimeInterval) -> TimeInterval? {
+        guard progress.completedUnits > 0, progress.completedUnits < progress.totalUnits else { return nil }
+        let averagePerUnit = elapsed / Double(progress.completedUnits)
+        return averagePerUnit * Double(progress.totalUnits - progress.completedUnits)
     }
 }

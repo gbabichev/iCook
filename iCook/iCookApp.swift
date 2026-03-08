@@ -543,12 +543,19 @@ private struct AppWindowContent: View {
             if model.isImporting {
                 Color.black.opacity(0.25)
                     .ignoresSafeArea()
-                VStack(spacing: 12) {
-                    ProgressView()
-                    Text("Importing recipes…")
-                        .font(.headline)
+                Group {
+                    if let importProgress = model.importProgress {
+                        ImportProgressStatusView(progress: importProgress)
+                            .padding(16)
+                    } else {
+                        VStack(spacing: 12) {
+                            ProgressView()
+                            Text("Importing recipes…")
+                                .font(.headline)
+                        }
+                        .padding(16)
+                    }
                 }
-                .padding(16)
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
             }
             
@@ -621,6 +628,7 @@ private struct AppWindowContent: View {
                 preview: preview,
                 selectedIndices: $selectedImportIndices,
                 isImporting: isCommittingImport,
+                importProgress: model.importProgress,
                 onSelectAll: { selectedImportIndices = Set(preview.package.recipes.indices) },
                 onDeselectAll: { selectedImportIndices.removeAll() },
                 onCancel: { cancelImportPreview() },
@@ -633,6 +641,7 @@ private struct AppWindowContent: View {
                 preview: preview,
                 selectedIndices: $selectedImportIndices,
                 isImporting: isCommittingImport,
+                importProgress: model.importProgress,
                 onSelectAll: { selectedImportIndices = Set(preview.package.recipes.indices) },
                 onDeselectAll: { selectedImportIndices.removeAll() },
                 onCancel: { cancelImportPreview() },

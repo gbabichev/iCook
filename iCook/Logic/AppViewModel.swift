@@ -21,6 +21,21 @@ final class AppViewModel: ObservableObject {
         let package: RecipeExportPackage
         let images: [String: Data]
     }
+    struct ImportProgress {
+        let startedAt: Date
+        var phase: String
+        var totalUnits: Int
+        var completedUnits: Int
+        var totalRecipes: Int
+        var importedRecipes: Int
+        var currentItemName: String?
+
+        var fractionCompleted: Double {
+            guard totalUnits > 0 else { return 0 }
+            return min(max(Double(completedUnits) / Double(totalUnits), 0), 1)
+        }
+    }
+    @Published var importProgress: ImportProgress?
     @Published var error: String?
     @Published var isOfflineMode = false
     private let lastViewedRecipeKey = "LastViewedRecipe"
@@ -599,7 +614,30 @@ final class AppViewModel: ObservableObject {
         tagIDs: [CKRecord.ID] = [],
         linkedRecipeIDs: [CKRecord.ID] = []
     ) async -> Bool {
-        guard let source = currentSource else { return false }
+        let createdID = await createRecipeWithStepsResult(
+            categoryId: categoryId,
+            name: name,
+            recipeTime: recipeTime,
+            details: details,
+            image: image,
+            recipeSteps: recipeSteps,
+            tagIDs: tagIDs,
+            linkedRecipeIDs: linkedRecipeIDs
+        )
+        return createdID != nil
+    }
+
+    private func createRecipeWithStepsResult(
+        categoryId: CKRecord.ID,
+        name: String,
+        recipeTime: Int?,
+        details: String?,
+        image: Data?,
+        recipeSteps: [RecipeStep]?,
+        tagIDs: [CKRecord.ID] = [],
+        linkedRecipeIDs: [CKRecord.ID] = []
+    ) async -> CKRecord.ID? {
+        guard let source = currentSource else { return nil }
         error = nil
         cloudKitManager.error = nil
         
@@ -663,7 +701,7 @@ final class AppViewModel: ObservableObject {
         }
         
         refreshOfflineState()
-        return error == nil
+        return error == nil ? recordID : nil
     }
     
     func updateRecipeWithSteps(
@@ -783,11 +821,17 @@ final class AppViewModel: ObservableObject {
         recipes = cloudKitManager.recipes
         
         let categoryLookup = Dictionary(uniqueKeysWithValues: categories.map { ($0.id, $0.name) })
+        let tagLookup = Dictionary(uniqueKeysWithValues: tags.map { ($0.id, $0.name) })
         let recipeNameLookup = Dictionary(uniqueKeysWithValues: cloudKitManager.recipes.map { ($0.id, $0.name) })
+        let recipeExportIDLookup = Dictionary(uniqueKeysWithValues: cloudKitManager.recipes.map { ($0.id, $0.id.recordName) })
         
         let exportedCategories = categories
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             .map { ExportedCategory(name: $0.name, icon: $0.icon) }
+
+        let exportedTags = tags
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            .map { ExportedTag(name: $0.name) }
         
         let exportedRecipes = cloudKitManager.recipes
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
@@ -797,14 +841,19 @@ final class AppViewModel: ObservableObject {
                 let imageData = imageInfo?.data
                 
                 let categoryName = categoryLookup[recipe.categoryID] ?? "Uncategorized"
+                let tagNames = recipe.tagIDs.compactMap { tagLookup[$0] }
+                let linkedRecipeExportIDs = recipe.linkedRecipeIDs.compactMap { recipeExportIDLookup[$0] }
                 let linkedRecipeNames = recipe.linkedRecipeIDs.compactMap { recipeNameLookup[$0] }
                 let exported = ExportedRecipe(
+                    exportID: recipe.id.recordName,
                     name: recipe.name,
                     recipeTime: recipe.recipeTime,
                     details: recipe.details,
                     categoryName: categoryName,
                     recipeSteps: recipe.recipeSteps,
                     imageFilename: imageFilename,
+                    tagNames: tagNames.isEmpty ? nil : tagNames,
+                    linkedRecipeExportIDs: linkedRecipeExportIDs.isEmpty ? nil : linkedRecipeExportIDs,
                     linkedRecipeNames: linkedRecipeNames.isEmpty ? nil : linkedRecipeNames
                 )
                 return (exported, imageFilename, imageData)
@@ -820,6 +869,7 @@ final class AppViewModel: ObservableObject {
         
         let package = RecipeExportPackage(
             categories: exportedCategories,
+            tags: exportedTags,
             recipes: recipes,
         )
         
@@ -858,8 +908,18 @@ final class AppViewModel: ObservableObject {
             return false
         }
         
+        let recipesRequiringLinkUpdates = selectedRecipes.filter {
+            ($0.linkedRecipeExportIDs?.isEmpty == false) || ($0.linkedRecipeNames?.isEmpty == false)
+        }
+        beginImportProgress(
+            totalRecipes: selectedRecipes.count,
+            totalUnits: selectedRecipes.count + recipesRequiringLinkUpdates.count
+        )
         isImporting = true
-        defer { isImporting = false }
+        defer {
+            isImporting = false
+            importProgress = nil
+        }
         
         let package = preview.package
         let images = preview.images
@@ -870,8 +930,18 @@ final class AppViewModel: ObservableObject {
         for category in categories {
             categoryIDsByName[category.name.lowercased()] = category.id
         }
+
+        var tagIDsByName: [String: CKRecord.ID] = [:]
+        for tag in tags {
+            tagIDsByName[tag.name.lowercased()] = tag.id
+        }
         
         let selectedCategoryNames = Set(selectedRecipes.map { $0.categoryName.lowercased() })
+        let selectedTagNames = Set(
+            selectedRecipes
+                .flatMap { $0.tagNames ?? [] }
+                .map { $0.lowercased() }
+        )
         
         for exportedCategory in package.categories where selectedCategoryNames.contains(exportedCategory.name.lowercased()) {
             let key = exportedCategory.name.lowercased()
@@ -883,33 +953,55 @@ final class AppViewModel: ObservableObject {
                 }
             }
         }
+
+        let exportTagNamesByLowercasedName = Dictionary(
+            uniqueKeysWithValues: package.tags.map { ($0.name.lowercased(), $0.name) }
+        )
+
+        for key in selectedTagNames.sorted() {
+            if tagIDsByName[key] == nil {
+                let displayName = exportTagNamesByLowercasedName[key] ?? selectedRecipes
+                    .flatMap { $0.tagNames ?? [] }
+                    .first(where: { $0.lowercased() == key }) ?? key
+                let created = await createTag(name: displayName)
+                if created,
+                   let newTag = tags.first(where: { $0.name.caseInsensitiveCompare(displayName) == .orderedSame }) {
+                    tagIDsByName[key] = newTag.id
+                }
+            }
+        }
         
         var importedCount = 0
-        var importedRecipesByFingerprint: [String: CKRecord.ID] = [:]
+        var importedRecipesByIdentity: [String: CKRecord.ID] = [:]
+        var importedRecipeIDsByLowercaseName: [String: [CKRecord.ID]] = [:]
         for recipe in selectedRecipes {
+            updateImportProgress(
+                phase: "Importing recipes…",
+                completedUnits: importProgress?.completedUnits ?? 0,
+                importedRecipes: importedCount,
+                currentItemName: recipe.name
+            )
             guard let categoryID = categoryIDsByName[recipe.categoryName.lowercased()] else {
+                advanceImportProgress(importedRecipes: importedCount)
                 continue
             }
-            let created = await createRecipeWithSteps(
+            let recipeTagIDs = (recipe.tagNames ?? []).compactMap { tagIDsByName[$0.lowercased()] }
+            let createdRecipeID = await createRecipeWithStepsResult(
                 categoryId: categoryID,
                 name: recipe.name,
                 recipeTime: recipe.recipeTime,
                 details: recipe.details,
                 image: recipe.imageFilename.flatMap { images[$0] },
-                recipeSteps: recipe.recipeSteps
+                recipeSteps: recipe.recipeSteps,
+                tagIDs: orderedUniqueRecordIDs(recipeTagIDs)
             )
-            if created {
+            if let createdRecipeID {
                 importedCount += 1
-                if let createdRecipe = recipes.last(where: {
-                    $0.name == recipe.name &&
-                    $0.categoryID == categoryID &&
-                    $0.recipeTime == recipe.recipeTime &&
-                    $0.details == recipe.details &&
-                    $0.recipeSteps == recipe.recipeSteps
-                }) {
-                    importedRecipesByFingerprint[importFingerprint(for: recipe)] = createdRecipe.id
-                }
+                let identity = importIdentity(for: recipe)
+                importedRecipesByIdentity[identity] = createdRecipeID
+                importedRecipeIDsByLowercaseName[recipe.name.lowercased(), default: []].append(createdRecipeID)
             }
+            advanceImportProgress(importedRecipes: importedCount)
         }
         
         if importedCount == 0 {
@@ -917,19 +1009,28 @@ final class AppViewModel: ObservableObject {
             return false
         }
 
-        for recipe in selectedRecipes {
-            guard let linkedNames = recipe.linkedRecipeNames, !linkedNames.isEmpty else { continue }
-            guard let importedRecipeID = importedRecipesByFingerprint[importFingerprint(for: recipe)] else { continue }
-
-            let resolvedLinkedIDs = linkedNames.compactMap { linkedName in
-                recipes
-                    .filter { $0.id != importedRecipeID }
-                    .sorted { $0.lastModified > $1.lastModified }
-                    .first(where: { $0.name.caseInsensitiveCompare(linkedName) == .orderedSame })?
-                    .id
+        for recipe in recipesRequiringLinkUpdates {
+            guard let importedRecipeID = importedRecipesByIdentity[importIdentity(for: recipe)] else {
+                advanceImportProgress(importedRecipes: importedCount)
+                continue
             }
+            updateImportProgress(
+                phase: "Linking recipes…",
+                completedUnits: importProgress?.completedUnits ?? 0,
+                importedRecipes: importedCount,
+                currentItemName: recipe.name
+            )
+            let resolvedLinkedIDs = resolvedLinkedRecipeIDs(
+                for: recipe,
+                importedRecipesByIdentity: importedRecipesByIdentity,
+                importedRecipeIDsByLowercaseName: importedRecipeIDsByLowercaseName,
+                importedRecipeID: importedRecipeID
+            )
 
-            guard !resolvedLinkedIDs.isEmpty else { continue }
+            guard !resolvedLinkedIDs.isEmpty else {
+                advanceImportProgress(importedRecipes: importedCount)
+                continue
+            }
 
             _ = await updateRecipeWithSteps(
                 id: importedRecipeID,
@@ -941,8 +1042,15 @@ final class AppViewModel: ObservableObject {
                 recipeSteps: nil,
                 linkedRecipeIDs: orderedUniqueRecordIDs(resolvedLinkedIDs)
             )
+            advanceImportProgress(importedRecipes: importedCount)
         }
         
+        updateImportProgress(
+            phase: "Finishing import…",
+            completedUnits: importProgress?.totalUnits ?? 0,
+            importedRecipes: importedCount,
+            currentItemName: nil
+        )
         await cloudKitManager.loadRecipeCounts(for: source)
         recipeCounts = cloudKitManager.recipeCounts
         await loadRandomRecipes()
@@ -956,9 +1064,71 @@ final class AppViewModel: ObservableObject {
         return "\(recipe.name.lowercased())|\(category)|\(recipe.recipeTime)|\(details)|\(recipe.recipeSteps.hashValue)"
     }
 
+    private func importIdentity(for recipe: ExportedRecipe) -> String {
+        recipe.exportID ?? importFingerprint(for: recipe)
+    }
+
+    private func resolvedLinkedRecipeIDs(
+        for recipe: ExportedRecipe,
+        importedRecipesByIdentity: [String: CKRecord.ID],
+        importedRecipeIDsByLowercaseName: [String: [CKRecord.ID]],
+        importedRecipeID: CKRecord.ID
+    ) -> [CKRecord.ID] {
+        if let linkedExportIDs = recipe.linkedRecipeExportIDs, !linkedExportIDs.isEmpty {
+            let resolvedIDs = linkedExportIDs.compactMap { importedRecipesByIdentity[$0] }
+            return orderedUniqueRecordIDs(resolvedIDs.filter { $0 != importedRecipeID })
+        }
+
+        guard let linkedNames = recipe.linkedRecipeNames, !linkedNames.isEmpty else { return [] }
+
+        let resolvedIDs = linkedNames.compactMap { linkedName -> CKRecord.ID? in
+            let matches = importedRecipeIDsByLowercaseName[linkedName.lowercased(), default: []]
+                .filter { $0 != importedRecipeID }
+            guard matches.count == 1 else { return nil }
+            return matches[0]
+        }
+        return orderedUniqueRecordIDs(resolvedIDs)
+    }
+
     private func orderedUniqueRecordIDs(_ ids: [CKRecord.ID]) -> [CKRecord.ID] {
         var seen = Set<CKRecord.ID>()
         return ids.filter { seen.insert($0).inserted }
+    }
+
+    private func beginImportProgress(totalRecipes: Int, totalUnits: Int) {
+        importProgress = ImportProgress(
+            startedAt: Date(),
+            phase: "Preparing import…",
+            totalUnits: max(totalUnits, 1),
+            completedUnits: 0,
+            totalRecipes: totalRecipes,
+            importedRecipes: 0,
+            currentItemName: nil
+        )
+    }
+
+    private func updateImportProgress(
+        phase: String,
+        completedUnits: Int,
+        importedRecipes: Int,
+        currentItemName: String?
+    ) {
+        guard var progress = importProgress else { return }
+        progress.phase = phase
+        progress.completedUnits = min(max(completedUnits, 0), progress.totalUnits)
+        progress.importedRecipes = min(max(importedRecipes, 0), progress.totalRecipes)
+        progress.currentItemName = currentItemName
+        importProgress = progress
+    }
+
+    private func advanceImportProgress(importedRecipes: Int) {
+        guard let progress = importProgress else { return }
+        updateImportProgress(
+            phase: progress.phase,
+            completedUnits: progress.completedUnits + 1,
+            importedRecipes: importedRecipes,
+            currentItemName: progress.currentItemName
+        )
     }
     
 #if os(macOS)
