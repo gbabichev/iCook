@@ -878,11 +878,9 @@ struct RecipeCollectionView: View {
             isRefreshInFlight = false
             return
         }
+        await model.refreshSourcesAndCurrentContent(skipRecipeCache: true)
         if showingSearchResults {
             performSearch()
-        } else {
-            // Unified refresh: always load all recipes; categories filter locally.
-            await loadHomeRecipes(skipCache: true)
         }
         let elapsed = Date().timeIntervalSince(start)
         if elapsed < 0.8 {

@@ -238,8 +238,7 @@ struct SourceSelector: View {
             .listStyle(.automatic)
 #if os(iOS)
             .refreshable {
-                await viewModel.loadSources()
-                await viewModel.loadRandomRecipes(skipCache: true)
+                await viewModel.refreshSourcesAndCurrentContent(skipRecipeCache: true)
             }
 #endif
         }
@@ -282,8 +281,7 @@ struct SourceSelector: View {
         guard !isRefreshingCollections else { return }
         isRefreshingCollections = true
         defer { isRefreshingCollections = false }
-        await viewModel.loadSources()
-        await viewModel.loadRandomRecipes(skipCache: true)
+        await viewModel.refreshSourcesAndCurrentContent(skipRecipeCache: true)
         await refreshRecipeTotals()
     }
 #endif

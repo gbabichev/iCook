@@ -163,7 +163,9 @@ extension SourceSelector {
     }
 
     var macOSListContent: some View {
-        ZStack {
+        let sources = visibleSources
+
+        return ZStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     if let error = viewModel.cloudKitManager.error {
@@ -184,7 +186,7 @@ extension SourceSelector {
                             Text("Collections")
                                 .font(.headline)
                             Spacer()
-                            Text("\(viewModel.sources.count)")
+                            Text("\(sources.count)")
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                                 .monospacedDigit()
@@ -194,7 +196,7 @@ extension SourceSelector {
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
-                        if viewModel.sources.isEmpty {
+                        if sources.isEmpty {
                             VStack(spacing: 8) {
                                 Image(systemName: "square.stack")
                                     .font(.title3)
@@ -211,7 +213,7 @@ extension SourceSelector {
                             .padding(.vertical, 14)
                         } else {
                             VStack(spacing: 8) {
-                                ForEach(viewModel.sources, id: \.id) { source in
+                                ForEach(sources, id: \.id) { source in
                                     let isSelected = viewModel.currentSource?.id == source.id
                                     let isHovered = hoveredSourceID == source.id
                                     sourceRow(for: source)
@@ -234,6 +236,7 @@ extension SourceSelector {
                                 }
                             }
                             .animation(.easeInOut(duration: 0.12), value: hoveredSourceID)
+                            .id(sourceTotalsRefreshKey)
                         }
                     }
                     .padding(14)

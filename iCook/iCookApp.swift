@@ -259,8 +259,10 @@ private struct AppWindowContent: View {
 #endif
     @State private var importPreview: AppViewModel.ImportPreview?
     @State private var selectedImportIndices: Set<Int> = []
+    @State private var importDestinationSourceID: CKRecord.ID?
     @State private var securityScopedImportURL: URL?
     @State private var isCommittingImport = false
+    @State private var importCommitTask: Task<Void, Never>?
     @State private var showImportCompletedToast = false
     @State private var importCompletedToastMessage = ""
     
@@ -288,6 +290,7 @@ private struct AppWindowContent: View {
                     printD("Import preview ready: recipes=\(preview.package.recipes.count)")
                     importPreview = preview
                     selectedImportIndices = Set(preview.package.recipes.indices)
+                    importDestinationSourceID = model.currentSource?.id
                     securityScopedImportURL = canAccess ? url : nil
                 } else {
                     printD("Import preview failed for: \(url.lastPathComponent)")
@@ -305,51 +308,97 @@ private struct AppWindowContent: View {
     private func confirmImportSelection() {
         guard let preview = importPreview else { return }
         let selectedRecipes = selectedImportIndices.sorted().map { preview.package.recipes[$0] }
-        let selectedCount = selectedRecipes.count
         let securedURL = securityScopedImportURL
         isCommittingImport = true
-        Task {
-            let success = await model.importRecipes(from: preview, selectedRecipes: selectedRecipes)
+        importCommitTask = Task {
+            let result = await model.importRecipes(
+                from: preview,
+                selectedRecipes: selectedRecipes,
+                destinationSourceID: importDestinationSourceID
+            )
             await MainActor.run {
+                importCommitTask = nil
                 isCommittingImport = false
+                let shouldCleanupPreview: Bool
+                let shouldStopSecurityScope: Bool
 #if os(macOS)
-                if !success, let message = model.error {
+                if case .failed = result, let message = model.error {
                     showAlert(title: "Import Failed", message: message)
                 }
 #else
-                if !success {
+                if case .failed = result {
                     printD("Import failed: \(model.error ?? "unknown error")")
                 }
 #endif
-                if success {
-                    presentImportCompletedToast(importedCount: selectedCount)
+                switch result {
+                case .success(let importedCount):
+                    presentImportCompletedToast(message: importToastMessage(forImportedCount: importedCount))
+                    shouldCleanupPreview = true
+                    shouldStopSecurityScope = true
+                case .cancelled(let importedCount):
+                    presentImportCompletedToast(message: cancelToastMessage(forImportedCount: importedCount))
+                    shouldCleanupPreview = true
+                    shouldStopSecurityScope = true
+                case .failed:
+                    shouldCleanupPreview = false
+                    shouldStopSecurityScope = false
                 }
-                cleanupImportPreview()
-                if let securedURL {
+
+                if shouldCleanupPreview {
+                    cleanupImportPreview()
+                }
+                if shouldStopSecurityScope, let securedURL {
                     securedURL.stopAccessingSecurityScopedResource()
                 }
             }
         }
+    }
+
+    private func cancelActiveImport() {
+        printD(
+            "Cancel Import tapped: isCommittingImport=\(isCommittingImport) " +
+            "taskExists=\(importCommitTask != nil) " +
+            "isImporting=\(model.isImporting) " +
+            "cancellationRequested=\(model.isImportCancellationRequested)"
+        )
+        model.requestImportCancellation()
+        importCommitTask?.cancel()
     }
     
     private func cancelImportPreview() {
         if let securedURL = securityScopedImportURL {
             securedURL.stopAccessingSecurityScopedResource()
         }
+        importCommitTask?.cancel()
+        importCommitTask = nil
         cleanupImportPreview()
     }
     
     private func cleanupImportPreview() {
         importPreview = nil
         selectedImportIndices.removeAll()
+        importDestinationSourceID = nil
         securityScopedImportURL = nil
         isCommittingImport = false
     }
 
-    private func presentImportCompletedToast(importedCount: Int) {
-        importCompletedToastMessage = importedCount == 1
-            ? "Imported 1 recipe"
-            : "Imported \(importedCount) recipes"
+    private func importToastMessage(forImportedCount importedCount: Int) -> String {
+        importedCount == 1 ? "Imported 1 recipe" : "Imported \(importedCount) recipes"
+    }
+
+    private func cancelToastMessage(forImportedCount importedCount: Int) -> String {
+        switch importedCount {
+        case 0:
+            return "Import canceled"
+        case 1:
+            return "Import canceled after 1 recipe"
+        default:
+            return "Import canceled after \(importedCount) recipes"
+        }
+    }
+
+    private func presentImportCompletedToast(message: String) {
+        importCompletedToastMessage = message
         withAnimation {
             showImportCompletedToast = true
         }
@@ -627,26 +676,32 @@ private struct AppWindowContent: View {
             ImportPreviewSheet(
                 preview: preview,
                 selectedIndices: $selectedImportIndices,
+                destinationSourceID: $importDestinationSourceID,
                 isImporting: isCommittingImport,
                 importProgress: model.importProgress,
                 onSelectAll: { selectedImportIndices = Set(preview.package.recipes.indices) },
                 onDeselectAll: { selectedImportIndices.removeAll() },
                 onCancel: { cancelImportPreview() },
-                onImport: { confirmImportSelection() }
+                onImport: { confirmImportSelection() },
+                onCancelImport: { cancelActiveImport() }
             )
+            .environmentObject(model)
         }
 #else
         .sheet(item: $importPreview) { preview in
             ImportPreviewSheet(
                 preview: preview,
                 selectedIndices: $selectedImportIndices,
+                destinationSourceID: $importDestinationSourceID,
                 isImporting: isCommittingImport,
                 importProgress: model.importProgress,
                 onSelectAll: { selectedImportIndices = Set(preview.package.recipes.indices) },
                 onDeselectAll: { selectedImportIndices.removeAll() },
                 onCancel: { cancelImportPreview() },
-                onImport: { confirmImportSelection() }
+                onImport: { confirmImportSelection() },
+                onCancelImport: { cancelActiveImport() }
             )
+            .environmentObject(model)
             .presentationDetents([.medium, .large])
         }
 #endif

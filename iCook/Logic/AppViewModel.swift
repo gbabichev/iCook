@@ -35,7 +35,13 @@ final class AppViewModel: ObservableObject {
             return min(max(Double(completedUnits) / Double(totalUnits), 0), 1)
         }
     }
+    enum ImportResult {
+        case success(importedCount: Int)
+        case cancelled(importedCount: Int)
+        case failed
+    }
     @Published var importProgress: ImportProgress?
+    @Published private(set) var isImportCancellationRequested = false
     @Published var error: String?
     @Published var isOfflineMode = false
     private let lastViewedRecipeKey = "LastViewedRecipe"
@@ -121,11 +127,38 @@ final class AppViewModel: ObservableObject {
     
     // MARK: - Source Management
     func loadSources() async {
+        let previousSourceID = currentSource?.id
         await cloudKitManager.loadSources()
         sources = cloudKitManager.sources
         currentSource = cloudKitManager.currentSource
-        tags = currentSource == nil ? [] : cloudKitManager.tags
+        let currentSourceID = currentSource?.id
+
+        if let source = currentSource {
+            cloudKitManager.loadCachedData(for: source)
+            categories = cloudKitManager.categories
+            tags = cloudKitManager.tags
+            recipeCounts = cloudKitManager.recipeCounts
+            recipes = cloudKitManager.recipes
+            randomRecipes = cloudKitManager.recipes
+        } else {
+            categories.removeAll()
+            tags.removeAll()
+            recipes.removeAll()
+            randomRecipes.removeAll()
+            recipeCounts.removeAll()
+        }
+
+        if previousSourceID != currentSourceID {
+            sourceSelectionStamp = UUID()
+        }
         refreshOfflineState()
+    }
+
+    func refreshSourcesAndCurrentContent(skipRecipeCache: Bool = true) async {
+        await loadSources()
+        guard currentSource != nil else { return }
+        await loadCategories()
+        await loadRandomRecipes(skipCache: skipRecipeCache)
     }
     
     func selectSource(_ source: Source, skipCacheOnLoad: Bool = true) async {
@@ -901,11 +934,25 @@ final class AppViewModel: ObservableObject {
         }
     }
     
-    func importRecipes(from preview: ImportPreview, selectedRecipes: [ExportedRecipe]) async -> Bool {
+    func importRecipes(
+        from preview: ImportPreview,
+        selectedRecipes: [ExportedRecipe],
+        destinationSourceID: CKRecord.ID? = nil
+    ) async -> ImportResult {
         error = nil
-        guard let source = currentSource else {
-            error = "Select a source before importing."
-            return false
+        isImportCancellationRequested = false
+        let originalSource = currentSource
+        let destinationSource = destinationSourceID.flatMap { targetID in
+            sources.first(where: { $0.id == targetID })
+        } ?? currentSource
+
+        guard let source = destinationSource else {
+            error = "Select a collection before importing."
+            return .failed
+        }
+
+        if currentSource?.id != source.id {
+            await selectSource(source, skipCacheOnLoad: false)
         }
         
         let recipesRequiringLinkUpdates = selectedRecipes.filter {
@@ -919,12 +966,16 @@ final class AppViewModel: ObservableObject {
         defer {
             isImporting = false
             importProgress = nil
+            isImportCancellationRequested = false
         }
         
         let package = preview.package
         let images = preview.images
         
         await loadCategories()
+        if shouldCancelImport(importedCount: 0) {
+            return .cancelled(importedCount: 0)
+        }
         
         var categoryIDsByName: [String: CKRecord.ID] = [:]
         for category in categories {
@@ -944,9 +995,15 @@ final class AppViewModel: ObservableObject {
         )
         
         for exportedCategory in package.categories where selectedCategoryNames.contains(exportedCategory.name.lowercased()) {
+            if shouldCancelImport(importedCount: 0) {
+                return .cancelled(importedCount: 0)
+            }
             let key = exportedCategory.name.lowercased()
             if categoryIDsByName[key] == nil {
                 let created = await createCategory(name: exportedCategory.name, icon: exportedCategory.icon)
+                if shouldCancelImport(importedCount: 0) {
+                    return .cancelled(importedCount: 0)
+                }
                 if created,
                    let newCategory = categories.first(where: { $0.name.caseInsensitiveCompare(exportedCategory.name) == .orderedSame }) {
                     categoryIDsByName[key] = newCategory.id
@@ -959,11 +1016,17 @@ final class AppViewModel: ObservableObject {
         )
 
         for key in selectedTagNames.sorted() {
+            if shouldCancelImport(importedCount: 0) {
+                return .cancelled(importedCount: 0)
+            }
             if tagIDsByName[key] == nil {
                 let displayName = exportTagNamesByLowercasedName[key] ?? selectedRecipes
                     .flatMap { $0.tagNames ?? [] }
                     .first(where: { $0.lowercased() == key }) ?? key
                 let created = await createTag(name: displayName)
+                if shouldCancelImport(importedCount: 0) {
+                    return .cancelled(importedCount: 0)
+                }
                 if created,
                    let newTag = tags.first(where: { $0.name.caseInsensitiveCompare(displayName) == .orderedSame }) {
                     tagIDsByName[key] = newTag.id
@@ -975,6 +1038,9 @@ final class AppViewModel: ObservableObject {
         var importedRecipesByIdentity: [String: CKRecord.ID] = [:]
         var importedRecipeIDsByLowercaseName: [String: [CKRecord.ID]] = [:]
         for recipe in selectedRecipes {
+            if shouldCancelImport(importedCount: importedCount) {
+                return .cancelled(importedCount: importedCount)
+            }
             updateImportProgress(
                 phase: "Importing recipes…",
                 completedUnits: importProgress?.completedUnits ?? 0,
@@ -995,6 +1061,9 @@ final class AppViewModel: ObservableObject {
                 recipeSteps: recipe.recipeSteps,
                 tagIDs: orderedUniqueRecordIDs(recipeTagIDs)
             )
+            if shouldCancelImport(importedCount: importedCount) {
+                return .cancelled(importedCount: importedCount)
+            }
             if let createdRecipeID {
                 importedCount += 1
                 let identity = importIdentity(for: recipe)
@@ -1006,10 +1075,13 @@ final class AppViewModel: ObservableObject {
         
         if importedCount == 0 {
             error = "No recipes were imported."
-            return false
+            return .failed
         }
 
         for recipe in recipesRequiringLinkUpdates {
+            if shouldCancelImport(importedCount: importedCount) {
+                return .cancelled(importedCount: importedCount)
+            }
             guard let importedRecipeID = importedRecipesByIdentity[importIdentity(for: recipe)] else {
                 advanceImportProgress(importedRecipes: importedCount)
                 continue
@@ -1042,6 +1114,9 @@ final class AppViewModel: ObservableObject {
                 recipeSteps: nil,
                 linkedRecipeIDs: orderedUniqueRecordIDs(resolvedLinkedIDs)
             )
+            if shouldCancelImport(importedCount: importedCount) {
+                return .cancelled(importedCount: importedCount)
+            }
             advanceImportProgress(importedRecipes: importedCount)
         }
         
@@ -1055,7 +1130,23 @@ final class AppViewModel: ObservableObject {
         recipeCounts = cloudKitManager.recipeCounts
         await loadRandomRecipes()
         refreshOfflineState()
-        return true
+        if let originalSource, originalSource.id != source.id {
+            currentSource = source
+        }
+        return .success(importedCount: importedCount)
+    }
+
+    func requestImportCancellation() {
+        guard isImporting else { return }
+        isImportCancellationRequested = true
+        if let progress = importProgress {
+            updateImportProgress(
+                phase: "Canceling import…",
+                completedUnits: progress.completedUnits,
+                importedRecipes: progress.importedRecipes,
+                currentItemName: progress.currentItemName
+            )
+        }
     }
 
     private func importFingerprint(for recipe: ExportedRecipe) -> String {
@@ -1129,6 +1220,14 @@ final class AppViewModel: ObservableObject {
             importedRecipes: importedRecipes,
             currentItemName: progress.currentItemName
         )
+    }
+
+    private func shouldCancelImport(importedCount: Int) -> Bool {
+        if Task.isCancelled || isImportCancellationRequested {
+            error = nil
+            return true
+        }
+        return false
     }
     
 #if os(macOS)
