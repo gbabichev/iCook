@@ -36,7 +36,7 @@ struct TutorialView: View {
         ),
         Step(
             title: "More",
-            message: "Press the 'Copy' button next to Ingredients to copy items to paste directly into the Reminders app.",
+            message: "Press the 'Copy' button next to Ingredients, then paste the copied items directly into the Reminders app.\n\nUse Tags to categorize recipes. Think 'meal prep'.\n\nUse Linked Recipes to connect recipes that are commonly cooked together.",
             systemImage: "doc.on.clipboard"
         )
     ]

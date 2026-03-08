@@ -196,5 +196,8 @@ struct CategoryList: View {
                 .frame(minWidth: 400, minHeight: 300)
 #endif
         }
+        .onReceive(NotificationCenter.default.publisher(for: .requestShowSettings)) { _ in
+            showSourcesOverlay = true
+        }
     }
 }

@@ -1200,6 +1200,7 @@ extension Notification.Name {
     static let showTutorial = Notification.Name("showTutorial")
     static let requestAddRecipe = Notification.Name("requestAddRecipe")
     static let requestFeelingLucky = Notification.Name("requestFeelingLucky")
+    static let requestShowSettings = Notification.Name("requestShowSettings")
 #if os(iOS)
     static let cloudKitShareAccepted = Notification.Name("cloudKitShareAccepted")
     static let cloudKitShareURLReceived = Notification.Name("cloudKitShareURLReceived")

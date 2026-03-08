@@ -170,6 +170,15 @@ struct iCookApp: App {
                 .environmentObject(model)
         }
         .commands {
+            CommandGroup(replacing: .appSettings) {
+                Button {
+                    NotificationCenter.default.post(name: .requestShowSettings, object: nil)
+                } label: {
+                    Label("Settings…", systemImage: "gear")
+                }
+                .keyboardShortcut(",", modifiers: .command)
+            }
+
             CommandGroup(replacing: .appInfo) {
                 Button {
                     appDelegate.onShowAbout?()
