@@ -178,6 +178,8 @@ struct AddTagView: View {
 #endif
             }
         }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
     }
     #endif
 

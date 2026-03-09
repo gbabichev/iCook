@@ -16,6 +16,7 @@ struct RecipeDetailView: View {
     @State private var displayedRecipe: Recipe
     @State private var isUpdatingTags = false
     @State private var tagUpdateErrorMessage: String?
+    @State private var showingAddTag = false
     @State private var isShowingLinkedRecipePicker = false
     @State private var isUpdatingLinkedRecipes = false
     @State private var linkedRecipeUpdateErrorMessage: String?
@@ -293,6 +294,10 @@ struct RecipeDetailView: View {
             AddEditRecipeView(editingRecipe: recipe)
                 .environmentObject(model)
         }
+        .sheet(isPresented: $showingAddTag) {
+            AddTagView()
+                .environmentObject(model)
+        }
         .sheet(isPresented: $isShowingLinkedRecipePicker) {
             LinkedRecipePickerSheet(
                 recipeName: displayedRecipe.name,
@@ -433,6 +438,21 @@ struct RecipeDetailView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                
+                Spacer()
+                
+                if canEditTags {
+                    Button {
+                        showingAddTag = true
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.caption.weight(.semibold))
+                    }
+                    .tint(.primary)
+                    .buttonStyle(.borderless)
+                    .disabled(isUpdatingTags)
+                }
+                
             }
 
             if isUpdatingTags {
