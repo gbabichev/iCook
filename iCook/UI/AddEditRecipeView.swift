@@ -1584,24 +1584,32 @@ struct StepEditView: View {
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
 
-                        TextField(
-                            "Add instructions for this step",
-                            text: .init(
-                                get: { step.instruction },
-                                set: { newValue in
-                                    step = RecipeStep(
-                                        stepNumber: step.stepNumber,
-                                        instruction: newValue,
-                                        ingredients: step.ingredients
-                                    )
-                                }
-                            )
-                        )
-                        .focused($isInstructionFocused)
-                        .iOSModernInputFieldStyle()
-                        .labelsHidden()
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        ZStack(alignment: .topLeading) {
+                            if step.instruction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                Text("Add instructions for this step")
+                                    .font(.callout)
+                                    .foregroundStyle(.tertiary)
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 14)
+                                    .allowsHitTesting(false)
+                            }
 
+                            TextEditor(text: instructionBinding)
+                                .font(.body)
+                                .frame(maxWidth: .infinity, minHeight: 120, alignment: .leading)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 8)
+                                .scrollContentBackground(.hidden)
+                                .focused($isInstructionFocused)
+                        }
+                        .background(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(Color.primary.opacity(0.04))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+                        )
                     }
                     
                     // Step Ingredients
@@ -1697,6 +1705,19 @@ struct StepEditView: View {
             stepNumber: step.stepNumber,
             instruction: step.instruction,
             ingredients: newIngredients
+        )
+    }
+
+    private var instructionBinding: Binding<String> {
+        .init(
+            get: { step.instruction },
+            set: { newValue in
+                step = RecipeStep(
+                    stepNumber: step.stepNumber,
+                    instruction: newValue,
+                    ingredients: step.ingredients
+                )
+            }
         )
     }
 }
