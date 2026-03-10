@@ -66,6 +66,20 @@ struct SourceSelector: View {
             macOSView
 #endif
         }
+        .disabled(viewModel.isAcceptingShare)
+        .interactiveDismissDisabled(viewModel.isAcceptingShare)
+        .overlay {
+            if viewModel.isAcceptingShare {
+                ZStack {
+                    Color.black.opacity(0.12)
+                        .ignoresSafeArea()
+
+                    shareAcceptanceStatusCard()
+                        .padding(24)
+                }
+                .transition(.opacity)
+            }
+        }
         .task(id: sourceTotalsRefreshKey) {
             await refreshRecipeTotals()
         }
@@ -79,6 +93,27 @@ struct SourceSelector: View {
             )
             .environmentObject(viewModel)
         }
+    }
+
+    @ViewBuilder
+    private func shareAcceptanceStatusCard() -> some View {
+        VStack(spacing: 12) {
+            ProgressView()
+                .controlSize(.large)
+
+            Text("Connecting to Shared Collection")
+                .font(.headline)
+
+            Text("Your collection is being added and synced. This can take a moment.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: 320)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 18)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .shadow(radius: 12)
     }
 
     @ViewBuilder
