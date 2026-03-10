@@ -12,6 +12,7 @@ struct SourceSelector: View {
     @AppStorage("EnableFeelingLucky") var enableFeelingLucky = true
     @AppStorage("ShowInlineTitles") var showInlineTitles = true
     @AppStorage("ShowRecipeDetailTags") var showRecipeDetailTags = true
+    @AppStorage("AutoCheckStepsFromIngredients") var autoCheckStepsFromIngredients = false
 
     @State var showNewSourceSheet = false
     @State var newSourceName = ""
@@ -209,6 +210,22 @@ struct SourceSelector: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Show Recipe Tags")
                                 Text("Show tags on recipe pages, or hide them and manage them while editing.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
+
+                    Toggle(isOn: $autoCheckStepsFromIngredients) {
+                        HStack(alignment: .center, spacing: 12) {
+                            Image(systemName: "checklist")
+                                .frame(width: 20)
+                                .foregroundStyle(.primary)
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Auto-Check Steps")
+                                Text("Automatically mark a step complete when all of its step ingredients are checked.")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }

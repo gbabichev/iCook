@@ -280,6 +280,17 @@ extension SourceSelector {
                         Divider()
 
                         SettingsRow(
+                            "Auto-Check Steps",
+                            systemImage: "checklist",
+                            subtitle: "Automatically mark a step complete when all of its step ingredients are checked."
+                        ) {
+                            Toggle("", isOn: $autoCheckStepsFromIngredients)
+                                .toggleStyle(.switch)
+                        }
+
+                        Divider()
+
+                        SettingsRow(
                             "Help",
                             systemImage: "questionmark.circle",
                             subtitle: "Open the tutorial again."

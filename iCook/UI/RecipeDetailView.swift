@@ -7,6 +7,7 @@ struct RecipeDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage("ShowInlineTitles") private var showInlineTitles = true
     @AppStorage("ShowRecipeDetailTags") private var showRecipeDetailTags = true
+    @AppStorage("AutoCheckStepsFromIngredients") private var autoCheckStepsFromIngredients = false
     
     @State private var editingRecipe: Recipe?
     @State private var checkedIngredients: Set<String> = []
@@ -147,11 +148,10 @@ struct RecipeDetailView: View {
                                                                     .frame(width: 32) // Space for step checkbox alignment
                                                                 
                                                                 Button {
-                                                                    if checkedStepIngredients.contains(checkboxKey) {
-                                                                        checkedStepIngredients.remove(checkboxKey)
-                                                                    } else {
-                                                                        checkedStepIngredients.insert(checkboxKey)
-                                                                    }
+                                                                    toggleStepIngredient(
+                                                                        checkboxKey,
+                                                                        in: step
+                                                                    )
                                                                 } label: {
                                                                     Image(systemName: checkedStepIngredients.contains(checkboxKey) ? "checkmark.square.fill" : "square")
                                                                         .foregroundStyle(checkedStepIngredients.contains(checkboxKey) ? .blue : .secondary)
@@ -637,6 +637,23 @@ struct RecipeDetailView: View {
             linkedRecipeUpdateErrorMessage = message
             isUpdatingLinkedRecipes = false
             return message
+        }
+    }
+
+    private func toggleStepIngredient(_ checkboxKey: String, in step: RecipeStep) {
+        if checkedStepIngredients.contains(checkboxKey) {
+            checkedStepIngredients.remove(checkboxKey)
+        } else {
+            checkedStepIngredients.insert(checkboxKey)
+        }
+
+        guard autoCheckStepsFromIngredients, !step.ingredients.isEmpty else { return }
+
+        let allIngredientKeys = Set(step.ingredients.indices.map { "\(step.stepNumber)-\($0)" })
+        if allIngredientKeys.isSubset(of: checkedStepIngredients) {
+            checkedSteps.insert(step.stepNumber)
+        } else {
+            checkedSteps.remove(step.stepNumber)
         }
     }
     
