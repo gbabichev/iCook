@@ -41,6 +41,8 @@ struct ContentView: View {
         switch location {
         case .allRecipes:
             return "allRecipes"
+        case .favorites:
+            return "favorites"
         case .category(let categoryID):
             return "category:\(categoryID.recordName)"
         case .tag(let tagID):
@@ -193,6 +195,11 @@ struct ContentView: View {
                 didRestoreLastViewed = true
                 logLaunch("restored to home")
 
+            case .favorites:
+                collectionType = .favorites
+                didRestoreLastViewed = true
+                logLaunch("restored to favorites")
+
             case .category(let categoryID):
                 if let category = model.categories.first(where: { $0.id == categoryID }) {
                     collectionType = .category(category)
@@ -298,6 +305,8 @@ struct ContentView: View {
             switch newValue {
             case .home:
                 model.saveAppLocation(.allRecipes)
+            case .favorites:
+                model.saveAppLocation(.favorites)
             case .category(let category):
                 model.saveAppLocation(.category(categoryID: category.id))
             case .tag(let tag):
@@ -311,6 +320,8 @@ struct ContentView: View {
             switch collectionType {
             case .home:
                 model.saveAppLocation(.allRecipes)
+            case .favorites:
+                model.saveAppLocation(.favorites)
             case .category(let category):
                 model.saveAppLocation(.category(categoryID: category.id))
             case .tag(let tag):
@@ -341,6 +352,8 @@ struct ContentView: View {
         switch collectionType ?? lastCollectionType {
         case .home:
             model.saveAppLocation(.recipe(recipeID: recipe.id, categoryID: recipe.categoryID))
+        case .favorites:
+            model.saveAppLocation(.recipe(recipeID: recipe.id, categoryID: recipe.categoryID))
         case .category(let category):
             model.saveAppLocation(.recipe(recipeID: recipe.id, categoryID: category.id))
         case .tag:
@@ -361,6 +374,10 @@ struct ContentView: View {
         switch saved.location {
         case .allRecipes:
             collectionType = .home
+            didRestoreLastViewed = true
+
+        case .favorites:
+            collectionType = .favorites
             didRestoreLastViewed = true
 
         case .category(let categoryID):

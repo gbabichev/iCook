@@ -21,6 +21,10 @@ struct CategoryList: View {
     private var homeRecipeCount: Int {
         model.recipeCounts.values.reduce(0, +)
     }
+
+    private var favoriteRecipeCount: Int {
+        model.recipes.filter { model.isFavorite($0.id) }.count
+    }
     
     private func recipeCount(for category: Category) -> Int {
         model.recipeCounts[category.id] ?? 0
@@ -55,6 +59,25 @@ struct CategoryList: View {
                     Text("\(homeRecipeCount)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                }
+            }
+
+            if model.currentSource != nil {
+                Section {
+                    NavigationLink(value: RecipeCollectionType.favorites) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "star.fill")
+                                .foregroundStyle(.yellow)
+                                .frame(width: 24)
+                            Text("Favorites")
+
+                            Spacer()
+
+                            Text("\(favoriteRecipeCount)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
             }
             
