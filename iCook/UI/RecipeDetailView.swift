@@ -159,7 +159,7 @@ struct RecipeDetailView: View {
                                                                 }
                                                                 .buttonStyle(.plain)
                                                                 
-                                                                Text("• \(ingredient)")
+                                                                Text(ingredient)
                                                                     .font(.body)
                                                                     .textSelection(.enabled)
                                                                     .fixedSize(horizontal: false, vertical: true)
