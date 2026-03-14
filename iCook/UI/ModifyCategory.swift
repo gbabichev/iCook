@@ -347,6 +347,26 @@ struct AddCategoryView: View {
 
     private var iconPickerGrid: some View {
         VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Type or paste your own emoji")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                HStack(spacing: 12) {
+                    Text(selectedIcon)
+                        .font(.title2)
+                        .frame(width: 44, height: 44)
+                        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+                    TextField("Emoji", text: iconTextBinding)
+                        .iOSModernInputFieldStyle()
+#if os(iOS)
+                        .textInputAutocapitalization(.never)
+#endif
+                        .disabled(!canEdit)
+                }
+            }
+
             ForEach(iconGroups, id: \.title) { group in
                 VStack(alignment: .leading, spacing: 8) {
                     Text(group.title)
@@ -382,6 +402,21 @@ struct AddCategoryView: View {
                 }
             }
         }
+    }
+
+    private var iconTextBinding: Binding<String> {
+        Binding(
+            get: { selectedIcon },
+            set: { newValue in
+                selectedIcon = sanitizedIcon(newValue)
+            }
+        )
+    }
+
+    private func sanitizedIcon(_ rawValue: String) -> String {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let firstCharacter = trimmed.first else { return "" }
+        return String(firstCharacter)
     }
 
     #if os(macOS)
