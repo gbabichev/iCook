@@ -118,6 +118,7 @@ struct RecipeCollectionView: View {
     @State private var showRevokedToast = false
     @State private var revokedToastMessage = ""
     @State private var featuredHomeRecipe: Recipe?
+    @State private var isShowingTagRecipePicker = false
     
     
     // Adaptive columns with consistent spacing - account for spacing in minimum width
@@ -266,6 +267,32 @@ struct RecipeCollectionView: View {
         case .tag(let tag):
             return model.recipes.filter { $0.tagIDs.contains(tag.id) }
         }
+    }
+
+    private var canEditTagAssignments: Bool {
+        guard case .tag = collectionType,
+              let source = model.currentSource else { return false }
+        return model.canEditSource(source) && !model.isOfflineMode
+    }
+
+    private var sourceRecipePool: [Recipe] {
+        guard let currentSourceID = model.currentSource?.id else { return [] }
+        var ordered: [Recipe] = []
+        var seen = Set<CKRecord.ID>()
+        for recipe in model.recipes + model.randomRecipes + model.cloudKitManager.recipes {
+            if recipe.sourceID == currentSourceID, seen.insert(recipe.id).inserted {
+                ordered.append(recipe)
+            }
+        }
+        return ordered
+    }
+
+    private var tagRecipeCandidates: [Recipe] {
+        sourceRecipePool.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    private func selectedRecipeIDs(for tag: Tag) -> Set<CKRecord.ID> {
+        Set(tagRecipeCandidates.filter { $0.tagIDs.contains(tag.id) }.map(\.id))
     }
 
     // MARK: - Toolbar Views
@@ -686,6 +713,21 @@ struct RecipeCollectionView: View {
         .padding(24)
         .frame(minWidth: 280)
     }
+
+    @ViewBuilder
+    private var tagRecipePickerSheet: some View {
+        if case .tag(let tag) = collectionType {
+            TagRecipePickerSheet(
+                tagName: tag.name,
+                candidates: tagRecipeCandidates,
+                selectedIDs: selectedRecipeIDs(for: tag),
+                categoryName: categoryName(for:),
+                onSave: { ids in
+                    await updateTagAssignments(for: tag, selectedIDs: ids)
+                }
+            )
+        }
+    }
     
     var body: some View {
         mainContent
@@ -707,6 +749,7 @@ struct RecipeCollectionView: View {
                 Task { await deleteRecipe(recipe) }
             }
             .applySheetModifiers(editingRecipe: $editingRecipe, showNewSourceSheet: $showNewSourceSheet, newSourceName: $newSourceName, model: model)
+            .sheet(isPresented: $isShowingTagRecipePicker) { tagRecipePickerSheet }
             .toast(isPresented: $showRevokedToast, message: revokedToastMessage)
             .ignoresSafeArea(edges: isSearchActive ? [] : .top)
             .onReceive(NotificationCenter.default.publisher(for: .recipeDeleted), perform: handleRecipeDeleted)
@@ -868,6 +911,54 @@ struct RecipeCollectionView: View {
         isRefreshInFlight = false
     }
 
+    @MainActor
+    private func updateTagAssignments(for tag: Tag, selectedIDs: [CKRecord.ID]) async -> String? {
+        guard canEditTagAssignments else {
+            return "Tagged recipes can’t be edited right now."
+        }
+
+        let selectedSet = Set(selectedIDs)
+        let currentSelected = selectedRecipeIDs(for: tag)
+        if currentSelected == selectedSet {
+            return nil
+        }
+
+        for recipe in tagRecipeCandidates {
+            let shouldBeTagged = selectedSet.contains(recipe.id)
+            let isTagged = currentSelected.contains(recipe.id)
+            guard shouldBeTagged != isTagged else { continue }
+
+            var nextTagIDs = Set(recipe.tagIDs)
+            if shouldBeTagged {
+                nextTagIDs.insert(tag.id)
+            } else {
+                nextTagIDs.remove(tag.id)
+            }
+
+            let orderedTagIDs = Array(nextTagIDs).sorted {
+                $0.recordName.localizedStandardCompare($1.recordName) == .orderedAscending
+            }
+
+            let success = await model.updateRecipeWithSteps(
+                id: recipe.id,
+                categoryId: nil,
+                name: nil,
+                recipeTime: nil,
+                details: nil,
+                image: nil,
+                recipeSteps: nil,
+                tagIDs: orderedTagIDs
+            )
+
+            if !success {
+                return model.error ?? "Failed to update tagged recipes."
+            }
+        }
+
+        await refreshTagRecipes(skipCache: true)
+        return nil
+    }
+
     private func initialLoadIfNeeded() async {
         if !hasLoadedInitially {
             isLoading = true
@@ -990,6 +1081,17 @@ struct RecipeCollectionView: View {
             debugMenu
         }
 #endif
+
+        if case .tag = collectionType, canEditTagAssignments {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    isShowingTagRecipePicker = true
+                } label: {
+                    Image(systemName: "pencil")
+                }
+                .accessibilityLabel("Edit Tagged Recipes")
+            }
+        }
 
 #if os(macOS)
         ToolbarItem(placement: .status) {
