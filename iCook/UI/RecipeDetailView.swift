@@ -234,6 +234,10 @@ struct RecipeDetailView: View {
                                             .buttonStyle(.plain)
 
                                             VStack(alignment: .leading, spacing: 8) {
+                                                Text("Step \(step.stepNumber)")
+                                                    .font(.caption.weight(.semibold))
+                                                    .foregroundStyle(.secondary)
+
                                                 Text(step.instruction)
                                                     .font(.body)
                                                     .textSelection(.enabled)
