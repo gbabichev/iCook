@@ -60,6 +60,19 @@ struct SourceSelector: View {
             .joined(separator: ",")
     }
 
+#if os(iOS)
+    var keepScreenOnSystemImage: String {
+        switch UIDevice.current.userInterfaceIdiom {
+        case .phone:
+            return "iphone"
+        case .pad:
+            return "ipad"
+        default:
+            return "display"
+        }
+    }
+#endif
+
     var body: some View {
         Group {
 #if os(iOS)
@@ -288,7 +301,7 @@ struct SourceSelector: View {
 
                     Toggle(isOn: $keepScreenOn) {
                         HStack(alignment: .center, spacing: 12) {
-                            Image(systemName: "display")
+                            Image(systemName: keepScreenOnSystemImage)
                                 .frame(width: 20)
                                 .foregroundStyle(.primary)
 
