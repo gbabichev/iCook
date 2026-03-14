@@ -589,25 +589,6 @@ private struct AppWindowContent: View {
                 }
 #endif
             
-            if model.isImporting {
-                Color.black.opacity(0.25)
-                    .ignoresSafeArea()
-                Group {
-                    if let importProgress = model.importProgress {
-                        ImportProgressStatusView(progress: importProgress)
-                            .padding(16)
-                    } else {
-                        VStack(spacing: 12) {
-                            ProgressView()
-                            Text("Importing recipes…")
-                                .font(.headline)
-                        }
-                        .padding(16)
-                    }
-                }
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-            }
-            
             if model.isAcceptingShare {
                 Color.black.opacity(0.25)
                     .ignoresSafeArea()
