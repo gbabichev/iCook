@@ -63,15 +63,35 @@ struct AddEditRecipeView: View {
 #if os(iOS)
     private var recipeTimeMinuteRange: ClosedRange<Int> { 1...600 }
     private var recipeTimeDefaultMinutes: Int { 30 }
+    private var recipeTimeHourRange: ClosedRange<Int> {
+        0...(recipeTimeMinuteRange.upperBound / 60)
+    }
 
     private var clampedRecipeTimeMinutes: Int {
         let raw = Int(recipeTime.trimmingCharacters(in: .whitespacesAndNewlines)) ?? recipeTimeDefaultMinutes
         return min(max(raw, recipeTimeMinuteRange.lowerBound), recipeTimeMinuteRange.upperBound)
     }
 
+    private var formattedRecipeTime: String {
+        Self.formattedRecipeTime(minutes: clampedRecipeTimeMinutes)
+    }
+
     private var selectedCategoryForDisplay: Category? {
         guard let selectedCategoryId else { return nil }
         return model.categories.first { $0.id == selectedCategoryId }
+    }
+
+    private static func formattedRecipeTime(minutes: Int) -> String {
+        let hours = minutes / 60
+        let remainingMinutes = minutes % 60
+        if hours == 0 {
+            return "\(remainingMinutes) min"
+        }
+        if remainingMinutes == 0 {
+            return hours == 1 ? "1 hr" : "\(hours) hrs"
+        }
+        let hourLabel = hours == 1 ? "hr" : "hrs"
+        return "\(hours) \(hourLabel) \(remainingMinutes) min"
     }
 #endif
     
@@ -569,12 +589,9 @@ struct AddEditRecipeView: View {
                     showingRecipeTimePicker = true
                 } label: {
                     HStack(spacing: 8) {
-                        Text("\(clampedRecipeTimeMinutes)")
+                        Text(formattedRecipeTime)
                             .fontWeight(.semibold)
-                            .monospacedDigit()
                             .foregroundStyle(.primary)
-                        Text("minutes")
-                            .foregroundStyle(.secondary)
                         Spacer()
                         Image(systemName: "chevron.up.chevron.down")
                             .font(.caption.weight(.semibold))
@@ -632,6 +649,7 @@ struct AddEditRecipeView: View {
     private var recipeTimePickerSheet: some View {
         RecipeTimePickerSheet(
             minuteRange: recipeTimeMinuteRange,
+            hourRange: recipeTimeHourRange,
             initialMinutes: clampedRecipeTimeMinutes,
             onCancel: {
                 showingRecipeTimePicker = false
@@ -1489,38 +1507,81 @@ struct AddEditRecipeView: View {
 #if os(iOS)
 private struct RecipeTimePickerSheet: View {
     let minuteRange: ClosedRange<Int>
+    let hourRange: ClosedRange<Int>
     let onCancel: () -> Void
     let onDone: (Int) -> Void
 
+    @State private var selectedHours: Int
     @State private var selectedMinutes: Int
 
     init(
         minuteRange: ClosedRange<Int>,
+        hourRange: ClosedRange<Int>,
         initialMinutes: Int,
         onCancel: @escaping () -> Void,
         onDone: @escaping (Int) -> Void
     ) {
         self.minuteRange = minuteRange
+        self.hourRange = hourRange
         self.onCancel = onCancel
         self.onDone = onDone
-        _selectedMinutes = State(initialValue: initialMinutes)
+        _selectedHours = State(initialValue: initialMinutes / 60)
+        _selectedMinutes = State(initialValue: initialMinutes % 60)
+    }
+
+    private var totalMinutes: Int {
+        let rawTotal = (selectedHours * 60) + selectedMinutes
+        return min(max(rawTotal, minuteRange.lowerBound), minuteRange.upperBound)
+    }
+
+    private var availableMinuteRange: ClosedRange<Int> {
+        let minimumHour = minuteRange.lowerBound / 60
+        let maximumHour = minuteRange.upperBound / 60
+
+        if selectedHours == minimumHour && selectedHours == maximumHour {
+            return (minuteRange.lowerBound % 60)...(minuteRange.upperBound % 60)
+        }
+        if selectedHours == minimumHour {
+            return (minuteRange.lowerBound % 60)...59
+        }
+        if selectedHours == maximumHour {
+            return 0...(minuteRange.upperBound % 60)
+        }
+        return 0...59
     }
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                Picker("Time to Cook", selection: $selectedMinutes) {
-                    ForEach(minuteRange, id: \.self) { minute in
-                        Text("\(minute) min").tag(minute)
+                HStack(spacing: 0) {
+                    Picker("Hours", selection: $selectedHours) {
+                        ForEach(hourRange, id: \.self) { hour in
+                            Text("\(hour) hr").tag(hour)
+                        }
                     }
+                    .pickerStyle(.wheel)
+                    .labelsHidden()
+                    .frame(maxWidth: .infinity)
+                    .clipped()
+
+                    Picker("Minutes", selection: $selectedMinutes) {
+                        ForEach(Array(availableMinuteRange), id: \.self) { minute in
+                            Text("\(minute) min").tag(minute)
+                        }
+                    }
+                    .pickerStyle(.wheel)
+                    .labelsHidden()
+                    .frame(maxWidth: .infinity)
+                    .clipped()
                 }
-                .pickerStyle(.wheel)
-                .labelsHidden()
-                .frame(maxWidth: .infinity)
-                .clipped()
             }
             .navigationTitle("Time to Cook")
             .navigationBarTitleDisplayMode(.inline)
+            .onChange(of: selectedHours) { _, _ in
+                if availableMinuteRange.contains(selectedMinutes) == false {
+                    selectedMinutes = availableMinuteRange.lowerBound
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
@@ -1529,7 +1590,7 @@ private struct RecipeTimePickerSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") {
-                        onDone(selectedMinutes)
+                        onDone(totalMinutes)
                     }
                 }
             }
