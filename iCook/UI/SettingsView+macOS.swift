@@ -291,6 +291,17 @@ extension SourceSelector {
                         Divider()
 
                         SettingsRow(
+                            "Auto-Scroll Steps",
+                            systemImage: "arrow.down.to.line",
+                            subtitle: "After checking a step, automatically move to the next one in recipe detail."
+                        ) {
+                            Toggle("", isOn: $autoScrollToNextStep)
+                                .toggleStyle(.switch)
+                        }
+
+                        Divider()
+
+                        SettingsRow(
                             "Keep Screen On",
                             systemImage: "display",
                             subtitle: "Prevent display and idle sleep while iCook is active."

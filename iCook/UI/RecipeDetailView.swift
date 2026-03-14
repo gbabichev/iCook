@@ -8,6 +8,7 @@ struct RecipeDetailView: View {
     @AppStorage("ShowInlineTitles") private var showInlineTitles = true
     @AppStorage("ShowRecipeDetailTags") private var showRecipeDetailTags = true
     @AppStorage("AutoCheckStepsFromIngredients") private var autoCheckStepsFromIngredients = false
+    @AppStorage("AutoScrollToNextStep") private var autoScrollToNextStep = true
     
     @State private var editingRecipe: Recipe?
     @State private var checkedIngredients: Set<String> = []
@@ -160,20 +161,22 @@ struct RecipeDetailView: View {
 
     @ViewBuilder
     private func detailScrollView(proxy: GeometryProxy) -> some View {
-        if hasHeroImage {
-            ScrollView(.vertical) {
-                detailContent(proxy: proxy)
-            }
-            .recipeFlexibleHeaderScrollView()
-        } else {
-            ScrollView(.vertical) {
-                detailContent(proxy: proxy)
+        ScrollViewReader { scrollProxy in
+            if hasHeroImage {
+                ScrollView(.vertical) {
+                    detailContent(proxy: proxy, scrollProxy: scrollProxy)
+                }
+                .recipeFlexibleHeaderScrollView()
+            } else {
+                ScrollView(.vertical) {
+                    detailContent(proxy: proxy, scrollProxy: scrollProxy)
+                }
             }
         }
     }
 
     @ViewBuilder
-    private func detailContent(proxy: GeometryProxy) -> some View {
+    private func detailContent(proxy: GeometryProxy, scrollProxy: ScrollViewProxy) -> some View {
         VStack(alignment: .leading, spacing: 16) {
             if hasHeroImage {
                 heroHeader(baseHeight: proxy.size.height * 0.4)
@@ -222,11 +225,7 @@ struct RecipeDetailView: View {
                                     VStack(alignment: .leading, spacing: 12) {
                                         HStack(alignment: .top, spacing: 12) {
                                             Button {
-                                                if checkedSteps.contains(step.stepNumber) {
-                                                    checkedSteps.remove(step.stepNumber)
-                                                } else {
-                                                    checkedSteps.insert(step.stepNumber)
-                                                }
+                                                toggleStep(step, scrollProxy: scrollProxy)
                                             } label: {
                                                 Image(systemName: checkedSteps.contains(step.stepNumber) ? "checkmark.circle.fill" : "circle")
                                                     .foregroundStyle(checkedSteps.contains(step.stepNumber) ? .green : .secondary)
@@ -262,7 +261,8 @@ struct RecipeDetailView: View {
                                                         Button {
                                                             toggleStepIngredient(
                                                                 checkboxKey,
-                                                                in: step
+                                                                in: step,
+                                                                scrollProxy: scrollProxy
                                                             )
                                                         } label: {
                                                             Image(systemName: checkedStepIngredients.contains(checkboxKey) ? "checkmark.square.fill" : "square")
@@ -284,6 +284,7 @@ struct RecipeDetailView: View {
                                             }
                                         }
                                     }
+                                    .id(stepScrollID(step.stepNumber))
                                     .padding(.vertical, 8)
 
                                     if step.stepNumber < displayedRecipe.recipeSteps.count {
@@ -658,7 +659,7 @@ struct RecipeDetailView: View {
         }
     }
 
-    private func toggleStepIngredient(_ checkboxKey: String, in step: RecipeStep) {
+    private func toggleStepIngredient(_ checkboxKey: String, in step: RecipeStep, scrollProxy: ScrollViewProxy) {
         if checkedStepIngredients.contains(checkboxKey) {
             checkedStepIngredients.remove(checkboxKey)
         } else {
@@ -668,10 +669,43 @@ struct RecipeDetailView: View {
         guard autoCheckStepsFromIngredients, !step.ingredients.isEmpty else { return }
 
         let allIngredientKeys = Set(step.ingredients.indices.map { "\(step.stepNumber)-\($0)" })
+        let wasChecked = checkedSteps.contains(step.stepNumber)
         if allIngredientKeys.isSubset(of: checkedStepIngredients) {
             checkedSteps.insert(step.stepNumber)
+            if !wasChecked {
+                scrollToNextStep(after: step.stepNumber, scrollProxy: scrollProxy)
+            }
         } else {
             checkedSteps.remove(step.stepNumber)
+        }
+    }
+
+    private func stepScrollID(_ stepNumber: Int) -> String {
+        "recipe-step-\(stepNumber)"
+    }
+
+    private func toggleStep(_ step: RecipeStep, scrollProxy: ScrollViewProxy) {
+        let wasChecked = checkedSteps.contains(step.stepNumber)
+        if wasChecked {
+            checkedSteps.remove(step.stepNumber)
+            return
+        }
+
+        checkedSteps.insert(step.stepNumber)
+        scrollToNextStep(after: step.stepNumber, scrollProxy: scrollProxy)
+    }
+
+    private func scrollToNextStep(after stepNumber: Int, scrollProxy: ScrollViewProxy) {
+        guard autoScrollToNextStep else { return }
+        guard let nextStep = displayedRecipe.recipeSteps.first(where: { $0.stepNumber > stepNumber }) else { return }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 180_000_000)
+            withAnimation(.easeInOut(duration: 0.25)) {
+                scrollProxy.scrollTo(
+                    stepScrollID(nextStep.stepNumber),
+                    anchor: UnitPoint(x: 0.5, y: 0.22)
+                )
+            }
         }
     }
 

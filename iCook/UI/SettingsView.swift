@@ -13,6 +13,7 @@ struct SourceSelector: View {
     @AppStorage("ShowInlineTitles") var showInlineTitles = true
     @AppStorage("ShowRecipeDetailTags") var showRecipeDetailTags = true
     @AppStorage("AutoCheckStepsFromIngredients") var autoCheckStepsFromIngredients = false
+    @AppStorage("AutoScrollToNextStep") var autoScrollToNextStep = true
     @AppStorage("KeepScreenOn") var keepScreenOn = false
 
     @State var showNewSourceSheet = false
@@ -262,6 +263,22 @@ struct SourceSelector: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Auto-Check Steps")
                                 Text("Automatically mark a step complete when all of its step ingredients are checked.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
+
+                    Toggle(isOn: $autoScrollToNextStep) {
+                        HStack(alignment: .center, spacing: 12) {
+                            Image(systemName: "arrow.down.to.line")
+                                .frame(width: 20)
+                                .foregroundStyle(.primary)
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Auto-Scroll Steps")
+                                Text("After checking a step, automatically move to the next one in recipe detail.")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
