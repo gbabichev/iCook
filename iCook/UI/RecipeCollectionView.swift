@@ -8,6 +8,20 @@
 import SwiftUI
 import CloudKit
 
+private enum RecipeSearchScope: String, CaseIterable, Hashable {
+    case name
+    case ingredient
+
+    var title: String {
+        switch self {
+        case .name:
+            return "Search Recipe Name"
+        case .ingredient:
+            return "Search Ingredient"
+        }
+    }
+}
+
 enum RecipeCollectionType: Hashable {
     case home
     case category(Category)
@@ -110,10 +124,12 @@ struct RecipeCollectionView: View {
     
     // Search state
     @State private var searchText = ""
+    @State private var isSearchPresented = false
     @State private var searchTask: Task<Void, Never>? = nil
     @State private var searchResults: [Recipe] = []
     @State private var isSearching = false
     @State private var showingSearchResults = false
+    @State private var searchScope: RecipeSearchScope = .name
     @State private var searchActivationScrollResetToken = 0
     @State private var showRevokedToast = false
     @State private var revokedToastMessage = ""
@@ -247,16 +263,44 @@ struct RecipeCollectionView: View {
         showingSearchResults || !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+#if os(macOS)
+    private var isSearchFilterVisible: Bool {
+        isSearchPresented || !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+#endif
+
     private var searchPromptText: String {
         switch collectionType {
         case .home:
-            return "Search Recipes"
+            return searchScope == .name ? "Search Recipes" : "Search Ingredients"
         case .category(let category):
-            return "Search in \(category.name)"
+            return searchScope == .name ? "Search in \(category.name)" : "Search ingredients in \(category.name)"
         case .tag(let tag):
-            return "Search in \(tag.name)"
+            return searchScope == .name ? "Search in \(tag.name)" : "Search ingredients in \(tag.name)"
         }
     }
+
+#if os(macOS)
+    private var searchScopeToolbarMenu: some View {
+        Menu {
+            ForEach(RecipeSearchScope.allCases, id: \.self) { scope in
+                Button {
+                    searchScope = scope
+                } label: {
+                    if searchScope == scope {
+                        Label(scope.title, systemImage: "checkmark")
+                    } else {
+                        Text(scope.title)
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: "line.3.horizontal.decrease")
+        }
+        .accessibilityLabel("Search Filter")
+        .help("Filter recipe search by name or ingredient")
+    }
+#endif
 
     private var luckyRecipePool: [Recipe] {
         switch collectionType {
@@ -650,7 +694,19 @@ struct RecipeCollectionView: View {
         }
 
         return base.filter { recipe in
-            recipe.name.range(of: trimmed, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+            recipeMatchesSearch(recipe, query: trimmed)
+        }
+    }
+
+    private func recipeMatchesSearch(_ recipe: Recipe, query: String) -> Bool {
+        switch searchScope {
+        case .name:
+            return recipe.name.range(of: query, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+        case .ingredient:
+            let ingredients = recipe.ingredients ?? []
+            return ingredients.contains { ingredient in
+                ingredient.range(of: query, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+            }
         }
     }
     
@@ -761,8 +817,13 @@ struct RecipeCollectionView: View {
 #endif
             .task { await initialLoadIfNeeded() }
             .onChange(of: collectionType) { _, _ in Task { await handleCollectionTypeChange() } }
-            .searchable(text: $searchText, placement: .toolbar, prompt: searchPromptText)
+            .searchable(text: $searchText, isPresented: $isSearchPresented, placement: .toolbar, prompt: searchPromptText)
 #if os(iOS)
+            .searchScopes($searchScope) {
+                ForEach(RecipeSearchScope.allCases, id: \.self) { scope in
+                    Text(scope.title).tag(scope)
+                }
+            }
             .scrollDismissesKeyboard(.immediately)
 #endif
             .onSubmit(of: .search) { performSearch() }
@@ -795,6 +856,16 @@ struct RecipeCollectionView: View {
             }
             .onChange(of: searchText, initial: false) { _, newValue in
                 handleSearchTextChange(newValue)
+            }
+            .onChange(of: searchScope) { _, _ in
+                let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmed.isEmpty {
+                    searchResults = []
+                    showingSearchResults = false
+                } else {
+                    showingSearchResults = true
+                    searchResults = filteredRecipes(for: trimmed)
+                }
             }
             .onReceive(NotificationCenter.default.publisher(for: .shareRevokedToast), perform: handleShareRevokedToast)
             .refreshable { await handleRefresh() }
@@ -1076,11 +1147,19 @@ struct RecipeCollectionView: View {
             }
         }
 
-#if DEBUG
-        ToolbarItem(placement: .primaryAction) {
-            debugMenu
+#if os(macOS)
+        if isSearchFilterVisible {
+            ToolbarItem(placement: .primaryAction) {
+                searchScopeToolbarMenu
+            }
         }
 #endif
+
+//#if DEBUG
+//        ToolbarItem(placement: .primaryAction) {
+//            debugMenu
+//        }
+//#endif
 
         if case .tag = collectionType, canEditTagAssignments {
             ToolbarItem(placement: .primaryAction) {
