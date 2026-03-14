@@ -14,6 +14,7 @@ struct RecipeDetailView: View {
     @State private var checkedSteps: Set<Int> = []
     @State private var checkedStepIngredients: Set<String> = [] // Format: "stepNumber-ingredientIndex"
     @State private var showCopiedHUD = false
+    @State private var copiedHUDMessage = "Copied to Clipboard"
     @State private var displayedRecipe: Recipe
     @State private var isUpdatingTags = false
     @State private var tagUpdateErrorMessage: String?
@@ -150,7 +151,7 @@ struct RecipeDetailView: View {
         }
         .overlay(alignment: .top) {
             if showCopiedHUD {
-                CopiedHUD()
+                CopiedHUD(message: copiedHUDMessage)
                     .transition(.move(edge: .top).combined(with: .opacity))
                     .padding(.top, 60) // Adjust positioning as needed
             }
@@ -301,20 +302,12 @@ struct RecipeDetailView: View {
                             HStack {
                                 Image(systemName: "list.bullet")
                                     .foregroundStyle(.secondary)
-                                Text("Ingredients")
+                                Text("Shopping List")
                                     .font(.title2)
                                     .bold()
 
                                 Button {
-                                    copyToReminders(ingredients)
-                                    withAnimation(.easeInOut(duration: 0.3)) {
-                                        showCopiedHUD = true
-                                    }
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
-                                        withAnimation(.easeInOut(duration: 0.3)) {
-                                            showCopiedHUD = false
-                                        }
-                                    }
+                                    copyShoppingList(ingredients)
                                 } label: {
                                     Image(systemName: "doc.on.clipboard")
                                 }
@@ -679,6 +672,29 @@ struct RecipeDetailView: View {
             checkedSteps.insert(step.stepNumber)
         } else {
             checkedSteps.remove(step.stepNumber)
+        }
+    }
+
+    private func copyShoppingList(_ ingredients: [String]) {
+        let uncheckedItems = ingredients.filter { !checkedIngredients.contains($0) }
+
+        if uncheckedItems.count == ingredients.count {
+            copiedHUDMessage = "Copied to Clipboard"
+        } else if uncheckedItems.isEmpty {
+            copiedHUDMessage = "No Unchecked Items"
+        } else {
+            copiedHUDMessage = "Copied Unchecked Items"
+        }
+
+        copyToReminders(uncheckedItems)
+
+        withAnimation(.easeInOut(duration: 0.3)) {
+            showCopiedHUD = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            withAnimation(.easeInOut(duration: 0.3)) {
+                showCopiedHUD = false
+            }
         }
     }
     

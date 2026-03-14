@@ -9,10 +9,16 @@
 import SwiftUI
 
 struct CopiedHUD: View {
+    let message: String
+
+    init(message: String = "Copied to Clipboard") {
+        self.message = message
+    }
+
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "checkmark.circle.fill")
-            Text("Copied to Clipboard")
+            Text(message)
                 .fontWeight(.semibold)
         }
         .padding(.horizontal, 12)
