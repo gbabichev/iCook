@@ -13,6 +13,7 @@ struct SourceSelector: View {
     @AppStorage("ShowInlineTitles") var showInlineTitles = true
     @AppStorage("ShowRecipeDetailTags") var showRecipeDetailTags = true
     @AppStorage("AutoCheckStepsFromIngredients") var autoCheckStepsFromIngredients = false
+    @AppStorage("KeepScreenOn") var keepScreenOn = false
 
     @State var showNewSourceSheet = false
     @State var newSourceName = ""
@@ -261,6 +262,22 @@ struct SourceSelector: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Auto-Check Steps")
                                 Text("Automatically mark a step complete when all of its step ingredients are checked.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
+
+                    Toggle(isOn: $keepScreenOn) {
+                        HStack(alignment: .center, spacing: 12) {
+                            Image(systemName: "display")
+                                .frame(width: 20)
+                                .foregroundStyle(.primary)
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Keep Screen On")
+                                Text("Prevent Auto-Lock and keep the display awake while iCook is active.")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }

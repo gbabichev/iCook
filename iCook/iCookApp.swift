@@ -627,6 +627,7 @@ private struct AppWindowContent: View {
             }
 #endif
         }
+        .keepScreenAwakeSettingApplied()
         .overlay(alignment: .bottom) {
             if showImportCompletedToast {
                 Text(importCompletedToastMessage)

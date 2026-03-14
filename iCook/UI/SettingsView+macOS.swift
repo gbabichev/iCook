@@ -291,6 +291,17 @@ extension SourceSelector {
                         Divider()
 
                         SettingsRow(
+                            "Keep Screen On",
+                            systemImage: "display",
+                            subtitle: "Prevent display and idle sleep while iCook is active."
+                        ) {
+                            Toggle("", isOn: $keepScreenOn)
+                                .toggleStyle(.switch)
+                        }
+
+                        Divider()
+
+                        SettingsRow(
                             "Help",
                             systemImage: "questionmark.circle",
                             subtitle: "Open the tutorial again."
