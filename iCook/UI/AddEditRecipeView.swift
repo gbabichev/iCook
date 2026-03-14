@@ -728,31 +728,6 @@ struct AddEditRecipeView: View {
 
     private var recipeStepsEditorContent: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                Button {
-                    addNewStep()
-                } label: {
-                    Label("Add Step", systemImage: "plus.circle.fill")
-                }
-                .buttonStyle(.borderedProminent)
-
-                if !recipeSteps.isEmpty {
-                    Menu {
-                        Button("Expand All") {
-                            expandAllSteps()
-                        }
-                        Button("Collapse All") {
-                            collapseAllSteps()
-                        }
-                    } label: {
-                        Label("View", systemImage: "list.bullet.indent")
-                    }
-                    .buttonStyle(.bordered)
-                }
-
-                Spacer()
-            }
-
             if recipeSteps.isEmpty {
                 VStack(spacing: 8) {
                     Image(systemName: "list.bullet.rectangle.portrait")
@@ -794,6 +769,31 @@ struct AddEditRecipeView: View {
                     )
                 }
                 .onMove(perform: moveSteps)
+            }
+
+            HStack(spacing: 8) {
+                Button {
+                    addNewStep()
+                } label: {
+                    Label("Add Step", systemImage: "plus.circle.fill")
+                }
+                .buttonStyle(.borderedProminent)
+
+                if !recipeSteps.isEmpty {
+                    Menu {
+                        Button("Expand All") {
+                            expandAllSteps()
+                        }
+                        Button("Collapse All") {
+                            collapseAllSteps()
+                        }
+                    } label: {
+                        Label("View", systemImage: "list.bullet.indent")
+                    }
+                    .buttonStyle(.bordered)
+                }
+
+                Spacer()
             }
         }
     }
@@ -1617,23 +1617,7 @@ struct StepEditView: View {
                         Text("Ingredients:")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
-                        
-                        // Add ingredient field
-                        HStack {
-                            TextField("Add ingredient for step \(stepNumber)", text: $newIngredient)
-                                .focused($isNewIngredientFocused)
-                                .iOSModernInputFieldStyle()
-                                .onSubmit {
-                                    addIngredient()
-                                }
-                            
-                            Button("Add") {
-                                addIngredient()
-                            }
-                            .buttonStyle(.bordered)
-                            .disabled(newIngredient.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        }
-                        
+
                         // Current ingredients
                         if !step.ingredients.isEmpty {
                             ForEach(Array(step.ingredients.enumerated()), id: \.offset) { index, ingredient in
@@ -1664,6 +1648,22 @@ struct StepEditView: View {
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .padding(.vertical, 4)
+                        }
+
+                        // Add ingredient field
+                        HStack {
+                            TextField("Add ingredient for step \(stepNumber)", text: $newIngredient)
+                                .focused($isNewIngredientFocused)
+                                .iOSModernInputFieldStyle()
+                                .onSubmit {
+                                    addIngredient()
+                                }
+
+                            Button("Add") {
+                                addIngredient()
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(newIngredient.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         }
                     }
                 }
