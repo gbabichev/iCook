@@ -16,6 +16,8 @@ struct CategoryList: View {
     @Binding var showingAddCategory: Bool
     @Binding var showingAddTag: Bool
     @Binding var collectionType: RecipeCollectionType?
+    @AppStorage("SidebarCategoriesExpanded") private var isCategoriesExpanded = true
+    @AppStorage("SidebarTagsExpanded") private var isTagsExpanded = true
     @State private var showSourcesOverlay = false
     
     private var homeRecipeCount: Int {
@@ -81,7 +83,7 @@ struct CategoryList: View {
             }
             
             if !model.categories.isEmpty {
-                Section("Categories") {
+                Section(isExpanded: $isCategoriesExpanded) {
                     ForEach(model.categories) { category in
                         NavigationLink(value: RecipeCollectionType.category(category)) {
                             HStack(spacing: 6) {
@@ -105,11 +107,13 @@ struct CategoryList: View {
                             .disabled(model.isOfflineMode)
                         }
                     }
+                } header: {
+                    Text("Categories")
                 }
             }
 
             if model.currentSource != nil {
-                Section("Tags") {
+                Section(isExpanded: $isTagsExpanded) {
                     if model.tags.isEmpty {
                         Text("No tags yet")
                             .font(.caption)
@@ -140,6 +144,8 @@ struct CategoryList: View {
                             }
                         }
                     }
+                } header: {
+                    Text("Tags")
                 }
             }
             
