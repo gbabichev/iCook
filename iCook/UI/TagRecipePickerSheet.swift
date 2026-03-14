@@ -4,7 +4,6 @@ import CloudKit
 struct TagRecipePickerSheet: View {
     let tagName: String
     let candidates: [Recipe]
-    let selectedIDs: Set<CKRecord.ID>
     let categoryName: (Recipe) -> String?
     let onSave: @MainActor ([CKRecord.ID]) async -> String?
 
@@ -28,7 +27,6 @@ struct TagRecipePickerSheet: View {
     ) {
         self.tagName = tagName
         self.candidates = candidates
-        self.selectedIDs = selectedIDs
         self.categoryName = categoryName
         self.onSave = onSave
 #if os(macOS)

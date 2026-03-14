@@ -1414,52 +1414,7 @@ class CloudKitManager: ObservableObject {
         return true
     }
 #endif
-    /// Debug helper: completely nuke owned data (personal zone) and local caches.
-    func debugNukeOwnedData() async {
-        isLoading = true
-        defer { isLoading = false }
-        
-        printD("Debug: Nuke owned data - deleting personal zone and caches")
-        
-        // Attempt to delete the personal zone
-        do {
-            try await privateDatabase.deleteRecordZone(withID: personalZoneID)
-            printD("Deleted personal zone \(personalZoneID.zoneName)")
-        } catch {
-            printD("Debug: delete zone error (ignored if not found): \(error.localizedDescription)")
-        }
-        
-        // Clear local caches and state
-        sources.removeAll()
-        categories.removeAll()
-        recipes.removeAll()
-        recipeCounts.removeAll()
-        currentSource = nil
-        sourceCache.removeAll()
-        categoryCache.removeAll()
-        recipeCache.removeAll()
-        sharedSourceIDs.removeAll()
-        recentlyUnsharedIDs.removeAll()
-        saveSharedSourceIDs()
-        saveCurrentSourceID()
-        
-        // Remove cache files on disk
-        let fm = FileManager.default
-        do {
-            if fm.fileExists(atPath: cacheDirectoryURL.path) {
-                try fm.removeItem(at: cacheDirectoryURL)
-            }
-        } catch {
-            printD("Debug: Failed to clear cache directory: \(error.localizedDescription)")
-        }
-        
-        // Recreate cache directories
-        _ = cacheDirectoryURL
-        _ = imageCacheDirectory
-        
-        // Do not recreate any default collections; user will add their own.
-    }
-    
+
     private func fetchSharedSourcesViaZones() async -> [Source] {
         var sharedSources: [Source] = []
         do {

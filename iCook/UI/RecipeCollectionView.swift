@@ -120,7 +120,6 @@ struct RecipeCollectionView: View {
     // Toolbar state - passed from parent or locally managed
     @State private var showNewSourceSheet = false
     @State private var newSourceName = ""
-    @State private var isDebugOperationInProgress = false
     
     @State private var isLoading = false
     @State private var error: String?
@@ -367,36 +366,6 @@ struct RecipeCollectionView: View {
 
     // MARK: - Toolbar Views
 
-    private var debugMenu: some View {
-        Menu {
-            Section("Debug") {
-                Button {
-                    printD("Debug menu invoked")
-                } label: {
-                    Label("Print debug", systemImage: "terminal")
-                }
-
-                Button {
-                    NotificationCenter.default.post(name: .showTutorial, object: nil)
-                } label: {
-                    Label("Show Tutorial", systemImage: "sparkles")
-                }
-
-                Button(role: .destructive) {
-                    isDebugOperationInProgress = true
-                    Task {
-                        await model.debugNukeOwnedData()
-                        isDebugOperationInProgress = false
-                    }
-                } label: {
-                    Label("Nuke owned CloudKit data", systemImage: "bolt.horizontal.icloud.fill")
-                }
-            }
-        } label: {
-            Image(systemName: "ladybug")
-        }
-    }
-    
     // Initializers
     init(collectionType: RecipeCollectionType = .home) {
         self.collectionType = collectionType
@@ -970,7 +939,6 @@ struct RecipeCollectionView: View {
             .refreshable { await handleRefresh() }
             .sheet(isPresented: $showingOfflineNotice) { offlineNoticeSheet }
             .overlay { deletingOverlay }
-            .overlay(alignment: .center) { debugOverlay }
             .toolbar {
                 buildToolbar(
                     showsFeaturedHeader: shouldUseHeroNavigationChrome,
@@ -1194,26 +1162,6 @@ struct RecipeCollectionView: View {
                     .padding()
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
                 }
-            }
-        }
-    }
-
-    private var debugOverlay: some View {
-        Group {
-            if isDebugOperationInProgress {
-                ZStack {
-                    Color.black.opacity(0.3)
-                        .ignoresSafeArea()
-                    VStack(spacing: 16) {
-                        ProgressView()
-                            .scaleEffect(1.5, anchor: .center)
-                        Text("Resetting sources...")
-                            .font(.headline)
-                    }
-                    .padding(32)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-                }
-                .transition(.opacity)
             }
         }
     }

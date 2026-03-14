@@ -1453,10 +1453,6 @@ final class AppViewModel: ObservableObject {
     func canEditSource(_ source: Source) -> Bool {
         cloudKitManager.canEditSharedSource(source)
     }
-    func debugNukeOwnedData() async {
-        await cloudKitManager.debugNukeOwnedData()
-        await loadSources()
-    }
     
     #if os(iOS)
     func clearErrors() {
