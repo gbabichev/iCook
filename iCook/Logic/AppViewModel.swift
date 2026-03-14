@@ -777,6 +777,7 @@ final class AppViewModel: ObservableObject {
         recipeTime: Int?,
         details: String?,
         image: Data?,
+        removeImage: Bool = false,
         recipeSteps: [RecipeStep]?,
         tagIDs: [CKRecord.ID]? = nil,
         linkedRecipeIDs: [CKRecord.ID]? = nil
@@ -817,6 +818,9 @@ final class AppViewModel: ObservableObject {
         if let recipeSteps = recipeSteps { updatedRecipe.recipeSteps = recipeSteps }
         if let tagIDs = tagIDs { updatedRecipe.tagIDs = tagIDs }
         if let linkedRecipeIDs = linkedRecipeIDs { updatedRecipe.linkedRecipeIDs = linkedRecipeIDs }
+        if removeImage {
+            updatedRecipe.cachedImagePath = nil
+        }
         
         // Handle image if provided
         var tempImageURL: URL?
@@ -833,7 +837,7 @@ final class AppViewModel: ObservableObject {
             }
         }
         
-        await cloudKitManager.updateRecipe(updatedRecipe, in: source)
+        await cloudKitManager.updateRecipe(updatedRecipe, in: source, removeImage: removeImage)
         error = cloudKitManager.error
         
         // Update the recipe in the local array immediately

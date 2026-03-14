@@ -429,7 +429,7 @@ class CloudKitManager: ObservableObject {
             do {
                 let data = try Data(contentsOf: url)
                 let decoded = try JSONDecoder().decode([Recipe].self, from: data)
-                return decoded.map { recipeWithCachedImage($0) }
+                return decoded.map { recipeWithCachedImage($0, fromCloudKitRecord: false) }
             } catch {
                 printD("Error loading recipes cache: \(error.localizedDescription)")
             }
@@ -443,7 +443,7 @@ class CloudKitManager: ObservableObject {
                 let data = try Data(contentsOf: globalURL)
                 let allRecipes = try JSONDecoder().decode([Recipe].self, from: data)
                 let filtered = allRecipes.filter { $0.categoryID == categoryID }
-                return filtered.map { recipeWithCachedImage($0) }
+                return filtered.map { recipeWithCachedImage($0, fromCloudKitRecord: false) }
             } catch {
                 printD("Error loading fallback recipes cache: \(error.localizedDescription)")
             }
@@ -678,10 +678,26 @@ class CloudKitManager: ObservableObject {
         removeCachedImages(for: recipeID)
     }
     
-    private func recipeWithCachedImage(_ recipe: Recipe) -> Recipe {
+    private func recipeWithCachedImage(_ recipe: Recipe, fromCloudKitRecord: Bool = true) -> Recipe {
         var updatedRecipe = recipe
         let fm = FileManager.default
         let token = versionToken(for: recipe.lastModified)
+
+        guard recipe.imageAsset != nil else {
+            if fromCloudKitRecord {
+                removeCachedImages(for: recipe.id)
+                updatedRecipe.cachedImagePath = nil
+            } else if let current = recipe.cachedImagePath,
+                      fm.fileExists(atPath: current) {
+                updatedRecipe.cachedImagePath = current
+            } else if let fallback = cachedImagePath(for: recipe.id),
+                      fm.fileExists(atPath: fallback) {
+                updatedRecipe.cachedImagePath = fallback
+            } else {
+                updatedRecipe.cachedImagePath = nil
+            }
+            return updatedRecipe
+        }
 
         // Prefer an already-cached file for the exact record version.
         if let versionedPath = cachedImagePath(for: recipe.id, versionToken: token),
@@ -2095,7 +2111,7 @@ class CloudKitManager: ObservableObject {
         }
     }
     
-    func updateRecipe(_ recipe: Recipe, in source: Source) async {
+    func updateRecipe(_ recipe: Recipe, in source: Source, removeImage: Bool = false) async {
         do {
             let database = isSharedOwner(source) || source.isPersonal ? privateDatabase : sharedDatabase
             
@@ -2112,9 +2128,10 @@ class CloudKitManager: ObservableObject {
             existingRecord["linkedRecipeIDs"] = recipe.linkedRecipeIDs.map(\.recordName)
             existingRecord["lastModified"] = recipe.lastModified
             
-            // Handle image asset: only update when we have a new, readable local asset file.
-            // Avoid clearing an existing CloudKit asset unless we explicitly support image removal.
-            if let imageAsset = recipe.imageAsset {
+            if removeImage {
+                existingRecord["imageAsset"] = nil
+                removeCachedImage(for: recipe.id)
+            } else if let imageAsset = recipe.imageAsset {
                 if let imageURL = imageAsset.fileURL,
                    FileManager.default.fileExists(atPath: imageURL.path) {
                     existingRecord["imageAsset"] = imageAsset

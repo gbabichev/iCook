@@ -24,6 +24,7 @@ struct AddEditRecipeView: View {
     @State private var showingImagePicker = false
     @State private var selectedImageData: Data?
     @State private var existingImagePath: String?
+    @State private var didRemoveImage = false
     @State private var isUploading = false
     @State private var isSaving = false
 #if os(macOS)
@@ -891,6 +892,7 @@ struct AddEditRecipeView: View {
             recipeName = recipe.name
             recipeTime = String(recipe.recipeTime)
             recipeDetails = recipe.details ?? ""
+            didRemoveImage = false
             if existingImagePath == nil {
                 existingImagePath = model.cloudKitManager.cachedImagePathForRecipe(recipe.id)
             }
@@ -1027,6 +1029,7 @@ struct AddEditRecipeView: View {
                 recipeTime: timeValue != recipe.recipeTime ? timeValue : nil,
                 details: detailsToSave != recipe.details ? detailsToSave : nil,
                 image: selectedImageData,
+                removeImage: didRemoveImage,
                 recipeSteps: finalSteps,
                 tagIDs: tagIDsForUpdate
             )
@@ -1045,9 +1048,7 @@ struct AddEditRecipeView: View {
         if success {
             if let recipe = editingRecipe {
                 var updated = recipe
-                if let cached = model.cloudKitManager.cachedImagePathForRecipe(recipe.id) {
-                    updated.cachedImagePath = cached
-                }
+                updated.cachedImagePath = model.cloudKitManager.cachedImagePathForRecipe(recipe.id)
                 updated.name = trimmedName
                 updated.details = detailsToSave
                 updated.recipeTime = timeValue
@@ -1109,8 +1110,7 @@ struct AddEditRecipeView: View {
                 }
                 if selectedImageData != nil || existingImagePath != nil {
                     Button("Remove Photo", role: .destructive) {
-                        selectedImageData = nil
-                        existingImagePath = nil
+                        removePhoto()
                     }
                 }
                 Button("Cancel", role: .cancel) { }
@@ -1131,8 +1131,7 @@ struct AddEditRecipeView: View {
                 // Add Remove Photo option for macOS when there's an image
                 if selectedImageData != nil || existingImagePath != nil {
                     Button("Remove Photo", role: .destructive) {
-                        selectedImageData = nil
-                        existingImagePath = nil
+                        removePhoto()
                     }
                 }
             }
@@ -1266,9 +1265,11 @@ struct AddEditRecipeView: View {
                 if let compressed = compressedData {
                     selectedImageData = compressed
                     existingImagePath = nil
+                    didRemoveImage = false
                 } else {
                     selectedImageData = originalData
                     existingImagePath = nil
+                    didRemoveImage = false
                 }
             }
         } catch {
@@ -1296,9 +1297,11 @@ struct AddEditRecipeView: View {
             if let compressed = compressedData {
                 selectedImageData = compressed
                 existingImagePath = nil
+                didRemoveImage = false
             } else {
                 selectedImageData = originalData
                 existingImagePath = nil
+                didRemoveImage = false
             }
         }
     }
@@ -1329,9 +1332,11 @@ struct AddEditRecipeView: View {
                     if let compressed = compressedData {
                         selectedImageData = compressed
                         existingImagePath = nil
+                        didRemoveImage = false
                     } else {
                         selectedImageData = originalData
                         existingImagePath = nil
+                        didRemoveImage = false
                     }
                 }
                 
@@ -1343,6 +1348,14 @@ struct AddEditRecipeView: View {
         }
     }
 #endif
+
+    @MainActor
+    private func removePhoto() {
+        selectedImageData = nil
+        existingImagePath = nil
+        didRemoveImage = true
+    }
+
     // Background compression function
     private func compressImageInBackground(_ data: Data, maxDimension: CGFloat = 1600, quality: CGFloat = 0.7) async -> Data? {
 #if os(iOS)
