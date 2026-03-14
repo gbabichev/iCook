@@ -46,24 +46,23 @@ struct CategoryList: View {
     
     var body: some View {
         List(selection: $collectionType) {
-            // Home/Featured section
-            NavigationLink(value: RecipeCollectionType.home) {
-                HStack(spacing: 6) {
-                    Image(systemName: "house.fill")
-                        .foregroundStyle(.blue)
-                        .frame(width: 24)
-                    Text("All Recipes")
-                    
-                    Spacer()
-                    
-                    Text("\(homeRecipeCount)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+            Section("Home") {
+                NavigationLink(value: RecipeCollectionType.home) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "house.fill")
+                            .foregroundStyle(.blue)
+                            .frame(width: 24)
+                        Text("All Recipes")
+                        
+                        Spacer()
+                        
+                        Text("\(homeRecipeCount)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
-            }
 
-            if model.currentSource != nil {
-                Section {
+                if model.currentSource != nil {
                     NavigationLink(value: RecipeCollectionType.favorites) {
                         HStack(spacing: 6) {
                             Image(systemName: "star.fill")

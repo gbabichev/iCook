@@ -1271,6 +1271,9 @@ struct RecipeCollectionView: View {
 //#endif
 
         if case .tag = collectionType, canEditTagAssignments {
+#if os(macOS)
+            ToolbarSpacer(.fixed)
+#endif
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     isShowingTagRecipePicker = true
