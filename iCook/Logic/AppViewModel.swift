@@ -47,7 +47,6 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var favoriteRecipeKeys: Set<String> = []
     private let lastViewedRecipeKey = "LastViewedRecipe"
     private let appLocationKey = "AppLocation"
-    private let favoriteRecipeKeysKey = "FavoriteRecipeKeys"
 
     // CloudKit manager
     let cloudKitManager = CloudKitManager.shared
@@ -68,7 +67,7 @@ final class AppViewModel: ObservableObject {
     }
 
     init() {
-        favoriteRecipeKeys = Set(UserDefaults.standard.stringArray(forKey: favoriteRecipeKeysKey) ?? [])
+        favoriteRecipeKeys = cloudKitManager.favoriteRecipeKeys
 
         // Prime from cached manager state so UI doesn't start empty when offline/online
         sources = cloudKitManager.sources
@@ -124,16 +123,40 @@ final class AppViewModel: ObservableObject {
                 }
             }
             .store(in: &notificationCancellables)
+
+        cloudKitManager.$favoriteRecipeKeys
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] keys in
+                self?.favoriteRecipeKeys = keys
+            }
+            .store(in: &notificationCancellables)
     }
     
     private func refreshOfflineState() {
         isOfflineMode = !cloudKitManager.isCloudKitAvailable || cloudKitManager.isOfflineMode
+    }
+
+    private func logFavoriteVisibilityContext(_ context: String) {
+        let visibleRecipeKeys = recipes.map { favoriteKey(for: $0.id) }
+        let matchingKeys = visibleRecipeKeys.filter { favoriteRecipeKeys.contains($0) }
+        let visibleSamples = visibleRecipeKeys.prefix(5).map { key in
+            let parts = key.split(separator: "|", omittingEmptySubsequences: false)
+            guard parts.count == 3 else { return key }
+            return "\(parts[0])|\(parts[1])|\(parts[2].suffix(8))"
+        }
+        let favoriteSamples = favoriteRecipeKeys.sorted().prefix(5).map { key in
+            let parts = key.split(separator: "|", omittingEmptySubsequences: false)
+            guard parts.count == 3 else { return key }
+            return "\(parts[0])|\(parts[1])|\(parts[2].suffix(8))"
+        }
+        printD("[FavoritesTrace] \(context) source=\(currentSource?.name ?? "nil") visibleRecipes=\(recipes.count) favorites=\(favoriteRecipeKeys.count) visibleMatches=\(matchingKeys.count) visibleKeys=\(visibleSamples) favoriteKeys=\(favoriteSamples)")
     }
     
     // MARK: - Source Management
     func loadSources() async {
         let previousSourceID = currentSource?.id
         await cloudKitManager.loadSources()
+        await cloudKitManager.loadFavorites()
         sources = cloudKitManager.sources
         currentSource = cloudKitManager.currentSource
         let currentSourceID = currentSource?.id
@@ -157,6 +180,7 @@ final class AppViewModel: ObservableObject {
             sourceSelectionStamp = UUID()
         }
         refreshOfflineState()
+        logFavoriteVisibilityContext("AppViewModel.loadSources")
     }
 
     func refreshSourcesAndCurrentContent(skipRecipeCache: Bool = true) async {
@@ -509,7 +533,7 @@ final class AppViewModel: ObservableObject {
         printD("deleteRecipe: Removing recipe from local arrays. Before: recipes=\(self.recipes.count), randomRecipes=\(self.randomRecipes.count)")
         self.recipes = recipes.filter { $0.id != id }
         randomRecipes.removeAll { $0.id == id }
-        removeFavorite(for: id)
+        _ = await removeFavorite(for: id)
         let oldCount = recipeCounts[recipe.categoryID, default: 1]
         recipeCounts[recipe.categoryID] = max(oldCount - 1, 0)
 
@@ -673,33 +697,29 @@ final class AppViewModel: ObservableObject {
     }
 
     func favoriteKey(for recipeID: CKRecord.ID) -> String {
-        "\(recipeID.zoneID.ownerName)|\(recipeID.zoneID.zoneName)|\(recipeID.recordName)"
+        cloudKitManager.favoriteKey(for: recipeID)
     }
 
     func isFavorite(_ recipeID: CKRecord.ID) -> Bool {
         favoriteRecipeKeys.contains(favoriteKey(for: recipeID))
     }
 
-    func setFavorite(_ isFavorite: Bool, for recipeID: CKRecord.ID) {
-        let key = favoriteKey(for: recipeID)
-        if isFavorite {
-            favoriteRecipeKeys.insert(key)
-        } else {
-            favoriteRecipeKeys.remove(key)
-        }
-        persistFavoriteRecipeKeys()
+    @discardableResult
+    func setFavorite(_ isFavorite: Bool, for recipeID: CKRecord.ID) async -> Bool {
+        let success = await cloudKitManager.setFavorite(isFavorite, for: recipeID)
+        error = cloudKitManager.error
+        refreshOfflineState()
+        return success
     }
 
-    func toggleFavorite(for recipeID: CKRecord.ID) {
-        setFavorite(!isFavorite(recipeID), for: recipeID)
+    @discardableResult
+    func toggleFavorite(for recipeID: CKRecord.ID) async -> Bool {
+        await setFavorite(!isFavorite(recipeID), for: recipeID)
     }
 
-    func removeFavorite(for recipeID: CKRecord.ID) {
-        setFavorite(false, for: recipeID)
-    }
-
-    private func persistFavoriteRecipeKeys() {
-        UserDefaults.standard.set(Array(favoriteRecipeKeys).sorted(), forKey: favoriteRecipeKeysKey)
+    @discardableResult
+    func removeFavorite(for recipeID: CKRecord.ID) async -> Bool {
+        await setFavorite(false, for: recipeID)
     }
 
     func createRecipeWithSteps(

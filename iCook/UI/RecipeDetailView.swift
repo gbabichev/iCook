@@ -197,7 +197,9 @@ struct RecipeDetailView: View {
                             Spacer(minLength: 0)
 
                             Button {
-                                toggleFavorite()
+                                Task {
+                                    await toggleFavorite()
+                                }
                             } label: {
                                 Image(systemName: isFavorite ? "star.fill" : "star")
                                     .font(.title2)
@@ -642,8 +644,8 @@ struct RecipeDetailView: View {
         model.saveAppLocation(.recipe(recipeID: recipe.id, categoryID: recipe.categoryID))
     }
 
-    private func toggleFavorite() {
-        model.toggleFavorite(for: displayedRecipe.id)
+    private func toggleFavorite() async {
+        _ = await model.toggleFavorite(for: displayedRecipe.id)
     }
 
     @MainActor

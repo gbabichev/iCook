@@ -14,6 +14,25 @@ struct ImageSaveResult {
     let tempURL: URL
 }
 
+private struct PendingFavoriteOperation: Codable {
+    let recipeRecordName: String
+    let recipeZoneName: String
+    let recipeZoneOwnerName: String
+    let isFavorite: Bool
+
+    init(recipeID: CKRecord.ID, isFavorite: Bool) {
+        self.recipeRecordName = recipeID.recordName
+        self.recipeZoneName = recipeID.zoneID.zoneName
+        self.recipeZoneOwnerName = recipeID.zoneID.ownerName
+        self.isFavorite = isFavorite
+    }
+
+    var recipeID: CKRecord.ID {
+        let zoneID = CKRecordZone.ID(zoneName: recipeZoneName, ownerName: recipeZoneOwnerName)
+        return CKRecord.ID(recordName: recipeRecordName, zoneID: zoneID)
+    }
+}
+
 @MainActor
 class CloudKitManager: ObservableObject {
     static let shared = CloudKitManager()
@@ -30,6 +49,7 @@ class CloudKitManager: ObservableObject {
     @Published var isCloudKitAvailable = true // Assume available until proven otherwise
     @Published var isOfflineMode = false
     @Published var canEditSharedSources = false
+    @Published private(set) var favoriteRecipeKeys: Set<String> = []
     
     // MARK: - Private Properties
     let container: CKContainer
@@ -70,16 +90,23 @@ class CloudKitManager: ObservableObject {
     private var participantIdentityCache: [CKRecord.ID: CKUserIdentity] = [:]
     private var sharedSourceEditability: [CKRecord.ID: Bool] = [:]
     private var locallyDeletedSourceIDs = Set<CKRecord.ID>()
+    private var pendingFavoriteOperations: [String: PendingFavoriteOperation] = [:]
+    private let favoriteRecipeKeysKey = "FavoriteRecipeKeys"
+    private let pendingFavoriteOperationsKey = "PendingFavoriteOperations"
+    private let favoriteMigrationCompletedKey = "FavoriteRecipeCloudMigrationCompleted"
+    private let canonicalFavoriteOwnerToken = "__me__"
     
     init() {
         self.container = CKContainer(identifier: "iCloud.com.georgebabichev.iCook")
         loadSharedSourceIDs()
+        loadFavoriteStateLocalCache()
         // Load from local cache immediately
         loadSourcesLocalCache()
         Task {
             await setupiCloudUser()
             if isCloudKitAvailable {
                 await ensurePersonalZoneExists()
+                await loadFavorites()
             }
         }
     }
@@ -120,6 +147,7 @@ class CloudKitManager: ObservableObject {
             let userRecord = try await container.userRecordID()
             userIdentifier = userRecord.recordName
             UserDefaults.standard.set(userRecord.recordName, forKey: "iCloudUserID")
+            normalizeFavoriteStateForCurrentUser()
             isCloudKitAvailable = true
             self.error = nil
             printD("iCloud user authenticated successfully")
@@ -143,6 +171,7 @@ class CloudKitManager: ObservableObject {
             let userRecord = try await container.userRecordID()
             userIdentifier = userRecord.recordName
             UserDefaults.standard.set(userRecord.recordName, forKey: "iCloudUserID")
+            normalizeFavoriteStateForCurrentUser()
             printD("Ensured userIdentifier: \(userRecord.recordName)")
         } catch {
             printD("Failed to ensure userIdentifier: \(error.localizedDescription)")
@@ -213,6 +242,188 @@ class CloudKitManager: ObservableObject {
     private func cacheIdentifier(for id: CKRecord.ID) -> String {
         let components = [id.zoneID.ownerName, id.zoneID.zoneName, id.recordName]
         return components.map { sanitizedFileComponent($0) }.joined(separator: "_")
+    }
+
+    private func summarizedFavoriteKey(_ key: String) -> String {
+        let components = key.split(separator: "|", omittingEmptySubsequences: false)
+        guard components.count == 3 else { return key }
+        return "\(components[0])|\(components[1])|\(components[2].suffix(8))"
+    }
+
+    private func favoriteTraceKeys(_ keys: some Sequence<String>) -> String {
+        let values = Array(keys.prefix(5)).map(summarizedFavoriteKey)
+        return values.isEmpty ? "[]" : "[\(values.joined(separator: ", "))]"
+    }
+
+    private func canonicalFavoriteOwnerName(_ ownerName: String) -> String {
+        if ownerName == CKCurrentUserDefaultName {
+            return canonicalFavoriteOwnerToken
+        }
+        if let userIdentifier, !userIdentifier.isEmpty, ownerName == userIdentifier {
+            return canonicalFavoriteOwnerToken
+        }
+        return ownerName
+    }
+
+    private func normalizedFavoriteKey(_ key: String) -> String {
+        let components = key.split(separator: "|", omittingEmptySubsequences: false)
+        guard components.count == 3 else { return key }
+        let ownerName = canonicalFavoriteOwnerName(String(components[0]))
+        return [ownerName, String(components[1]), String(components[2])].joined(separator: "|")
+    }
+
+    func favoriteKey(for recipeID: CKRecord.ID) -> String {
+        [
+            canonicalFavoriteOwnerName(recipeID.zoneID.ownerName),
+            recipeID.zoneID.zoneName,
+            recipeID.recordName
+        ].joined(separator: "|")
+    }
+
+    private func recipeID(fromFavoriteKey key: String) -> CKRecord.ID? {
+        let components = key.split(separator: "|", omittingEmptySubsequences: false)
+        guard components.count == 3 else { return nil }
+        let ownerComponent = String(components[0])
+        let ownerName = ownerComponent == canonicalFavoriteOwnerToken ? CKCurrentUserDefaultName : ownerComponent
+        let zoneID = CKRecordZone.ID(zoneName: String(components[1]), ownerName: ownerName)
+        return CKRecord.ID(recordName: String(components[2]), zoneID: zoneID)
+    }
+
+    private func favoriteRecordID(for recipeID: CKRecord.ID) -> CKRecord.ID {
+        CKRecord.ID(recordName: "favorite_\(cacheIdentifier(for: recipeID))", zoneID: personalZoneID)
+    }
+
+    private func favoriteRecord(for recipeID: CKRecord.ID) -> CKRecord {
+        let record = CKRecord(recordType: "FavoriteRecipe", recordID: favoriteRecordID(for: recipeID))
+        record["recipeRecordName"] = recipeID.recordName
+        record["recipeZoneName"] = recipeID.zoneID.zoneName
+        record["recipeZoneOwnerName"] = recipeID.zoneID.ownerName
+        record["lastModified"] = Date()
+        return record
+    }
+
+    private func favoriteRecipeID(from record: CKRecord) -> CKRecord.ID? {
+        guard let recipeRecordName = record["recipeRecordName"] as? String,
+              let recipeZoneName = record["recipeZoneName"] as? String,
+              let recipeZoneOwnerName = record["recipeZoneOwnerName"] as? String else {
+            return nil
+        }
+        let zoneID = CKRecordZone.ID(zoneName: recipeZoneName, ownerName: recipeZoneOwnerName)
+        return CKRecord.ID(recordName: recipeRecordName, zoneID: zoneID)
+    }
+
+    private func fetchAllFavoriteRecords() async throws -> [CKRecord] {
+        var changeToken: CKServerChangeToken?
+        var favoriteRecords: [CKRecord] = []
+
+        repeat {
+            let batch = try await privateDatabase.recordZoneChanges(
+                inZoneWith: personalZoneID,
+                since: changeToken,
+                desiredKeys: ["recipeRecordName", "recipeZoneName", "recipeZoneOwnerName"],
+                resultsLimit: 400
+            )
+
+            let records = batch.modificationResultsByID.values.compactMap { result -> CKRecord? in
+                guard case .success(let modification) = result else { return nil }
+                let record = modification.record
+                return record.recordType == "FavoriteRecipe" ? record : nil
+            }
+            favoriteRecords.append(contentsOf: records)
+            changeToken = batch.changeToken
+
+            if !batch.moreComing {
+                break
+            }
+        } while true
+
+        return favoriteRecords
+    }
+
+    private func persistFavoriteRecipeKeysCache() {
+        UserDefaults.standard.set(Array(favoriteRecipeKeys).sorted(), forKey: favoriteRecipeKeysKey)
+    }
+
+    private func persistPendingFavoriteOperations() {
+        do {
+            let encoded = try JSONEncoder().encode(Array(pendingFavoriteOperations.values))
+            UserDefaults.standard.set(encoded, forKey: pendingFavoriteOperationsKey)
+        } catch {
+            printD("Error saving pending favorite operations: \(error.localizedDescription)")
+        }
+    }
+
+    private func effectiveFavoriteKeys(with serverKeys: Set<String>) -> Set<String> {
+        var merged = serverKeys
+        for operation in pendingFavoriteOperations.values {
+            let key = favoriteKey(for: operation.recipeID)
+            if operation.isFavorite {
+                merged.insert(key)
+            } else {
+                merged.remove(key)
+            }
+        }
+        return merged
+    }
+
+    private func loadFavoriteStateLocalCache() {
+        if let cachedKeys = UserDefaults.standard.stringArray(forKey: favoriteRecipeKeysKey) {
+            favoriteRecipeKeys = Set(cachedKeys.map(normalizedFavoriteKey))
+        }
+
+        if let data = UserDefaults.standard.data(forKey: pendingFavoriteOperationsKey) {
+            do {
+                let decoded = try JSONDecoder().decode([PendingFavoriteOperation].self, from: data)
+                pendingFavoriteOperations = Dictionary(uniqueKeysWithValues: decoded.map { (favoriteKey(for: $0.recipeID), $0) })
+            } catch {
+                printD("Error loading pending favorite operations: \(error.localizedDescription)")
+            }
+        }
+
+        let didCompleteMigration = UserDefaults.standard.bool(forKey: favoriteMigrationCompletedKey)
+        if !didCompleteMigration, pendingFavoriteOperations.isEmpty, !favoriteRecipeKeys.isEmpty {
+            for key in favoriteRecipeKeys {
+                guard let recipeID = recipeID(fromFavoriteKey: key) else { continue }
+                pendingFavoriteOperations[key] = PendingFavoriteOperation(recipeID: recipeID, isFavorite: true)
+            }
+            persistPendingFavoriteOperations()
+            UserDefaults.standard.set(true, forKey: favoriteMigrationCompletedKey)
+        }
+
+        favoriteRecipeKeys = effectiveFavoriteKeys(with: favoriteRecipeKeys)
+        persistFavoriteRecipeKeysCache()
+        printD("[FavoritesTrace] loadFavoriteStateLocalCache cached=\(favoriteRecipeKeys.count) pending=\(pendingFavoriteOperations.count) keys=\(favoriteTraceKeys(favoriteRecipeKeys.sorted()))")
+    }
+
+    private func normalizeFavoriteStateForCurrentUser() {
+        let previousKeys = favoriteRecipeKeys
+        favoriteRecipeKeys = Set(favoriteRecipeKeys.map(normalizedFavoriteKey))
+        pendingFavoriteOperations = Dictionary(
+            uniqueKeysWithValues: pendingFavoriteOperations.values.map { (favoriteKey(for: $0.recipeID), $0) }
+        )
+        persistFavoriteRecipeKeysCache()
+        persistPendingFavoriteOperations()
+        if previousKeys != favoriteRecipeKeys {
+            printD("[FavoritesTrace] normalizeFavoriteStateForCurrentUser user=\(userIdentifier ?? "nil") keysBefore=\(previousKeys.count) keysAfter=\(favoriteRecipeKeys.count) keys=\(favoriteTraceKeys(favoriteRecipeKeys.sorted()))")
+        } else {
+            printD("[FavoritesTrace] normalizeFavoriteStateForCurrentUser user=\(userIdentifier ?? "nil") keys=\(favoriteRecipeKeys.count) pending=\(pendingFavoriteOperations.count)")
+        }
+    }
+
+    private func applyFavoriteStateLocally(_ isFavorite: Bool, for recipeID: CKRecord.ID) {
+        let key = favoriteKey(for: recipeID)
+        if isFavorite {
+            favoriteRecipeKeys.insert(key)
+        } else {
+            favoriteRecipeKeys.remove(key)
+        }
+        persistFavoriteRecipeKeysCache()
+    }
+
+    private func queueFavoriteSync(_ isFavorite: Bool, for recipeID: CKRecord.ID) {
+        let operation = PendingFavoriteOperation(recipeID: recipeID, isFavorite: isFavorite)
+        pendingFavoriteOperations[favoriteKey(for: recipeID)] = operation
+        persistPendingFavoriteOperations()
     }
     
     private func cacheFileURL(for type: CacheFileType, sourceID: CKRecord.ID, categoryID: CKRecord.ID? = nil) -> URL {
@@ -562,6 +773,50 @@ class CloudKitManager: ObservableObject {
         }
         return false
     }
+
+    private func isFavoriteSchemaBootstrapError(_ error: Error) -> Bool {
+        let description = error.localizedDescription.lowercased()
+        return description.contains("did not find record type") || description.contains("not marked queryable")
+    }
+
+    private func shouldRetryFavoriteOperationAfterEnsuringZone(_ error: Error) -> Bool {
+        guard let ckError = error as? CKError else { return false }
+        switch ckError.code {
+        case .zoneNotFound, .userDeletedZone:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func isExistingFavoriteRecordError(_ error: Error) -> Bool {
+        if let ckError = error as? CKError, ckError.code == .serverRecordChanged {
+            return true
+        }
+
+        let description = error.localizedDescription.lowercased()
+        return description.contains("already exists") || description.contains("record to insert already exists")
+    }
+
+    private func syncFavoriteOperation(_ operation: PendingFavoriteOperation) async throws {
+        if operation.isFavorite {
+            do {
+                _ = try await privateDatabase.save(favoriteRecord(for: operation.recipeID))
+            } catch {
+                if isExistingFavoriteRecordError(error) {
+                    // The desired state is already present on the server.
+                    return
+                }
+                throw error
+            }
+        } else {
+            do {
+                try await privateDatabase.deleteRecord(withID: favoriteRecordID(for: operation.recipeID))
+            } catch let ckError as CKError where ckError.code == .unknownItem {
+                // Deleting an already-removed favorite is a valid converged state.
+            }
+        }
+    }
     
     private func versionToken(for date: Date) -> String {
         let millis = Int(date.timeIntervalSince1970 * 1000)
@@ -677,6 +932,126 @@ class CloudKitManager: ObservableObject {
     private func removeCachedImage(for recipeID: CKRecord.ID) {
         removeCachedImages(for: recipeID)
     }
+
+    func loadFavorites() async {
+        await ensureUserIdentifier()
+        normalizeFavoriteStateForCurrentUser()
+        printD("[FavoritesTrace] loadFavorites start user=\(userIdentifier ?? "nil") cloudAvailable=\(isCloudKitAvailable) cached=\(favoriteRecipeKeys.count) pending=\(pendingFavoriteOperations.count)")
+
+        guard isCloudKitAvailable else {
+            favoriteRecipeKeys = effectiveFavoriteKeys(with: favoriteRecipeKeys)
+            persistFavoriteRecipeKeysCache()
+            printD("[FavoritesTrace] loadFavorites offline merged=\(favoriteRecipeKeys.count) keys=\(favoriteTraceKeys(favoriteRecipeKeys.sorted()))")
+            return
+        }
+
+        await ensurePersonalZoneExists()
+
+        do {
+            try await syncPendingFavoriteOperations()
+            let records = try await fetchAllFavoriteRecords()
+            let serverKeys = Set(records.compactMap { record -> String? in
+                guard let recipeID = favoriteRecipeID(from: record) else { return nil }
+                return favoriteKey(for: recipeID)
+            })
+
+            favoriteRecipeKeys = effectiveFavoriteKeys(with: serverKeys)
+            persistFavoriteRecipeKeysCache()
+            markOnlineIfNeeded()
+            printD("[FavoritesTrace] loadFavorites success server=\(serverKeys.count) merged=\(favoriteRecipeKeys.count) keys=\(favoriteTraceKeys(favoriteRecipeKeys.sorted()))")
+        } catch {
+            if handleOfflineFallback(for: error) {
+                favoriteRecipeKeys = effectiveFavoriteKeys(with: favoriteRecipeKeys)
+                persistFavoriteRecipeKeysCache()
+                printD("[FavoritesTrace] loadFavorites offlineFallback merged=\(favoriteRecipeKeys.count) error=\(error.localizedDescription)")
+                return
+            }
+
+            let errorDescription = error.localizedDescription
+            if isFavoriteSchemaBootstrapError(error) {
+                favoriteRecipeKeys = effectiveFavoriteKeys(with: favoriteRecipeKeys)
+                persistFavoriteRecipeKeysCache()
+                printD("[FavoritesTrace] loadFavorites bootstrapError preserved=\(favoriteRecipeKeys.count) error=\(errorDescription)")
+                return
+            }
+
+            printD("Error loading favorites: \(errorDescription)")
+            favoriteRecipeKeys = effectiveFavoriteKeys(with: favoriteRecipeKeys)
+            persistFavoriteRecipeKeysCache()
+            printD("[FavoritesTrace] loadFavorites error preserved=\(favoriteRecipeKeys.count) error=\(errorDescription)")
+        }
+    }
+
+    func setFavorite(_ isFavorite: Bool, for recipeID: CKRecord.ID) async -> Bool {
+        error = nil
+        applyFavoriteStateLocally(isFavorite, for: recipeID)
+        queueFavoriteSync(isFavorite, for: recipeID)
+        printD("[FavoritesTrace] setFavorite value=\(isFavorite) recipe=\(recipeID.recordName.suffix(8)) key=\(summarizedFavoriteKey(favoriteKey(for: recipeID))) local=\(favoriteRecipeKeys.count) pending=\(pendingFavoriteOperations.count)")
+
+        guard isCloudKitAvailable else {
+            return true
+        }
+
+        do {
+            await ensurePersonalZoneExists()
+            try await syncPendingFavoriteOperations(surfaceErrorForKey: favoriteKey(for: recipeID))
+            markOnlineIfNeeded()
+        } catch {
+            if handleOfflineFallback(for: error) {
+                return true
+            }
+
+            printD("Error syncing favorite state: \(error.localizedDescription)")
+            self.error = "Failed to sync favorites"
+        }
+
+        return true
+    }
+
+    func removeFavorite(for recipeID: CKRecord.ID) async -> Bool {
+        await setFavorite(false, for: recipeID)
+    }
+
+    private func syncPendingFavoriteOperations(surfaceErrorForKey: String? = nil) async throws {
+        let operations = pendingFavoriteOperations.values.sorted {
+            favoriteKey(for: $0.recipeID) < favoriteKey(for: $1.recipeID)
+        }
+
+        printD("[FavoritesTrace] syncPendingFavoriteOperations start count=\(operations.count) surfaceKey=\(surfaceErrorForKey.map(summarizedFavoriteKey) ?? "nil")")
+
+        for operation in operations {
+            let operationKey = favoriteKey(for: operation.recipeID)
+
+            do {
+                do {
+                    try await syncFavoriteOperation(operation)
+                } catch {
+                    if shouldRetryFavoriteOperationAfterEnsuringZone(error) {
+                        hasEnsuredPersonalZone = false
+                        await ensurePersonalZoneExists()
+                        try await syncFavoriteOperation(operation)
+                    } else {
+                        throw error
+                    }
+                }
+
+                pendingFavoriteOperations.removeValue(forKey: operationKey)
+                persistPendingFavoriteOperations()
+                printD("[FavoritesTrace] syncPendingFavoriteOperations success key=\(summarizedFavoriteKey(operationKey)) isFavorite=\(operation.isFavorite) remaining=\(pendingFavoriteOperations.count)")
+            } catch {
+                if isNetworkRelatedError(error) {
+                    printD("[FavoritesTrace] syncPendingFavoriteOperations networkError key=\(summarizedFavoriteKey(operationKey)) error=\(error.localizedDescription)")
+                    throw error
+                }
+
+                if surfaceErrorForKey == operationKey && !isFavoriteSchemaBootstrapError(error) {
+                    self.error = "Failed to sync favorites"
+                }
+                printD("[FavoritesTrace] syncPendingFavoriteOperations error key=\(summarizedFavoriteKey(operationKey)) isFavorite=\(operation.isFavorite) error=\(error.localizedDescription)")
+                printD("Error syncing pending favorite operation: \(error.localizedDescription)")
+            }
+        }
+    }
     
     private func recipeWithCachedImage(_ recipe: Recipe, fromCloudKitRecord: Bool = true) -> Recipe {
         var updatedRecipe = recipe
@@ -742,6 +1117,9 @@ class CloudKitManager: ObservableObject {
     
     // MARK: - Source Management
     func loadSources() async {
+        await ensureUserIdentifier()
+        normalizeFavoriteStateForCurrentUser()
+
         isLoading = true
         isCollectingSharedKeys = true
         collectedSharedKeys.removeAll()
