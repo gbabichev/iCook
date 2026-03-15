@@ -573,6 +573,44 @@ struct RecipeCollectionView: View {
     
     @MainActor
     private func loadHomeRecipes(skipCache: Bool = false) async {
+        guard !Task.isCancelled else { return }
+
+        error = nil
+        let visibleRecipes = model.recipes
+        if !visibleRecipes.isEmpty {
+            if let currentFeatured = featuredHomeRecipe,
+               let refreshedFeatured = visibleRecipes.first(where: { $0.id == currentFeatured.id }) {
+                featuredHomeRecipe = refreshedFeatured
+            } else {
+                featuredHomeRecipe = visibleRecipes.randomElement()
+            }
+
+            isLoading = false
+            if !model.isLoadingRecipes {
+                Task { @MainActor in
+                    showRefreshSpinner = true
+                    await model.loadRandomRecipes(skipCache: skipCache)
+                    guard !Task.isCancelled else {
+                        showRefreshSpinner = false
+                        return
+                    }
+
+                    if let currentFeatured = featuredHomeRecipe,
+                       let refreshedFeatured = model.recipes.first(where: { $0.id == currentFeatured.id }) {
+                        featuredHomeRecipe = refreshedFeatured
+                    } else {
+                        featuredHomeRecipe = model.recipes.randomElement()
+                    }
+
+                    if let modelError = model.error {
+                        error = modelError
+                    }
+                    showRefreshSpinner = false
+                }
+            }
+            return
+        }
+
         isLoading = true
         defer { isLoading = false }
 
@@ -584,6 +622,10 @@ struct RecipeCollectionView: View {
             featuredHomeRecipe = refreshedFeatured
         } else {
             featuredHomeRecipe = model.recipes.randomElement()
+        }
+
+        if let modelError = model.error {
+            error = modelError
         }
 
         try? await Task.sleep(nanoseconds: 800_000_000) // 800ms minimum refresh time
