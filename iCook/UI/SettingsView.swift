@@ -25,6 +25,10 @@ struct SourceSelector: View {
     @State var sourceToDelete: Source?
     @State var showDeleteConfirmation = false
     @State var recipeTotalsBySource: [CKRecord.ID: Int] = [:]
+    @State var isExporting = false
+    @State var exportDocument = RecipeExportDocument()
+    @State var exportFilename = "RecipesExport.icookexport"
+    @State var exportingSourceID: CKRecord.ID?
     @State private var hiddenSourceIDs = Set<CKRecord.ID>()
 #if os(macOS)
     @State var showShareCopiedToast = false
@@ -47,6 +51,11 @@ struct SourceSelector: View {
 
     var totalRecipeCountAllCollections: Int {
         recipeTotalsBySource.values.reduce(0, +)
+    }
+
+    var lastSyncedSummary: String? {
+        guard let date = viewModel.lastSuccessfulCloudSyncAt else { return nil }
+        return "Last synced \(date.formatted(.relative(presentation: .named)))"
     }
 
     var visibleSources: [Source] {
@@ -98,6 +107,19 @@ struct SourceSelector: View {
         .task(id: sourceTotalsRefreshKey) {
             await refreshRecipeTotals()
         }
+        .fileExporter(
+            isPresented: $isExporting,
+            document: exportDocument,
+            contentType: RecipeExportConstants.contentType,
+            defaultFilename: exportFilename
+        ) { _ in
+            exportingSourceID = nil
+        }
+        .onChange(of: isExporting) { _, newValue in
+            if !newValue {
+                exportingSourceID = nil
+            }
+        }
         .sheet(item: $editingSource) { source in
             EditSourceSheet(
                 isPresented: Binding(
@@ -138,6 +160,7 @@ struct SourceSelector: View {
             source: source,
             recipeCount: recipeTotalsBySource[source.id, default: 0],
             isSelected: viewModel.currentSource?.id == source.id,
+            isExporting: exportingSourceID == source.id,
             onSelect: {
                 Task {
                     await viewModel.selectSource(source)
@@ -146,6 +169,11 @@ struct SourceSelector: View {
             onShare: {
                 Task {
                     await shareSource(for: source)
+                }
+            },
+            onExport: {
+                Task {
+                    await exportSource(source)
                 }
             },
             onRename: {
@@ -161,6 +189,7 @@ struct SourceSelector: View {
             source: source,
             recipeCount: recipeTotalsBySource[source.id, default: 0],
             isSelected: viewModel.currentSource?.id == source.id,
+            isExporting: exportingSourceID == source.id,
             onSelect: {
                 Task {
                     await viewModel.selectSource(source)
@@ -169,6 +198,11 @@ struct SourceSelector: View {
             onShare: {
                 Task {
                     await shareSource(for: source)
+                }
+            },
+            onExport: {
+                Task {
+                    await exportSource(source)
                 }
             },
             onRename: {
@@ -207,6 +241,12 @@ struct SourceSelector: View {
                     Text("Organize recipes into collections by theme or occasion, and share collections with others.")
                         .font(.caption)
                         .foregroundColor(.secondary)
+
+                    if let lastSyncedSummary {
+                        Label(lastSyncedSummary, systemImage: "clock.arrow.circlepath")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
 
                     if visibleSources.isEmpty {
                         Text("No Collections yet")
@@ -382,10 +422,42 @@ struct SourceSelector: View {
 
         var totals: [CKRecord.ID: Int] = [:]
         for source in sources {
-            let total = await viewModel.cloudKitManager.totalRecipeCount(for: source)
-            totals[source.id] = total
+            totals[source.id] = viewModel.cloudKitManager.cachedTotalRecipeCount(for: source)
         }
         recipeTotalsBySource = totals
+
+        guard viewModel.cloudKitManager.isCloudKitAvailable else { return }
+
+        for source in sources {
+            let total = await viewModel.cloudKitManager.totalRecipeCount(for: source)
+            recipeTotalsBySource[source.id] = total
+        }
+    }
+
+    @MainActor
+    func exportSource(_ source: Source) async {
+        exportingSourceID = source.id
+        defer {
+            if !isExporting {
+                exportingSourceID = nil
+            }
+        }
+
+        if let document = await viewModel.exportSourceDocument(for: source) {
+            exportDocument = document
+            exportFilename = suggestedExportFilename(for: source)
+            isExporting = true
+        }
+    }
+
+    private func suggestedExportFilename(for source: Source) -> String {
+        let invalidCharacters = CharacterSet(charactersIn: "/:\\?%*|\"<>")
+        let cleanedScalars = source.name.unicodeScalars.map { scalar in
+            invalidCharacters.contains(scalar) ? "-" : Character(scalar)
+        }
+        let baseName = String(cleanedScalars).trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallbackName = baseName.isEmpty ? "RecipesExport" : baseName
+        return "\(fallbackName).icookexport"
     }
 
     @MainActor
@@ -613,8 +685,10 @@ struct SourceRowWrapper: View {
     let source: Source
     let recipeCount: Int
     let isSelected: Bool
+    let isExporting: Bool
     let onSelect: () -> Void
     let onShare: () -> Void
+    let onExport: () -> Void
     let onRename: () -> Void
     let onDelete: () -> Void
 #if os(iOS)
@@ -663,6 +737,7 @@ struct SourceRowWrapper: View {
         let isOwner = viewModel.isSharedOwner(source) || source.isPersonal
         let canRename = isOwner
         let canDelete = isOwner
+        let canExport = isSelected && !isExporting
         let shareState = shareUIState(isShared: isShared, isOwner: isOwner)
         let shareSystemImage = shareSystemImage(for: shareState)
 #if os(iOS)
@@ -710,6 +785,18 @@ struct SourceRowWrapper: View {
                     .font(.system(size: 14))
             }
             .buttonStyle(.bordered)
+
+            Button(action: onExport) {
+                if isExporting {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: "square.and.arrow.down")
+                        .font(.system(size: 14))
+                }
+            }
+            .buttonStyle(.bordered)
+            .disabled(!canExport)
             
 #if os(macOS)
             if canDelete {
@@ -732,6 +819,11 @@ struct SourceRowWrapper: View {
                 }
                 .disabled(viewModel.isOfflineMode)
             }
+
+            Button(action: onExport) {
+                Label("Export Recipes", systemImage: "folder.badge.arrow.up")
+            }
+            .disabled(!canExport)
             
             if canDelete {
                 Button(role: .destructive, action: onDelete) {

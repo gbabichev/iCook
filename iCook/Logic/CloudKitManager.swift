@@ -58,6 +58,12 @@ struct ImageSaveResult {
     let tempURL: URL
 }
 
+struct SourceExportSnapshot {
+    let categories: [Category]
+    let tags: [Tag]
+    let recipes: [Recipe]
+}
+
 private struct PendingFavoriteOperation: Codable {
     let recipeRecordName: String
     let recipeZoneName: String
@@ -97,6 +103,7 @@ class CloudKitManager: ObservableObject {
     @Published private(set) var reachabilityStatus: CloudReachabilityStatus = .unknown
     @Published private(set) var cloudSyncState: CloudSyncState = .idle
     @Published private(set) var cloudStatusMessage: String?
+    @Published private(set) var lastSuccessfulCloudSyncAt: Date?
     
     // MARK: - Private Properties
     let container: CKContainer
@@ -146,9 +153,11 @@ class CloudKitManager: ObservableObject {
     private let pendingFavoriteOperationsKey = "PendingFavoriteOperations"
     private let favoriteMigrationCompletedKey = "FavoriteRecipeCloudMigrationCompleted"
     private let canonicalFavoriteOwnerToken = "__me__"
+    private let lastSuccessfulCloudSyncAtKey = "LastSuccessfulCloudSyncAt"
     
     init() {
         self.container = CKContainer(identifier: "iCloud.com.georgebabichev.iCook")
+        self.lastSuccessfulCloudSyncAt = UserDefaults.standard.object(forKey: lastSuccessfulCloudSyncAtKey) as? Date
         startNetworkMonitor()
         loadSharedSourceIDs()
         loadFavoriteStateLocalCache()
@@ -232,6 +241,8 @@ class CloudKitManager: ObservableObject {
     }
 
     private func markCloudHealthyIfNeeded() {
+        recordSuccessfulCloudSync()
+
         if cloudSyncState == .degraded {
             cloudSyncState = activeCloudRequestCount > 0 ? .syncing : .idle
         } else if activeCloudRequestCount == 0 {
@@ -242,6 +253,11 @@ class CloudKitManager: ObservableObject {
             cloudStatusMessage = nil
         }
         updateOfflineMode()
+    }
+
+    private func recordSuccessfulCloudSync(at date: Date = Date()) {
+        lastSuccessfulCloudSyncAt = date
+        UserDefaults.standard.set(date, forKey: lastSuccessfulCloudSyncAtKey)
     }
 
     private nonisolated func withTimeout<T>(
@@ -979,6 +995,105 @@ class CloudKitManager: ObservableObject {
             }
         }
         return false
+    }
+
+    private func exportDatabaseContext(for source: Source) -> (database: CKDatabase, zoneID: CKRecordZone.ID) {
+        let isOwner = isSharedOwner(source)
+        let database = isOwner || source.isPersonal ? privateDatabase : sharedDatabase
+        let zoneID = isOwner || source.isPersonal ? personalZoneID : source.id.zoneID
+        return (database, zoneID)
+    }
+
+    func exportSnapshot(for source: Source) async -> SourceExportSnapshot {
+        let cachedCategories = loadCategoriesLocalCache(for: source) ?? []
+        let cachedTags = loadTagsLocalCache(for: source) ?? []
+        let cachedRecipes = loadRecipesLocalCache(for: source, categoryID: nil) ?? []
+        let cachedSnapshot = SourceExportSnapshot(
+            categories: cachedCategories,
+            tags: cachedTags,
+            recipes: cachedRecipes
+        )
+
+        guard isCloudKitAvailable else {
+            return cachedSnapshot
+        }
+
+        do {
+            let sourceReference = CKRecord.Reference(recordID: source.id, action: .none)
+            let context = exportDatabaseContext(for: source)
+
+            let categoryQuery = CKQuery(
+                recordType: "Category",
+                predicate: NSPredicate(format: "sourceID == %@", sourceReference)
+            )
+            categoryQuery.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true)]
+
+            let tagQuery = CKQuery(
+                recordType: "Tag",
+                predicate: NSPredicate(format: "sourceID == %@", sourceReference)
+            )
+            tagQuery.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true)]
+
+            let recipeQuery = CKQuery(
+                recordType: "Recipe",
+                predicate: NSPredicate(format: "sourceID == %@", sourceReference)
+            )
+            recipeQuery.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true)]
+
+            let categoryResults = try await fetchAllQueryMatchResults(
+                matching: categoryQuery,
+                in: context.database,
+                zoneID: context.zoneID
+            )
+            let categories = categoryResults.compactMap { _, result -> Category? in
+                guard case .success(let record) = result else { return nil }
+                return Category.from(record)
+            }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+
+            let tagResults = try await fetchAllQueryMatchResults(
+                matching: tagQuery,
+                in: context.database,
+                zoneID: context.zoneID
+            )
+            let tags = tagResults.compactMap { _, result -> Tag? in
+                guard case .success(let record) = result else { return nil }
+                return Tag.from(record)
+            }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+
+            let recipeResults = try await fetchAllQueryMatchResults(
+                matching: recipeQuery,
+                in: context.database,
+                zoneID: context.zoneID
+            )
+            let recipes = recipeResults.compactMap { _, result -> Recipe? in
+                guard case .success(let record) = result,
+                      let recipe = Recipe.from(record) else {
+                    return nil
+                }
+                return recipeWithCachedImage(recipe)
+            }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+
+            saveCategoriesLocalCache(categories, for: source)
+            saveTagsLocalCache(tags, for: source)
+            saveRecipesLocalCache(recipes, for: source, categoryID: nil)
+
+            var recipeCounts: [CKRecord.ID: Int] = [:]
+            for recipe in recipes {
+                recipeCounts[recipe.categoryID, default: 0] += 1
+            }
+            saveRecipeCountsLocalCache(recipeCounts, for: source)
+            markOnlineIfNeeded()
+
+            return SourceExportSnapshot(categories: categories, tags: tags, recipes: recipes)
+        } catch {
+            if !handleOfflineFallback(for: error) {
+                printD("Error building export snapshot for \(source.name): \(error.localizedDescription)")
+            }
+            return cachedSnapshot
+        }
     }
     
     private func handleOfflineFallback(for error: Error) -> Bool {
@@ -2252,9 +2367,14 @@ class CloudKitManager: ObservableObject {
 
     /// Returns total recipe count for a source without mutating the currently selected source state.
     /// Also refreshes the source's recipe-count local cache when online.
+    func cachedTotalRecipeCount(for source: Source) -> Int {
+        loadRecipeCountsLocalCache(for: source).values.reduce(0, +)
+    }
+
+    /// Returns total recipe count for a source without mutating the currently selected source state.
+    /// Also refreshes the source's recipe-count local cache when online.
     func totalRecipeCount(for source: Source) async -> Int {
-        let cachedCounts = loadRecipeCountsLocalCache(for: source)
-        let cachedTotal = cachedCounts.values.reduce(0, +)
+        let cachedTotal = cachedTotalRecipeCount(for: source)
 
         guard isCloudKitAvailable else {
             return cachedTotal

@@ -196,6 +196,12 @@ extension SourceSelector {
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
+                        if let lastSyncedSummary {
+                            Label(lastSyncedSummary, systemImage: "clock.arrow.circlepath")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
                         if sources.isEmpty {
                             VStack(spacing: 8) {
                                 Image(systemName: "square.stack")

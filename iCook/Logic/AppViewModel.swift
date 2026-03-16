@@ -56,6 +56,7 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var cloudConnectionMessage: String?
     @Published private(set) var isRetryingCloudConnection = false
     @Published private(set) var favoriteRecipeKeys: Set<String> = []
+    @Published private(set) var lastSuccessfulCloudSyncAt: Date?
     private let lastViewedRecipeKey = "LastViewedRecipe"
     private let appLocationKey = "AppLocation"
 
@@ -79,6 +80,7 @@ final class AppViewModel: ObservableObject {
 
     init() {
         favoriteRecipeKeys = cloudKitManager.favoriteRecipeKeys
+        lastSuccessfulCloudSyncAt = cloudKitManager.lastSuccessfulCloudSyncAt
 
         // Prime from cached manager state so UI doesn't start empty when offline/online
         sources = cloudKitManager.sources
@@ -139,6 +141,13 @@ final class AppViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] keys in
                 self?.favoriteRecipeKeys = keys
+            }
+            .store(in: &notificationCancellables)
+
+        cloudKitManager.$lastSuccessfulCloudSyncAt
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] date in
+                self?.lastSuccessfulCloudSyncAt = date
             }
             .store(in: &notificationCancellables)
 
@@ -1109,33 +1118,34 @@ final class AppViewModel: ObservableObject {
         return true
     }
     
-#if os(macOS)
-    // MARK: - Export (macOS)
+    // MARK: - Export
     func exportCurrentSourceDocument() async -> RecipeExportDocument? {
-        error = nil
         guard let source = currentSource else {
             error = "Select a source before exporting."
             return nil
         }
-        
-        await loadCategories()
-        await cloudKitManager.loadRecipes(for: source, category: nil)
-        recipes = cloudKitManager.recipes
-        
-        let categoryLookup = Dictionary(uniqueKeysWithValues: categories.map { ($0.id, $0.name) })
-        let tagLookup = Dictionary(uniqueKeysWithValues: tags.map { ($0.id, $0.name) })
-        let recipeNameLookup = Dictionary(uniqueKeysWithValues: cloudKitManager.recipes.map { ($0.id, $0.name) })
-        let recipeExportIDLookup = Dictionary(uniqueKeysWithValues: cloudKitManager.recipes.map { ($0.id, $0.id.recordName) })
-        
-        let exportedCategories = categories
+
+        return await exportSourceDocument(for: source)
+    }
+
+    func exportSourceDocument(for source: Source) async -> RecipeExportDocument? {
+        error = nil
+
+        let snapshot = await cloudKitManager.exportSnapshot(for: source)
+        let categoryLookup = Dictionary(uniqueKeysWithValues: snapshot.categories.map { ($0.id, $0.name) })
+        let tagLookup = Dictionary(uniqueKeysWithValues: snapshot.tags.map { ($0.id, $0.name) })
+        let recipeNameLookup = Dictionary(uniqueKeysWithValues: snapshot.recipes.map { ($0.id, $0.name) })
+        let recipeExportIDLookup = Dictionary(uniqueKeysWithValues: snapshot.recipes.map { ($0.id, $0.id.recordName) })
+
+        let exportedCategories = snapshot.categories
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             .map { ExportedCategory(name: $0.name, icon: $0.icon) }
 
-        let exportedTags = tags
+        let exportedTags = snapshot.tags
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             .map { ExportedTag(name: $0.name) }
-        
-        let exportedRecipes = cloudKitManager.recipes
+
+        let exportedRecipes = snapshot.recipes
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             .compactMap { recipe -> (ExportedRecipe, String?, Data?)? in
                 let imageInfo = loadImageData(for: recipe)
@@ -1187,7 +1197,6 @@ final class AppViewModel: ObservableObject {
             return nil
         }
     }
-#endif
     
     // MARK: - Import
     func loadImportPreview(from url: URL) -> ImportPreview? {
@@ -1499,7 +1508,6 @@ final class AppViewModel: ObservableObject {
         return false
     }
     
-#if os(macOS)
     private func loadImageData(for recipe: Recipe) -> (filename: String, data: Data)? {
         let fm = FileManager.default
         
@@ -1525,7 +1533,6 @@ final class AppViewModel: ObservableObject {
         let scalars = value.unicodeScalars.map { allowed.contains($0) ? Character($0) : "-" }
         return String(scalars)
     }
-#endif
     
     private func loadPackageOrJSON(at url: URL) throws -> (Data, [String: Data]) {
         let values = try? url.resourceValues(forKeys: [.contentTypeKey])
