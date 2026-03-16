@@ -45,6 +45,10 @@ struct RecipeDetailView: View {
         model.isFavorite(displayedRecipe.id)
     }
 
+    private var canToggleFavorite: Bool {
+        model.canToggleFavorites
+    }
+
     @ViewBuilder
     private func heroHeader(baseHeight: CGFloat) -> some View {
         AsyncImage(url: displayedRecipe.imageURL) { phase in
@@ -206,6 +210,7 @@ struct RecipeDetailView: View {
                                     .foregroundStyle(isFavorite ? .yellow : .secondary)
                             }
                             .buttonStyle(.plain)
+                            .disabled(!canToggleFavorite)
                             .accessibilityLabel(isFavorite ? "Remove Favorite" : "Add Favorite")
                         }
 

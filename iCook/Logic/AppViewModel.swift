@@ -5,6 +5,14 @@ import UniformTypeIdentifiers
 
 @MainActor
 final class AppViewModel: ObservableObject {
+    enum CloudConnectionState: Equatable {
+        case connected
+        case syncing
+        case degraded
+        case offline
+        case localOnly
+    }
+
     @Published var categories: [Category] = []
     @Published var tags: [Tag] = []
     @Published var recipes: [Recipe] = []
@@ -44,6 +52,9 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var isImportCancellationRequested = false
     @Published var error: String?
     @Published var isOfflineMode = false
+    @Published private(set) var cloudConnectionState: CloudConnectionState = .connected
+    @Published private(set) var cloudConnectionMessage: String?
+    @Published private(set) var isRetryingCloudConnection = false
     @Published private(set) var favoriteRecipeKeys: Set<String> = []
     private let lastViewedRecipeKey = "LastViewedRecipe"
     private let appLocationKey = "AppLocation"
@@ -130,10 +141,88 @@ final class AppViewModel: ObservableObject {
                 self?.favoriteRecipeKeys = keys
             }
             .store(in: &notificationCancellables)
+
+        Publishers.CombineLatest4(
+            cloudKitManager.$isCloudKitAvailable,
+            cloudKitManager.$reachabilityStatus,
+            cloudKitManager.$cloudSyncState,
+            cloudKitManager.$cloudStatusMessage
+        )
+        .receive(on: DispatchQueue.main)
+        .sink { [weak self] _, _, _, _ in
+            self?.refreshOfflineState()
+        }
+        .store(in: &notificationCancellables)
+
+        refreshOfflineState()
     }
     
     private func refreshOfflineState() {
-        isOfflineMode = !cloudKitManager.isCloudKitAvailable || cloudKitManager.isOfflineMode
+        if !cloudKitManager.isCloudKitAvailable {
+            cloudConnectionState = .localOnly
+            cloudConnectionMessage = cloudKitManager.error ?? cloudKitManager.cloudStatusMessage ?? "iCloud not available. Using local storage only."
+            isOfflineMode = true
+            return
+        }
+
+        switch cloudKitManager.reachabilityStatus {
+        case .offline:
+            cloudConnectionState = .offline
+            cloudConnectionMessage = cloudKitManager.cloudStatusMessage ?? "You’re offline. Showing cached data."
+            isOfflineMode = true
+            return
+        case .unknown, .online, .constrained:
+            break
+        }
+
+        switch cloudKitManager.cloudSyncState {
+        case .degraded:
+            cloudConnectionState = .degraded
+            cloudConnectionMessage = cloudKitManager.cloudStatusMessage ?? "Sync is unavailable right now. Showing cached data."
+            isOfflineMode = true
+        case .syncing:
+            cloudConnectionState = .syncing
+            cloudConnectionMessage = cloudKitManager.cloudStatusMessage ?? "Syncing with iCloud..."
+            isOfflineMode = false
+        case .idle:
+            cloudConnectionState = .connected
+            cloudConnectionMessage = nil
+            isOfflineMode = false
+        }
+    }
+
+    var canRetryCloudConnection: Bool {
+        switch cloudConnectionState {
+        case .offline, .degraded:
+            return true
+        case .connected, .syncing, .localOnly:
+            return false
+        }
+    }
+
+    var cloudStatusBannerMessage: String? {
+        switch cloudConnectionState {
+        case .offline, .degraded, .localOnly:
+            return cloudConnectionMessage
+        case .connected, .syncing:
+            return nil
+        }
+    }
+
+    var canToggleFavorites: Bool {
+        cloudKitManager.isCloudKitAvailable && !isOfflineMode
+    }
+
+    func retryCloudConnectionAndRefresh(skipRecipeCache: Bool = true) async {
+        guard !isRetryingCloudConnection else { return }
+        isRetryingCloudConnection = true
+        defer { isRetryingCloudConnection = false }
+
+        error = nil
+        cloudKitManager.error = nil
+        cloudKitManager.prepareForRetry()
+        refreshOfflineState()
+        await refreshSourcesAndCurrentContent(skipRecipeCache: skipRecipeCache, forceProbe: true)
     }
 
     private func logFavoriteVisibilityContext(_ context: String) {
@@ -183,7 +272,13 @@ final class AppViewModel: ObservableObject {
         logFavoriteVisibilityContext("AppViewModel.loadSources")
     }
 
-    func refreshSourcesAndCurrentContent(skipRecipeCache: Bool = true) async {
+    func refreshSourcesAndCurrentContent(skipRecipeCache: Bool = true, forceProbe: Bool = false) async {
+        if forceProbe {
+            error = nil
+            cloudKitManager.error = nil
+            cloudKitManager.prepareForRetry()
+            refreshOfflineState()
+        }
         await loadSources()
         guard currentSource != nil else { return }
         await loadCategories()
@@ -706,6 +801,12 @@ final class AppViewModel: ObservableObject {
 
     @discardableResult
     func setFavorite(_ isFavorite: Bool, for recipeID: CKRecord.ID) async -> Bool {
+        guard canToggleFavorites else {
+            refreshOfflineState()
+            error = cloudConnectionMessage ?? "You're offline. Updating favorites is disabled."
+            return false
+        }
+
         let success = await cloudKitManager.setFavorite(isFavorite, for: recipeID)
         error = cloudKitManager.error
         refreshOfflineState()

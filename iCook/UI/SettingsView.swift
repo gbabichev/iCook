@@ -190,7 +190,7 @@ struct SourceSelector: View {
     #if os(iOS)
     var sourcesListView: some View {
         VStack(spacing: 0) {
-            if let error = viewModel.cloudKitManager.error {
+            if let error = viewModel.cloudStatusBannerMessage ?? viewModel.cloudKitManager.error {
                 HStack {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundColor(.orange)
@@ -354,7 +354,11 @@ struct SourceSelector: View {
             .listStyle(.automatic)
 #if os(iOS)
             .refreshable {
-                await viewModel.refreshSourcesAndCurrentContent(skipRecipeCache: true)
+                if viewModel.canRetryCloudConnection {
+                    await viewModel.retryCloudConnectionAndRefresh(skipRecipeCache: true)
+                } else {
+                    await viewModel.refreshSourcesAndCurrentContent(skipRecipeCache: true, forceProbe: true)
+                }
             }
 #endif
         }
@@ -397,7 +401,11 @@ struct SourceSelector: View {
         guard !isRefreshingCollections else { return }
         isRefreshingCollections = true
         defer { isRefreshingCollections = false }
-        await viewModel.refreshSourcesAndCurrentContent(skipRecipeCache: true)
+        if viewModel.canRetryCloudConnection {
+            await viewModel.retryCloudConnectionAndRefresh(skipRecipeCache: true)
+        } else {
+            await viewModel.refreshSourcesAndCurrentContent(skipRecipeCache: true, forceProbe: true)
+        }
         await refreshRecipeTotals()
     }
 #endif

@@ -168,7 +168,7 @@ extension SourceSelector {
         return ZStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    if let error = viewModel.cloudKitManager.error {
+                    if let error = viewModel.cloudStatusBannerMessage ?? viewModel.cloudKitManager.error {
                         HStack(spacing: 10) {
                             Image(systemName: "exclamationmark.triangle.fill")
                                 .foregroundColor(.orange)

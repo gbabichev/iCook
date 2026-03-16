@@ -22,6 +22,26 @@ private enum RecipeSearchScope: String, CaseIterable, Hashable {
     }
 }
 
+private enum RecipeSortOption: String, CaseIterable, Hashable {
+    case alphabetical
+    case recentlyUpdated
+    case longestCook
+    case shortestCook
+
+    var title: String {
+        switch self {
+        case .alphabetical:
+            return "Alphabetical"
+        case .recentlyUpdated:
+            return "Recently Updated"
+        case .longestCook:
+            return "Longest Cook"
+        case .shortestCook:
+            return "Shortest Cook"
+        }
+    }
+}
+
 enum RecipeCollectionType: Hashable {
     case home
     case favorites
@@ -116,6 +136,7 @@ struct RecipeCollectionView: View {
     @EnvironmentObject private var model: AppViewModel
     @AppStorage("EnableFeelingLucky") private var enableFeelingLucky = true
     @AppStorage("ShowInlineTitles") private var showInlineTitles = true
+    @AppStorage("RecipeSortOption") private var recipeSortOptionRawValue = RecipeSortOption.alphabetical.rawValue
     
     // Toolbar state - passed from parent or locally managed
     @State private var showNewSourceSheet = false
@@ -151,6 +172,39 @@ struct RecipeCollectionView: View {
     
     // Adaptive columns with consistent spacing - account for spacing in minimum width
     private let columns = [GridItem(.adaptive(minimum: 190), spacing: 15)]
+
+    private var recipeSortOption: RecipeSortOption {
+        get { RecipeSortOption(rawValue: recipeSortOptionRawValue) ?? .alphabetical }
+        nonmutating set { recipeSortOptionRawValue = newValue.rawValue }
+    }
+
+    private func sortedRecipes(_ recipes: [Recipe]) -> [Recipe] {
+        recipes.sorted { first, second in
+            switch recipeSortOption {
+            case .alphabetical:
+                let nameComparison = first.name.localizedCaseInsensitiveCompare(second.name)
+                if nameComparison != .orderedSame {
+                    return nameComparison == .orderedAscending
+                }
+                return first.id.recordName.localizedStandardCompare(second.id.recordName) == .orderedAscending
+            case .recentlyUpdated:
+                if first.lastModified != second.lastModified {
+                    return first.lastModified > second.lastModified
+                }
+                return first.name.localizedCaseInsensitiveCompare(second.name) == .orderedAscending
+            case .longestCook:
+                if first.recipeTime != second.recipeTime {
+                    return first.recipeTime > second.recipeTime
+                }
+                return first.name.localizedCaseInsensitiveCompare(second.name) == .orderedAscending
+            case .shortestCook:
+                if first.recipeTime != second.recipeTime {
+                    return first.recipeTime < second.recipeTime
+                }
+                return first.name.localizedCaseInsensitiveCompare(second.name) == .orderedAscending
+            }
+        }
+    }
     
     // Computed property to get the appropriate recipe list
     private var recipes: [Recipe] {
@@ -160,32 +214,31 @@ struct RecipeCollectionView: View {
         
         switch collectionType {
         case .home:
-            return model.recipes.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            return sortedRecipes(model.recipes)
         case .favorites:
-            return model.recipes
-                .filter { model.isFavorite($0.id) }
-                .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            return sortedRecipes(model.recipes.filter { model.isFavorite($0.id) })
         case .category(let category):
-            return model.recipes
-                .filter { $0.categoryID == category.id }
-                .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            return sortedRecipes(model.recipes.filter { $0.categoryID == category.id })
         case .tag(let tag):
-            return model.recipes
-                .filter { $0.tagIDs.contains(tag.id) }
-                .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            return sortedRecipes(model.recipes.filter { $0.tagIDs.contains(tag.id) })
         }
     }
     
     @ViewBuilder
     private var offlineStatusIndicator: some View {
-        if model.isOfflineMode {
+        if shouldShowCloudStatusIndicator {
             Button {
                 showingOfflineNotice = true
             } label: {
-                Image(systemName: "wifi.slash")
+                if model.isRetryingCloudConnection {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: cloudStatusSymbol)
+                }
             }
-            .foregroundStyle(.red)
-            .accessibilityLabel("Offline mode")
+            .foregroundStyle(cloudStatusColor)
+            .accessibilityLabel(cloudStatusTitle)
         }
     }
     
@@ -284,6 +337,56 @@ struct RecipeCollectionView: View {
         showingSearchResults || !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    private var shouldShowCloudStatusIndicator: Bool {
+        switch model.cloudConnectionState {
+        case .offline, .degraded:
+            return true
+        case .connected, .syncing, .localOnly:
+            return false
+        }
+    }
+
+    private var cloudStatusTitle: String {
+        switch model.cloudConnectionState {
+        case .offline:
+            return "Offline Mode"
+        case .degraded:
+            return "Connection Issue"
+        case .connected:
+            return "Connected"
+        case .syncing:
+            return "Syncing"
+        case .localOnly:
+            return "iCloud Unavailable"
+        }
+    }
+
+    private var cloudStatusSymbol: String {
+        switch model.cloudConnectionState {
+        case .offline:
+            return "wifi.slash"
+        case .degraded:
+            return "wifi.exclamationmark"
+        case .connected:
+            return "wifi"
+        case .syncing:
+            return "arrow.trianglehead.2.clockwise"
+        case .localOnly:
+            return "exclamationmark.icloud"
+        }
+    }
+
+    private var cloudStatusColor: Color {
+        switch model.cloudConnectionState {
+        case .offline:
+            return .red
+        case .degraded:
+            return .orange
+        case .connected, .syncing, .localOnly:
+            return .primary
+        }
+    }
+
 #if os(macOS)
     private var isSearchFilterVisible: Bool {
         isSearchPresented || !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -324,6 +427,26 @@ struct RecipeCollectionView: View {
         .help("Filter recipe search by name or ingredient")
     }
 #endif
+
+    private var sortToolbarMenu: some View {
+        Menu {
+            ForEach(RecipeSortOption.allCases, id: \.self) { option in
+                Button {
+                    recipeSortOption = option
+                } label: {
+                    if recipeSortOption == option {
+                        Label(option.title, systemImage: "checkmark")
+                    } else {
+                        Text(option.title)
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: "arrow.up.arrow.down")
+        }
+        .accessibilityLabel("Sort Recipes")
+        .help("Sort recipes")
+    }
 
     private var luckyRecipePool: [Recipe] {
         switch collectionType {
@@ -775,9 +898,9 @@ struct RecipeCollectionView: View {
             base = model.recipes
         }
 
-        return base.filter { recipe in
+        return sortedRecipes(base.filter { recipe in
             recipeMatchesSearch(recipe, query: trimmed)
-        }
+        })
     }
 
     private func recipeMatchesSearch(_ recipe: Recipe, query: String) -> Bool {
@@ -834,19 +957,36 @@ struct RecipeCollectionView: View {
     
     private var offlineNoticeSheet: some View {
         VStack(spacing: 16) {
-            Image(systemName: "wifi.slash")
+            Image(systemName: cloudStatusSymbol)
                 .font(.system(size: 48))
-                .foregroundStyle(.red)
-            Text("You are offline")
+                .foregroundStyle(cloudStatusColor)
+            Text(cloudStatusTitle)
                 .font(.headline)
-            Text("Connect to the internet to sync recipes with iCloud and enable recipe editing.")
+            Text(model.cloudConnectionMessage ?? "Connect to the internet to sync recipes with iCloud and enable recipe editing.")
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
                 .padding(.horizontal)
-            Button("Got it") {
+            if model.canRetryCloudConnection {
+                Button {
+                    Task {
+                        await model.retryCloudConnectionAndRefresh(skipRecipeCache: true)
+                        if !model.canRetryCloudConnection {
+                            showingOfflineNotice = false
+                        }
+                    }
+                } label: {
+                    if model.isRetryingCloudConnection {
+                        ProgressView()
+                    } else {
+                        Text("Retry Connection")
+                    }
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(model.isRetryingCloudConnection)
+            }
+            Button(model.canRetryCloudConnection ? "Close" : "Got it") {
                 showingOfflineNotice = false
             }
-            .keyboardShortcut(.defaultAction)
         }
         .padding(24)
         .frame(minWidth: 280)
@@ -1079,13 +1219,11 @@ struct RecipeCollectionView: View {
         isRefreshInFlight = true
         showRefreshSpinner = true
         let start = Date()
-        if model.isOfflineMode {
-            showingOfflineNotice = true
-            showRefreshSpinner = false
-            isRefreshInFlight = false
-            return
+        if model.canRetryCloudConnection {
+            await model.retryCloudConnectionAndRefresh(skipRecipeCache: true)
+        } else {
+            await model.refreshSourcesAndCurrentContent(skipRecipeCache: true, forceProbe: true)
         }
-        await model.refreshSourcesAndCurrentContent(skipRecipeCache: true)
         if showingSearchResults {
             performSearch()
         }
@@ -1244,6 +1382,10 @@ struct RecipeCollectionView: View {
                 .disabled(luckyRecipePool.isEmpty || isLoading)
                 .accessibilityLabel("Feeling Lucky")
             }
+        }
+
+        ToolbarItem(placement: .primaryAction) {
+            sortToolbarMenu
         }
 
 #if os(macOS)

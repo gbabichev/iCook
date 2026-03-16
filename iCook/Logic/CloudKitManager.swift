@@ -2,11 +2,55 @@ import Foundation
 import Combine
 import CloudKit
 import ObjectiveC
+import Network
 #if os(iOS)
 import UIKit
 #elseif os(macOS)
 import AppKit
 #endif
+
+enum CloudReachabilityStatus: String, Equatable {
+    case unknown
+    case online
+    case constrained
+    case offline
+
+    var isReachable: Bool {
+        switch self {
+        case .online, .constrained:
+            return true
+        case .unknown, .offline:
+            return false
+        }
+    }
+}
+
+enum CloudSyncState: Equatable {
+    case idle
+    case syncing
+    case degraded
+}
+
+private struct CloudRequestTimeoutError: LocalizedError {
+    let operationName: String
+
+    var errorDescription: String? {
+        "Connection timed out while syncing \(operationName)."
+    }
+}
+
+private final class TimeoutState: @unchecked Sendable {
+    private let lock = NSLock()
+    nonisolated(unsafe) private var hasResumed = false
+
+    nonisolated func claimResume() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !hasResumed else { return false }
+        hasResumed = true
+        return true
+    }
+}
 
 struct ImageSaveResult {
     let asset: CKAsset
@@ -50,6 +94,9 @@ class CloudKitManager: ObservableObject {
     @Published var isOfflineMode = false
     @Published var canEditSharedSources = false
     @Published private(set) var favoriteRecipeKeys: Set<String> = []
+    @Published private(set) var reachabilityStatus: CloudReachabilityStatus = .unknown
+    @Published private(set) var cloudSyncState: CloudSyncState = .idle
+    @Published private(set) var cloudStatusMessage: String?
     
     // MARK: - Private Properties
     let container: CKContainer
@@ -60,6 +107,10 @@ class CloudKitManager: ObservableObject {
     private lazy var personalZone: CKRecordZone = CKRecordZone(zoneID: personalZoneID)
     private var hasEnsuredPersonalZone = false
     private var ensurePersonalZoneTask: Task<Void, Never>?
+    private let networkMonitor = NWPathMonitor()
+    private let networkMonitorQueue = DispatchQueue(label: "iCook.CloudKitNetworkMonitor")
+    private let cloudRequestTimeoutSeconds: Double = 12
+    private var activeCloudRequestCount = 0
     
     // Caches
     private var sourceCache: [CKRecord.ID: Source] = [:]
@@ -98,6 +149,7 @@ class CloudKitManager: ObservableObject {
     
     init() {
         self.container = CKContainer(identifier: "iCloud.com.georgebabichev.iCook")
+        startNetworkMonitor()
         loadSharedSourceIDs()
         loadFavoriteStateLocalCache()
         // Load from local cache immediately
@@ -110,11 +162,153 @@ class CloudKitManager: ObservableObject {
             }
         }
     }
+
+    private func startNetworkMonitor() {
+        networkMonitor.pathUpdateHandler = { [weak self] path in
+            Task { @MainActor in
+                self?.handleNetworkPathUpdate(path)
+            }
+        }
+        networkMonitor.start(queue: networkMonitorQueue)
+    }
+
+    private func handleNetworkPathUpdate(_ path: NWPath) {
+        let nextStatus: CloudReachabilityStatus
+        switch path.status {
+        case .satisfied:
+            nextStatus = (path.isConstrained || path.isExpensive) ? .constrained : .online
+        case .unsatisfied, .requiresConnection:
+            nextStatus = .offline
+        @unknown default:
+            nextStatus = .unknown
+        }
+
+        reachabilityStatus = nextStatus
+
+        if nextStatus == .offline {
+            cloudStatusMessage = "You’re offline. Showing cached data."
+        } else if cloudSyncState != .degraded {
+            cloudStatusMessage = nil
+        }
+
+        updateOfflineMode()
+    }
+
+    private func updateOfflineMode() {
+        isOfflineMode = !isCloudKitAvailable || reachabilityStatus == .offline || cloudSyncState == .degraded
+    }
+
+    private func beginCloudRequest() {
+        activeCloudRequestCount += 1
+        if cloudSyncState != .degraded {
+            cloudSyncState = .syncing
+        }
+        updateOfflineMode()
+    }
+
+    private func endCloudRequest() {
+        activeCloudRequestCount = max(0, activeCloudRequestCount - 1)
+        if activeCloudRequestCount == 0, cloudSyncState != .degraded {
+            cloudSyncState = .idle
+            if reachabilityStatus != .offline {
+                cloudStatusMessage = nil
+            }
+        }
+        updateOfflineMode()
+    }
+
+    private func markCloudDegraded(for error: Error, operationName: String) {
+        guard isNetworkRelatedError(error) else { return }
+        cloudSyncState = .degraded
+        if error is CloudRequestTimeoutError {
+            cloudStatusMessage = "Connection is weak. Showing cached data."
+        } else if reachabilityStatus == .offline {
+            cloudStatusMessage = "You’re offline. Showing cached data."
+        } else {
+            cloudStatusMessage = "Sync is unavailable right now. Showing cached data."
+        }
+        printD("Cloud request degraded for \(operationName): \(error.localizedDescription)")
+        updateOfflineMode()
+    }
+
+    private func markCloudHealthyIfNeeded() {
+        if cloudSyncState == .degraded {
+            cloudSyncState = activeCloudRequestCount > 0 ? .syncing : .idle
+        } else if activeCloudRequestCount == 0 {
+            cloudSyncState = .idle
+        }
+
+        if reachabilityStatus != .offline {
+            cloudStatusMessage = nil
+        }
+        updateOfflineMode()
+    }
+
+    private nonisolated func withTimeout<T>(
+        seconds: Double,
+        operationName: String,
+        operation: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
+        let state = TimeoutState()
+
+        return try await withCheckedThrowingContinuation { continuation in
+            let operationTask = Task { @MainActor in
+                do {
+                    let value = try await operation()
+                    guard state.claimResume() else { return }
+                    continuation.resume(returning: value)
+                } catch {
+                    guard state.claimResume() else { return }
+                    continuation.resume(throwing: error)
+                }
+            }
+
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                operationTask.cancel()
+                guard state.claimResume() else { return }
+                continuation.resume(throwing: CloudRequestTimeoutError(operationName: operationName))
+            }
+        }
+    }
+
+    private func performCloudRequest<T>(
+        _ operationName: String,
+        timeout seconds: Double? = nil,
+        operation: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
+        beginCloudRequest()
+        defer { endCloudRequest() }
+
+        do {
+            let result = try await withTimeout(
+                seconds: seconds ?? cloudRequestTimeoutSeconds,
+                operationName: operationName,
+                operation: operation
+            )
+            markCloudHealthyIfNeeded()
+            return result
+        } catch {
+            markCloudDegraded(for: error, operationName: operationName)
+            throw error
+        }
+    }
+
+    func prepareForRetry() {
+        error = nil
+        if reachabilityStatus != .offline {
+            cloudStatusMessage = "Checking iCloud connection..."
+        }
+        updateOfflineMode()
+    }
     
     // MARK: - Setup
     private func setupiCloudUser() async {
         do {
-            let status = try await container.accountStatus()
+            let container = self.container
+            let status = try await withTimeout(seconds: cloudRequestTimeoutSeconds, operationName: "iCloud account") {
+                try await container.accountStatus()
+            }
             guard status == .available else {
                 isCloudKitAvailable = false
                 switch status {
@@ -131,6 +325,8 @@ class CloudKitManager: ObservableObject {
                 @unknown default:
                     self.error = "iCloud not available. Using local storage only."
                 }
+                cloudStatusMessage = self.error
+                updateOfflineMode()
                 printD("CloudKit unavailable due to account status: \(status.rawValue)")
                 return
             }
@@ -139,17 +335,23 @@ class CloudKitManager: ObservableObject {
             if let ckError = error as? CKError, ckError.code == .notAuthenticated {
                 isCloudKitAvailable = false
                 self.error = "iCloud not available. Using local storage only."
+                cloudStatusMessage = self.error
+                updateOfflineMode()
                 return
             }
         }
         
         do {
-            let userRecord = try await container.userRecordID()
+            let container = self.container
+            let userRecord = try await withTimeout(seconds: cloudRequestTimeoutSeconds, operationName: "iCloud user") {
+                try await container.userRecordID()
+            }
             userIdentifier = userRecord.recordName
             UserDefaults.standard.set(userRecord.recordName, forKey: "iCloudUserID")
             normalizeFavoriteStateForCurrentUser()
             isCloudKitAvailable = true
             self.error = nil
+            updateOfflineMode()
             printD("iCloud user authenticated successfully")
         } catch {
             printD("Error setting up iCloud user: \(error.localizedDescription)")
@@ -157,18 +359,23 @@ class CloudKitManager: ObservableObject {
                 isCloudKitAvailable = false
                 printD("CloudKit unavailable: User not signed into iCloud. Using local-only mode.")
                 self.error = "iCloud not available. Using local storage only."
+                cloudStatusMessage = self.error
             } else if handleOfflineFallback(for: error) {
                 self.error = "Network unavailable. Using cached data."
             } else {
                 self.error = "Failed to connect to iCloud"
             }
+            updateOfflineMode()
         }
     }
     
     private func ensureUserIdentifier() async {
         if let userIdentifier, !userIdentifier.isEmpty { return }
         do {
-            let userRecord = try await container.userRecordID()
+            let container = self.container
+            let userRecord = try await withTimeout(seconds: cloudRequestTimeoutSeconds, operationName: "iCloud user") {
+                try await container.userRecordID()
+            }
             userIdentifier = userRecord.recordName
             UserDefaults.standard.set(userRecord.recordName, forKey: "iCloudUserID")
             normalizeFavoriteStateForCurrentUser()
@@ -313,16 +520,24 @@ class CloudKitManager: ObservableObject {
     }
 
     private func fetchAllFavoriteRecords() async throws -> [CKRecord] {
+        beginCloudRequest()
+        defer { endCloudRequest() }
+
         var changeToken: CKServerChangeToken?
         var favoriteRecords: [CKRecord] = []
 
         repeat {
-            let batch = try await privateDatabase.recordZoneChanges(
-                inZoneWith: personalZoneID,
-                since: changeToken,
-                desiredKeys: ["recipeRecordName", "recipeZoneName", "recipeZoneOwnerName"],
-                resultsLimit: 400
-            )
+            let database = privateDatabase
+            let zoneID = personalZoneID
+            let currentChangeToken = changeToken
+            let batch = try await withTimeout(seconds: cloudRequestTimeoutSeconds, operationName: "favorites") {
+                try await database.recordZoneChanges(
+                    inZoneWith: zoneID,
+                    since: currentChangeToken,
+                    desiredKeys: ["recipeRecordName", "recipeZoneName", "recipeZoneOwnerName"],
+                    resultsLimit: 400
+                )
+            }
 
             let records = batch.modificationResultsByID.values.compactMap { result -> CKRecord? in
                 guard case .success(let modification) = result else { return nil }
@@ -731,12 +946,13 @@ class CloudKitManager: ObservableObject {
     }
     
     private func markOnlineIfNeeded() {
-        if isOfflineMode {
-            isOfflineMode = false
-        }
+        markCloudHealthyIfNeeded()
     }
     
     private func isNetworkRelatedError(_ error: Error) -> Bool {
+        if error is CloudRequestTimeoutError {
+            return true
+        }
         if let ckError = error as? CKError {
             switch ckError.code {
             case .networkUnavailable, .networkFailure, .serviceUnavailable, .requestRateLimited, .zoneBusy:
@@ -767,7 +983,7 @@ class CloudKitManager: ObservableObject {
     
     private func handleOfflineFallback(for error: Error) -> Bool {
         if isNetworkRelatedError(error) {
-            isOfflineMode = true
+            markCloudDegraded(for: error, operationName: "CloudKit")
             printD("Network unavailable, falling back to cache: \(error.localizedDescription)")
             return true
         }
@@ -1369,18 +1585,31 @@ class CloudKitManager: ObservableObject {
         in database: CKDatabase,
         zoneID: CKRecordZone.ID?
     ) async throws -> QueryMatchResults {
+        beginCloudRequest()
+        defer { endCloudRequest() }
+
         var allResults: QueryMatchResults = [:]
 
-        let (initialResults, initialCursor) = try await database.records(matching: query, inZoneWith: zoneID)
+        let queryDatabase = database
+        let queryZoneID = zoneID
+        let initialQuery = query
+        let (initialResults, initialCursor) = try await withTimeout(seconds: cloudRequestTimeoutSeconds, operationName: "recipes") {
+            try await queryDatabase.records(matching: initialQuery, inZoneWith: queryZoneID)
+        }
         allResults.merge(initialResults) { existing, _ in existing }
 
         var nextCursor = initialCursor
         while let currentCursor = nextCursor {
-            let (pageResults, fetchedNextCursor) = try await database.records(continuingMatchFrom: currentCursor)
+            let pageDatabase = database
+            let cursor = currentCursor
+            let (pageResults, fetchedNextCursor) = try await withTimeout(seconds: cloudRequestTimeoutSeconds, operationName: "recipes") {
+                try await pageDatabase.records(continuingMatchFrom: cursor)
+            }
             allResults.merge(pageResults) { existing, _ in existing }
             nextCursor = fetchedNextCursor
         }
 
+        markCloudHealthyIfNeeded()
         return allResults
     }
     
@@ -2838,7 +3067,10 @@ class CloudKitManager: ObservableObject {
         
         let task = Task { @MainActor in
             do {
-                let existingZones = try await privateDatabase.allRecordZones()
+                let database = privateDatabase
+                let existingZones = try await withTimeout(seconds: cloudRequestTimeoutSeconds, operationName: "personal zone") {
+                    try await database.allRecordZones()
+                }
                 if existingZones.contains(where: { $0.zoneID == personalZoneID }) {
                     hasEnsuredPersonalZone = true
                     printD("Personal zone already exists: \(personalZoneID.zoneName)")
@@ -2849,14 +3081,21 @@ class CloudKitManager: ObservableObject {
             }
             
             do {
-                _ = try await privateDatabase.modifyRecordZones(saving: [personalZone], deleting: [])
+                let database = privateDatabase
+                let zone = personalZone
+                _ = try await withTimeout(seconds: cloudRequestTimeoutSeconds, operationName: "personal zone") {
+                    try await database.modifyRecordZones(saving: [zone], deleting: [])
+                }
                 hasEnsuredPersonalZone = true
                 printD("Created personal zone: \(personalZoneID.zoneName)")
             } catch {
                 printD("Failed to ensure personal zone: \(error.localizedDescription)")
                 // A parallel create may have succeeded; verify before leaving.
-                if let zones = try? await privateDatabase.allRecordZones(),
-                   zones.contains(where: { $0.zoneID == personalZoneID }) {
+                let database = privateDatabase
+                let zones = try? await withTimeout(seconds: cloudRequestTimeoutSeconds, operationName: "personal zone") {
+                    try await database.allRecordZones()
+                }
+                if let zones, zones.contains(where: { $0.zoneID == personalZoneID }) {
                     hasEnsuredPersonalZone = true
                     printD("Personal zone exists after retry check: \(personalZoneID.zoneName)")
                 }

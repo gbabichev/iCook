@@ -39,7 +39,11 @@ struct CategoryList: View {
     private func refreshCategoriesSmooth() async {
         guard model.currentSource != nil else { return }
         let start = Date()
-        await model.loadCategories()
+        if model.canRetryCloudConnection {
+            await model.retryCloudConnectionAndRefresh(skipRecipeCache: true)
+        } else {
+            await model.refreshSourcesAndCurrentContent(skipRecipeCache: true, forceProbe: true)
+        }
         let elapsed = Date().timeIntervalSince(start)
         if elapsed < 1.0 {
             try? await Task.sleep(nanoseconds: UInt64((1.0 - elapsed) * 1_000_000_000))
