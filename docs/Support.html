@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>iCook Support</title>
+  <meta
+    name="description"
+    content="Support information for iCook, including contact details, common questions, troubleshooting steps, and platform compatibility."
+  >
+  <link rel="icon" type="image/png" href="icon-light.png">
+  <link rel="apple-touch-icon" href="icon-light.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="site.css">
+</head>
+<body class="info-page">
+  <div class="info-shell">
+    <nav class="topbar" aria-label="Primary">
+      <a class="brand" href="index.html" aria-label="iCook home">
+        <picture class="brand-mark">
+          <source srcset="icon-dark.png" media="(prefers-color-scheme: dark)">
+          <source srcset="icon-light.png" media="(prefers-color-scheme: light)">
+          <img src="icon-light.png" alt="" width="56" height="56">
+        </picture>
+        <span>iCook</span>
+      </a>
+      <div class="nav-links">
+        <a href="index.html#features">Features</a>
+        <a href="PrivacyPolicy.html">Privacy</a>
+      </div>
+    </nav>
+
+    <header class="info-header reveal">
+      <a class="back-link" href="index.html">&larr; Back to iCook</a>
+      <p class="eyebrow">Support</p>
+      <h1>Help for iCook.</h1>
+      <p>
+        If something feels off, use the resources below. Most support questions for iCook are about
+        iCloud sync, shared collections, imports, or how recipe organization works across iPhone,
+        iPad, and Mac.
+      </p>
+    </header>
+
+    <main class="info-grid">
+      <section class="info-card reveal">
+        <h2>Contact</h2>
+        <p>Support for iCook is handled through GitHub issues.</p>
+
+        <div class="stack-list">
+          <div class="stack-item">
+            <strong>Bugs and feature requests</strong>
+            <p><a href="https://github.com/gbabichev/iCook/issues" target="_blank" rel="noreferrer">Open a GitHub issue</a></p>
+          </div>
+        </div>
+
+        <div class="callout">
+          Response target: usually within 24 to 48 hours.
+        </div>
+      </section>
+
+      <section class="info-card reveal">
+        <h2>What to Include</h2>
+        <p>If you are reporting a problem, include enough detail to reproduce it quickly.</p>
+        <ul>
+          <li>Your device type and OS version.</li>
+          <li>The iCook version you are using.</li>
+          <li>What you expected to happen.</li>
+          <li>What actually happened.</li>
+          <li>Whether the issue involves sync, sharing, import/export, or editing.</li>
+        </ul>
+      </section>
+
+      <section class="info-card reveal">
+        <h2>Common Questions</h2>
+
+        <div class="faq-list">
+          <article class="faq-item">
+            <h3>How do I create a new recipe?</h3>
+            <p>Use the add button to create a recipe, then fill in title, details, ingredients, steps, timing, notes, and photos.</p>
+          </article>
+
+          <article class="faq-item">
+            <h3>How do I organize recipes?</h3>
+            <p>Use collections for bigger groupings, categories for structure inside a collection, and tags for cross-cutting filters.</p>
+          </article>
+
+          <article class="faq-item">
+            <h3>Can I share a collection with family or friends?</h3>
+            <p>Yes. iCook supports iCloud shared collections so multiple people can work from the same recipe set.</p>
+          </article>
+
+          <article class="faq-item">
+            <h3>Will my recipes sync across devices?</h3>
+            <p>Yes. iCook uses iCloud to keep recipes and collections in sync across iPhone, iPad, and Mac.</p>
+          </article>
+
+          <article class="faq-item">
+            <h3>Does iCook support import and export?</h3>
+            <p>Yes. Recipes, tags, and linked recipes can be imported and exported so you can move or back up your library.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="info-card reveal">
+        <h2>Troubleshooting</h2>
+
+        <div class="faq-list">
+          <article class="faq-item">
+            <h3>Recipes are not syncing across devices</h3>
+            <p>Make sure you are signed in to the same iCloud account on each device, that iCloud is enabled, and that the app has network access when you are online.</p>
+          </article>
+
+          <article class="faq-item">
+            <h3>A shared collection is not appearing correctly</h3>
+            <p>Try reopening the app after accepting the share, confirm the invitation was accepted with the intended iCloud account, and give CloudKit a moment to propagate changes.</p>
+          </article>
+
+          <article class="faq-item">
+            <h3>Imported recipes or categories do not look right</h3>
+            <p>Review the destination collection used during import and check whether similarly named categories or tags already existed before the import ran.</p>
+          </article>
+
+          <article class="faq-item">
+            <h3>The app seems slow or stuck</h3>
+            <p>Close and reopen iCook, then verify you are on the latest App Store build. If the issue persists, send the exact workflow that triggered it.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="info-card reveal">
+        <h2>Compatibility</h2>
+        <p>iCook is built for Apple's current platforms.</p>
+        <ul>
+          <li>Minimum OS: iOS 26.0, iPadOS 26.0, and macOS 26.0 or later.</li>
+          <li>Recipes and shared collections sync through iCloud.</li>
+          <li>Developer: George Babichev.</li>
+        </ul>
+      </section>
+
+      <section class="info-card reveal">
+        <h2>More Links</h2>
+        <div class="card-actions">
+          <a class="button button-primary" href="https://github.com/gbabichev/iCook" target="_blank" rel="noreferrer">Repository</a>
+          <a class="button button-secondary" href="https://github.com/gbabichev/iCook/issues" target="_blank" rel="noreferrer">Issues</a>
+          <a class="button button-tertiary" href="PrivacyPolicy.html">Privacy Policy</a>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <p>&copy; <span data-current-year>2026</span> George Babichev.</p>
+    </footer>
+  </div>
+
+  <script src="site.js"></script>
+</body>
+</html>
