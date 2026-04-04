@@ -7,12 +7,12 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		FF6498512F32D66000618E8C /* CloudKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = FF6498502F32D66000618E8C /* CloudKit.framework */; };
+		FFDE5E1F2F815594008C9D62 /* CloudKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = FFDE5E1E2F815594008C9D62 /* CloudKit.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		FF6498502F32D66000618E8C /* CloudKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CloudKit.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.2.sdk/System/Library/Frameworks/CloudKit.framework; sourceTree = DEVELOPER_DIR; };
 		FFD702CE2E79AC8F0044C321 /* iCook.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = iCook.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		FFDE5E1E2F815594008C9D62 /* CloudKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CloudKit.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.4.sdk/System/Library/Frameworks/CloudKit.framework; sourceTree = DEVELOPER_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -41,7 +41,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				FF6498512F32D66000618E8C /* CloudKit.framework in Frameworks */,
+				FFDE5E1F2F815594008C9D62 /* CloudKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -51,7 +51,7 @@
 		FF1D13952EBCE914007F84E9 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
-				FF6498502F32D66000618E8C /* CloudKit.framework */,
+				FFDE5E1E2F815594008C9D62 /* CloudKit.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
