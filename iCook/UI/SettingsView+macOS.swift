@@ -400,7 +400,27 @@ extension SourceSelector {
                 }
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
+
+            if let exportStatusSourceName, exportingSourceID != nil && !isExporting {
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        Label("Preparing export for \(exportStatusSourceName)…", systemImage: "square.and.arrow.up.badge.clock")
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .background(.regularMaterial, in: Capsule())
+                            .shadow(radius: 6)
+                        Spacer()
+                    }
+                    .padding(.bottom, 16)
+                }
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
         }
+        .animation(.easeInOut(duration: 0.18), value: showShareCopiedToast)
+        .animation(.easeInOut(duration: 0.18), value: exportStatusSourceName)
+        .animation(.easeInOut(duration: 0.18), value: exportingSourceID)
     }
 
     func shareSource(for source: Source) async {

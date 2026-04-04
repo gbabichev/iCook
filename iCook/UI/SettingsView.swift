@@ -38,9 +38,12 @@ struct SourceSelector: View {
     @State var macSharingDelegateProxy: AnyObject?
     @State var hoveredSourceID: CKRecord.ID?
     @State var isRefreshingCollections = false
+    @State var exportStatusSourceName: String?
 #endif
 #if os(iOS)
     @State var sharingDelegateProxy: AnyObject?
+    @State private var isRefreshingSettings = false
+    @State private var frozenLastSyncedSummary: String?
 #endif
 
     var appVersionString: String {
@@ -57,6 +60,15 @@ struct SourceSelector: View {
         guard let date = viewModel.lastSuccessfulCloudSyncAt else { return nil }
         return "Last synced \(date.formatted(.relative(presentation: .named)))"
     }
+
+#if os(iOS)
+    var displayedLastSyncedSummary: String? {
+        if isRefreshingSettings {
+            return frozenLastSyncedSummary ?? lastSyncedSummary
+        }
+        return lastSyncedSummary
+    }
+#endif
 
     var visibleSources: [Source] {
         viewModel.sources.filter { !hiddenSourceIDs.contains($0.id) }
@@ -112,12 +124,22 @@ struct SourceSelector: View {
             document: exportDocument,
             contentType: RecipeExportConstants.contentType,
             defaultFilename: exportFilename
-        ) { _ in
+        ) { result in
+            cleanupTemporaryExportArtifact(named: exportFilename)
+            isExporting = false
             exportingSourceID = nil
         }
         .onChange(of: isExporting) { _, newValue in
+#if os(macOS)
+            if newValue {
+                exportStatusSourceName = nil
+            }
+#endif
             if !newValue {
                 exportingSourceID = nil
+#if os(macOS)
+                exportStatusSourceName = nil
+#endif
             }
         }
         .sheet(item: $editingSource) { source in
@@ -211,11 +233,6 @@ struct SourceSelector: View {
             onDelete: {
                 sourceToDelete = source
                 showDeleteConfirmation = true
-            },
-            onSwipeDelete: {
-                Task {
-                    await deleteSource(source)
-                }
             }
         )
 #endif
@@ -242,12 +259,6 @@ struct SourceSelector: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
 
-                    if let lastSyncedSummary {
-                        Label(lastSyncedSummary, systemImage: "clock.arrow.circlepath")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-
                     if visibleSources.isEmpty {
                         Text("No Collections yet")
                             .foregroundColor(.secondary)
@@ -255,6 +266,12 @@ struct SourceSelector: View {
                         ForEach(visibleSources, id: \.id) { source in
                             sourceRow(for: source)
                         }
+                    }
+
+                    if let displayedLastSyncedSummary {
+                        Label(displayedLastSyncedSummary, systemImage: "clock.arrow.circlepath")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                     }
                 }
 
@@ -394,6 +411,13 @@ struct SourceSelector: View {
             .listStyle(.automatic)
 #if os(iOS)
             .refreshable {
+                isRefreshingSettings = true
+                frozenLastSyncedSummary = lastSyncedSummary
+                defer {
+                    frozenLastSyncedSummary = nil
+                    isRefreshingSettings = false
+                }
+
                 if viewModel.canRetryCloudConnection {
                     await viewModel.retryCloudConnectionAndRefresh(skipRecipeCache: true)
                 } else {
@@ -437,15 +461,32 @@ struct SourceSelector: View {
     @MainActor
     func exportSource(_ source: Source) async {
         exportingSourceID = source.id
+#if os(macOS)
+        withAnimation(.easeInOut(duration: 0.18)) {
+            exportStatusSourceName = source.name
+        }
+#endif
         defer {
             if !isExporting {
                 exportingSourceID = nil
+#if os(macOS)
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    exportStatusSourceName = nil
+                }
+#endif
             }
         }
 
         if let document = await viewModel.exportSourceDocument(for: source) {
+            if isExporting {
+                isExporting = false
+                await Task.yield()
+            }
+
             exportDocument = document
             exportFilename = suggestedExportFilename(for: source)
+            cleanupTemporaryExportArtifact(named: exportFilename)
+            await Task.yield()
             isExporting = true
         }
     }
@@ -458,6 +499,15 @@ struct SourceSelector: View {
         let baseName = String(cleanedScalars).trimmingCharacters(in: .whitespacesAndNewlines)
         let fallbackName = baseName.isEmpty ? "RecipesExport" : baseName
         return "\(fallbackName).icookexport"
+    }
+
+    private func cleanupTemporaryExportArtifact(named filename: String) {
+        let temporaryURL = FileManager.default.temporaryDirectory.appendingPathComponent(filename, isDirectory: true)
+        guard FileManager.default.fileExists(atPath: temporaryURL.path) else { return }
+
+        do {
+            try FileManager.default.removeItem(at: temporaryURL)
+        } catch {}
     }
 
     @MainActor
@@ -691,9 +741,6 @@ struct SourceRowWrapper: View {
     let onExport: () -> Void
     let onRename: () -> Void
     let onDelete: () -> Void
-#if os(iOS)
-    let onSwipeDelete: (() -> Void)?
-#endif
     @EnvironmentObject private var viewModel: AppViewModel
 
     private enum ShareUIState {
@@ -732,6 +779,7 @@ struct SourceRowWrapper: View {
             return "person.crop.circle.fill.badge.minus"
         }
     }
+
     var body: some View {
         let isShared = viewModel.isSourceShared(source)
         let isOwner = viewModel.isSharedOwner(source) || source.isPersonal
@@ -739,16 +787,79 @@ struct SourceRowWrapper: View {
         let canDelete = isOwner
         let canExport = isSelected && !isExporting
         let shareState = shareUIState(isShared: isShared, isOwner: isOwner)
-        let shareSystemImage = shareSystemImage(for: shareState)
+        let shareSystemImageName = shareSystemImage(for: shareState)
 #if os(iOS)
-        let shareLabel = shareLabel(for: shareState)
+        let shareActionTitle = shareLabel(for: shareState)
+        IOSSourceRow(
+            source: source,
+            recipeCount: recipeCount,
+            isSelected: isSelected,
+            isExporting: isExporting,
+            isShared: isShared,
+            isOwner: isOwner,
+            canRename: canRename,
+            canDelete: canDelete,
+            canExport: canExport,
+            shareActionTitle: shareActionTitle,
+            onSelect: onSelect,
+            onShare: onShare,
+            onExport: onExport,
+            onRename: onRename,
+            onDelete: onDelete
+        )
 #endif
+#if os(macOS)
+        MacSourceRow(
+            source: source,
+            recipeCount: recipeCount,
+            isSelected: isSelected,
+            isExporting: isExporting,
+            isShared: isShared,
+            isOwner: isOwner,
+            canRename: canRename,
+            canDelete: canDelete,
+            canExport: canExport,
+            shareSystemImageName: shareSystemImageName,
+            onSelect: onSelect,
+            onShare: onShare,
+            onExport: onExport,
+            onRename: onRename,
+            onDelete: onDelete
+        )
+#endif
+    }
+}
 
+private struct SourceRowContent<ActionView: View>: View {
+    let source: Source
+    let recipeCount: Int
+    let isSelected: Bool
+    let isShared: Bool
+    let isOwner: Bool
+    let actionView: ActionView
+
+    init(
+        source: Source,
+        recipeCount: Int,
+        isSelected: Bool,
+        isShared: Bool,
+        isOwner: Bool,
+        @ViewBuilder actionView: () -> ActionView
+    ) {
+        self.source = source
+        self.recipeCount = recipeCount
+        self.isSelected = isSelected
+        self.isShared = isShared
+        self.isOwner = isOwner
+        self.actionView = actionView()
+    }
+
+    var body: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(source.name)
                     .fontWeight(isSelected ? .semibold : .regular)
-                
+
                 HStack(spacing: 6) {
                     if isShared {
                         if isOwner {
@@ -759,56 +870,69 @@ struct SourceRowWrapper: View {
                     } else {
                         Label("Private", systemImage: "person.fill")
                     }
+
                     Text("•")
                     Text("\(recipeCount) \(recipeCount == 1 ? "recipe" : "recipes")")
                 }
                 .font(.caption)
                 .foregroundColor(.secondary)
             }
-            
-            Spacer()
-            
-            // Selection checkbox (always takes space)
-            if isSelected {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 16))
-                    .foregroundColor(.blue)
-            } else {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 16))
-                    .foregroundColor(.clear)
-            }
-            
-            // Share / manage sharing
-            Button(action: onShare) {
-                Image(systemName: shareSystemImage)
-                    .font(.system(size: 14))
-            }
-            .buttonStyle(.bordered)
 
-            Button(action: onExport) {
-                if isExporting {
-                    ProgressView()
-                        .controlSize(.small)
-                } else {
-                    Image(systemName: "square.and.arrow.down")
-                        .font(.system(size: 14))
+            Spacer()
+
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 16))
+                .foregroundColor(isSelected ? .blue : .clear)
+
+            actionView
+        }
+    }
+}
+
+#if os(iOS)
+private struct IOSSourceRow: View {
+    let source: Source
+    let recipeCount: Int
+    let isSelected: Bool
+    let isExporting: Bool
+    let isShared: Bool
+    let isOwner: Bool
+    let canRename: Bool
+    let canDelete: Bool
+    let canExport: Bool
+    let shareActionTitle: String
+    let onSelect: () -> Void
+    let onShare: () -> Void
+    let onExport: () -> Void
+    let onRename: () -> Void
+    let onDelete: () -> Void
+
+    @EnvironmentObject private var viewModel: AppViewModel
+    @State private var showActionMenu = false
+
+    var body: some View {
+        SourceRowContent(
+            source: source,
+            recipeCount: recipeCount,
+            isSelected: isSelected,
+            isShared: isShared,
+            isOwner: isOwner
+        ) {
+            Button {
+                showActionMenu = true
+            } label: {
+                Group {
+                    if isExporting {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 14, weight: .semibold))
+                    }
                 }
+                .frame(width: 28, height: 28)
             }
             .buttonStyle(.bordered)
-            .disabled(!canExport)
-            
-#if os(macOS)
-            if canDelete {
-                Button(role: .destructive, action: onDelete) {
-                    Image(systemName: "trash")
-                        .font(.system(size: 14, weight: .semibold))
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .disabled(viewModel.isOfflineMode)
-            }
-#endif
         }
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
@@ -819,36 +943,102 @@ struct SourceRowWrapper: View {
                 }
                 .disabled(viewModel.isOfflineMode)
             }
+        }
+        .confirmationDialog("Collection Actions", isPresented: $showActionMenu, titleVisibility: .hidden) {
+            Button(shareActionTitle) {
+                onShare()
+            }
 
-            Button(action: onExport) {
-                Label("Export Recipes", systemImage: "folder.badge.arrow.up")
+            Button("Export Recipes") {
+                onExport()
             }
             .disabled(!canExport)
-            
+
             if canDelete {
-                Button(role: .destructive, action: onDelete) {
-                    Label("Delete", systemImage: "trash")
+                Button("Delete", role: .destructive) {
+                    onDelete()
                 }
                 .disabled(viewModel.isOfflineMode)
             }
+
+            Button("Cancel", role: .cancel) { }
         }
-#if os(iOS)
-        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            if source.isPersonal {
-                Button(role: .destructive, action: onSwipeDelete ?? onDelete) {
-                    Label("Delete", systemImage: "trash")
-                }
-                .disabled(viewModel.isOfflineMode)
-            } else {
-                Button(action: onShare) {
-                    Label(shareLabel, systemImage: shareSystemImage)
-                }
-                .tint(.blue)
-            }
-        }
-#endif
     }
 }
+#endif
+
+#if os(macOS)
+private struct MacSourceRow: View {
+    let source: Source
+    let recipeCount: Int
+    let isSelected: Bool
+    let isExporting: Bool
+    let isShared: Bool
+    let isOwner: Bool
+    let canRename: Bool
+    let canDelete: Bool
+    let canExport: Bool
+    let shareSystemImageName: String
+    let onSelect: () -> Void
+    let onShare: () -> Void
+    let onExport: () -> Void
+    let onRename: () -> Void
+    let onDelete: () -> Void
+
+    @EnvironmentObject private var viewModel: AppViewModel
+
+    var body: some View {
+        SourceRowContent(
+            source: source,
+            recipeCount: recipeCount,
+            isSelected: isSelected,
+            isShared: isShared,
+            isOwner: isOwner
+        ) {
+            Menu {
+                Button(action: onShare) {
+                    Label(isShared ? "Manage Sharing" : "Share", systemImage: shareSystemImageName)
+                }
+
+                Button(action: onExport) {
+                    Label("Export Recipes", systemImage: "square.and.arrow.down")
+                }
+                .disabled(!canExport)
+
+                if canDelete {
+                    Button(role: .destructive, action: onDelete) {
+                        Label("Delete", systemImage: "trash")
+                    }
+                    .disabled(viewModel.isOfflineMode)
+                }
+            } label: {
+                Group {
+                    if isExporting {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 14, weight: .semibold))
+                    }
+                }
+                .frame(width: 28, height: 28)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onSelect)
+        .contextMenu {
+            if canRename {
+                Button(action: onRename) {
+                    Label("Rename", systemImage: "pencil")
+                }
+                .disabled(viewModel.isOfflineMode)
+            }
+        }
+    }
+}
+#endif
 
 #if os(iOS)
 private func dismissKeyboard() {
