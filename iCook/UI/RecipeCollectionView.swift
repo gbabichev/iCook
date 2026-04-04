@@ -1454,21 +1454,40 @@ struct RecipeCollectionView: View {
                                 .foregroundStyle(.tertiary)
                                 .padding(.horizontal)
                                 .multilineTextAlignment(.center)
+
+                            Button("Create Collection") {
+                                showNewSourceSheet = true
+                            }
+                            .buttonStyle(.borderedProminent)
                         }
                         .frame(maxWidth: .infinity, minHeight: proxy.size.height)
                     } else if shouldShowWelcomeState {
                         // Show welcome message when source exists but no recipes yet
+                        let hasCategories = !model.categories.isEmpty
                         VStack(spacing: 16) {
-                            Text("👋")
+                            Image(systemName: hasCategories ? "fork.knife.circle" : "tray")
                                 .font(.system(size: 48))
-                            Text("Welcome to iCook!")
+                                .foregroundStyle(.secondary)
+                            Text(hasCategories ? "This collection is empty" : "This collection has no categories yet")
                                 .font(.headline)
                                 .foregroundStyle(.primary)
-                            Text("Start by adding categories and recipes to get going")
+                            Text(
+                                hasCategories
+                                    ? "Add your first recipe to start filling this collection."
+                                    : "Create a category first, then you can start adding recipes."
+                            )
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .padding(.horizontal)
                                 .multilineTextAlignment(.center)
+
+                            Button(hasCategories ? "Add Recipe" : "Add Category") {
+                                NotificationCenter.default.post(
+                                    name: hasCategories ? .requestAddRecipe : .requestAddCategory,
+                                    object: nil
+                                )
+                            }
+                            .buttonStyle(.borderedProminent)
                         }
                         .frame(maxWidth: .infinity, minHeight: proxy.size.height)
                     } else if shouldShowEmptyState {

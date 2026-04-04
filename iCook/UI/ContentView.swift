@@ -165,6 +165,9 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .showTutorial)) { _ in
             handleShowTutorialRequest()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .requestAddCategory)) { _ in
+            handleAddCategoryRequest()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .requestAddRecipe)) { _ in
             handleAddRecipeRequest()
         }
@@ -334,6 +337,11 @@ struct ContentView: View {
 
     private func handleShowTutorialRequest() {
         showingTutorial = true
+    }
+
+    private func handleAddCategoryRequest() {
+        guard !model.isOfflineMode, model.currentSource != nil else { return }
+        showingAddCategory = true
     }
 
     private func handleAddRecipeRequest() {

@@ -1359,6 +1359,7 @@ extension Notification.Name {
     static let sourcesRefreshed = Notification.Name("sourcesRefreshed")
     static let shareRevokedToast = Notification.Name("shareRevokedToast")
     static let showTutorial = Notification.Name("showTutorial")
+    static let requestAddCategory = Notification.Name("requestAddCategory")
     static let requestAddRecipe = Notification.Name("requestAddRecipe")
     static let requestFeelingLucky = Notification.Name("requestFeelingLucky")
     static let requestShowSettings = Notification.Name("requestShowSettings")
