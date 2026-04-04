@@ -245,6 +245,8 @@ struct RecipeDetailView: View {
                                 .font(.title2)
                                 .bold()
 
+                            Spacer()
+
                             Button {
                                 copyShoppingList(ingredients)
                             } label: {
@@ -530,9 +532,15 @@ struct RecipeDetailView: View {
                 Spacer()
 
                 if canEditLinkedRecipes, !availableLinkedRecipeCandidates.isEmpty {
-                    Button(resolvedLinkedRecipes.isEmpty ? "Add" : "Manage") {
+                    Button {
                         isShowingLinkedRecipePicker = true
                     }
+                    label: {
+                        Image(systemName: resolvedLinkedRecipes.isEmpty ? "plus" : "ellipsis")
+                            .font(.caption.weight(.semibold))
+                    }
+                    .tint(.primary)
+                    .buttonStyle(.borderless)
                     .disabled(isUpdatingLinkedRecipes)
                 }
             }

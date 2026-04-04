@@ -523,9 +523,201 @@ a {
 
 .stack-list,
 .faq-list,
-.policy-shell {
+.policy-shell,
+.tutorial-shell {
   display: grid;
   gap: 16px;
+}
+
+.tutorial-shell {
+  gap: 22px;
+}
+
+.tutorial-section {
+  display: grid;
+  gap: 22px;
+  padding: 24px;
+  background: rgba(255, 251, 244, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 16px 40px rgba(58, 41, 20, 0.06);
+}
+
+.tutorial-heading h2 {
+  margin-bottom: 10px;
+  font-size: clamp(2rem, 3.4vw, 3.2rem);
+  font-family: "Instrument Serif", Georgia, serif;
+  font-weight: 400;
+  letter-spacing: -0.03em;
+  line-height: 0.96;
+}
+
+.tutorial-heading p:last-child {
+  max-width: 62ch;
+  margin: 0;
+  color: var(--ink-soft);
+  line-height: 1.7;
+}
+
+.tutorial-steps {
+  display: grid;
+  gap: 14px;
+}
+
+.tutorial-step {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+  padding: 18px 20px;
+  border-radius: var(--radius-md);
+  background: rgba(255, 251, 244, 0.58);
+  border: 1px solid rgba(255, 255, 255, 0.56);
+}
+
+.tutorial-step-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  background: rgba(54, 95, 76, 0.12);
+  color: var(--leaf);
+  font-weight: 700;
+}
+
+.tutorial-step h3 {
+  margin: 0 0 8px;
+  font-size: 1rem;
+}
+
+.tutorial-step p {
+  margin: 0;
+  color: var(--ink-soft);
+  line-height: 1.65;
+}
+
+.tutorial-shot-placeholder {
+  display: grid;
+  place-items: center;
+  min-height: 240px;
+  padding: 28px;
+  text-align: center;
+  border-radius: 28px;
+  border: 1px dashed rgba(54, 95, 76, 0.26);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.68), rgba(255, 247, 237, 0.92)),
+    radial-gradient(circle at top right, rgba(190, 91, 46, 0.12), transparent 16rem);
+}
+
+.tutorial-shot-placeholder strong {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 1rem;
+}
+
+.tutorial-shot-placeholder p {
+  max-width: 42ch;
+  margin: 0;
+  color: var(--ink-soft);
+  line-height: 1.65;
+}
+
+.tutorial-carousel {
+  display: grid;
+  gap: 16px;
+}
+
+.tutorial-carousel-viewport {
+  overflow: hidden;
+  border-radius: 28px;
+  background: rgba(255, 251, 244, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.56);
+  box-shadow: 0 16px 40px rgba(58, 41, 20, 0.06);
+}
+
+.tutorial-carousel-track {
+  position: relative;
+  min-height: 520px;
+}
+
+.tutorial-carousel-slide {
+  display: none;
+  margin: 0;
+}
+
+.tutorial-carousel-slide.is-active {
+  display: block;
+}
+
+.tutorial-carousel-slide img {
+  width: 100%;
+  height: 100%;
+  max-height: 680px;
+  object-fit: contain;
+  background: linear-gradient(180deg, rgba(255, 252, 247, 0.96), rgba(245, 236, 222, 0.96));
+}
+
+.tutorial-carousel-slide figcaption {
+  padding: 14px 16px 16px;
+  color: var(--ink-soft);
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.tutorial-carousel-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.tutorial-carousel-button {
+  min-height: 44px;
+  padding: 0 18px;
+  border: 1px solid rgba(54, 95, 76, 0.16);
+  border-radius: 999px;
+  background: rgba(255, 251, 245, 0.82);
+  color: var(--ink);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    transform 180ms ease,
+    border-color 180ms ease,
+    background-color 180ms ease;
+}
+
+.tutorial-carousel-button:hover,
+.tutorial-carousel-button:focus-visible {
+  transform: translateY(-1px);
+}
+
+.tutorial-carousel-dots {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex: 1;
+}
+
+.tutorial-carousel-dot {
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(54, 95, 76, 0.2);
+  cursor: pointer;
+  transition:
+    transform 180ms ease,
+    background-color 180ms ease;
+}
+
+.tutorial-carousel-dot.is-active {
+  background: var(--accent);
+  transform: scale(1.15);
 }
 
 .stack-list {
@@ -667,6 +859,15 @@ a {
   .spotlight-gallery,
   .info-grid {
     grid-template-columns: 1fr;
+  }
+
+  .tutorial-carousel-track {
+    min-height: 420px;
+  }
+
+  .tutorial-carousel-controls {
+    flex-wrap: wrap;
+    justify-content: center;
   }
 
   .device-stack {

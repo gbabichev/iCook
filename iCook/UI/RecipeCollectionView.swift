@@ -1464,11 +1464,12 @@ struct RecipeCollectionView: View {
                     } else if shouldShowWelcomeState {
                         // Show welcome message when source exists but no recipes yet
                         let hasCategories = !model.categories.isEmpty
+                        let collectionName = model.currentSource?.name ?? "This collection"
                         VStack(spacing: 16) {
                             Image(systemName: hasCategories ? "fork.knife.circle" : "tray")
                                 .font(.system(size: 48))
                                 .foregroundStyle(.secondary)
-                            Text(hasCategories ? "This collection is empty" : "This collection has no categories yet")
+                            Text(hasCategories ? "\(collectionName) is empty" : "\(collectionName) has no categories yet")
                                 .font(.headline)
                                 .foregroundStyle(.primary)
                             Text(
