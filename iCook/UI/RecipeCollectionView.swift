@@ -1499,6 +1499,13 @@ struct RecipeCollectionView: View {
                             Text(collectionType.emptyStateText)
                                 .font(.headline)
                                 .foregroundStyle(.secondary)
+
+                            if case .category = collectionType {
+                                Button("Add Recipe") {
+                                    NotificationCenter.default.post(name: .requestAddRecipe, object: nil)
+                                }
+                                .buttonStyle(.borderedProminent)
+                            }
                         }
                         .frame(maxWidth: .infinity, minHeight: proxy.size.height)
                     } else {
