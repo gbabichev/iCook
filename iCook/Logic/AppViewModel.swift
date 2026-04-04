@@ -299,6 +299,11 @@ final class AppViewModel: ObservableObject {
         cloudKitManager.currentSource = source
         cloudKitManager.saveCurrentSourceID()
         currentSource = source
+        categories = []
+        tags = []
+        recipes = []
+        randomRecipes = []
+        recipeCounts = [:]
         sourceSelectionStamp = UUID()
         await loadCategories()
         printD("[LaunchTrace] selectSource after loadCategories source=\(source.name) categories=\(categories.count) tags=\(tags.count)")
@@ -309,12 +314,20 @@ final class AppViewModel: ObservableObject {
     }
     
     func createSource(name: String) async -> Bool {
+        let previousSourceID = currentSource?.id
         let success = await cloudKitManager.createSource(name: name, isPersonal: true)
         // Copy sources directly from CloudKitManager without re-querying
         // (the new source might not be indexed in CloudKit yet)
         sources = cloudKitManager.sources
         currentSource = cloudKitManager.currentSource
+        categories = cloudKitManager.categories
         tags = cloudKitManager.tags
+        recipes = cloudKitManager.recipes
+        randomRecipes = cloudKitManager.recipes
+        recipeCounts = cloudKitManager.recipeCounts
+        if previousSourceID != currentSource?.id {
+            sourceSelectionStamp = UUID()
+        }
         cloudKitManager.saveCurrentSourceID()
         error = cloudKitManager.error
         refreshOfflineState()
@@ -332,6 +345,7 @@ final class AppViewModel: ObservableObject {
         categories = cloudKitManager.categories
         tags = cloudKitManager.tags
         recipes = cloudKitManager.recipes
+        randomRecipes = cloudKitManager.recipes
         recipeCounts = cloudKitManager.recipeCounts
         cloudKitManager.saveCurrentSourceID()
         refreshOfflineState()
@@ -542,6 +556,8 @@ final class AppViewModel: ObservableObject {
             recipes = cached
         } else if !skipCache {
             printD("[LaunchTrace] loadRandomRecipes no cached all-recipes found source=\(source.name)")
+            randomRecipes = []
+            recipes = []
         }
         
         await cloudKitManager.loadRandomRecipes(for: source, skipCache: skipCache)

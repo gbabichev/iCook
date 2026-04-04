@@ -864,21 +864,10 @@ class CloudKitManager: ObservableObject {
     
     /// Load cached categories, recipe counts, and recipes for a source without network.
     func loadCachedData(for source: Source) {
-        if let cachedCategories = loadCategoriesLocalCache(for: source) {
-            categories = cachedCategories
-        }
-        if let cachedTags = loadTagsLocalCache(for: source) {
-            tags = cachedTags
-        } else {
-            tags = []
-        }
-        let cachedCounts = loadRecipeCountsLocalCache(for: source)
-        if !cachedCounts.isEmpty {
-            recipeCounts = cachedCounts
-        }
-        if let cachedRecipes = loadRecipesLocalCache(for: source, categoryID: nil) {
-            recipes = cachedRecipes
-        }
+        categories = loadCategoriesLocalCache(for: source) ?? []
+        tags = loadTagsLocalCache(for: source) ?? []
+        recipeCounts = loadRecipeCountsLocalCache(for: source)
+        recipes = loadRecipesLocalCache(for: source, categoryID: nil) ?? []
     }
     
     private struct CachedRecordCount: Codable {
@@ -1723,6 +1712,10 @@ class CloudKitManager: ObservableObject {
                     saveSourcesLocalCache()
                     if currentSource == nil {
                         currentSource = savedSource
+                        categories = []
+                        tags = []
+                        recipes = []
+                        recipeCounts = [:]
                     }
                     printD("Source created: \(savedSource.name)")
                     return true
@@ -1757,6 +1750,10 @@ class CloudKitManager: ObservableObject {
             saveSourcesLocalCache()
             if currentSource == nil {
                 currentSource = source
+                categories = []
+                tags = []
+                recipes = []
+                recipeCounts = [:]
             }
             printD("Source created locally: \(source.name)")
             return true
@@ -2132,13 +2129,8 @@ class CloudKitManager: ObservableObject {
         let isOwner = isSharedOwner(source)
         printD("loadCategories: source=\(source.name), isPersonal=\(source.isPersonal), isOwner=\(isOwner), zoneOwner=\(source.id.zoneID.ownerName), zoneName=\(source.id.zoneID.zoneName)")
         
-        if let cachedCategories = loadCategoriesLocalCache(for: source) {
-            self.categories = cachedCategories
-        }
-        let cachedCounts = loadRecipeCountsLocalCache(for: source)
-        if !cachedCounts.isEmpty {
-            self.recipeCounts = cachedCounts
-        }
+        self.categories = loadCategoriesLocalCache(for: source) ?? []
+        self.recipeCounts = loadRecipeCountsLocalCache(for: source)
         
         guard isCloudKitAvailable else {
             return
@@ -2216,9 +2208,7 @@ class CloudKitManager: ObservableObject {
         let sourceID = source.id
         let isOwner = isSharedOwner(source)
 
-        if let cachedTags = loadTagsLocalCache(for: source) {
-            self.tags = cachedTags
-        }
+        self.tags = loadTagsLocalCache(for: source) ?? []
 
         guard isCloudKitAvailable else {
             return
