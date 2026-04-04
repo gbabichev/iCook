@@ -14,15 +14,6 @@ enum CloudReachabilityStatus: String, Equatable {
     case online
     case constrained
     case offline
-
-    var isReachable: Bool {
-        switch self {
-        case .online, .constrained:
-            return true
-        case .unknown, .offline:
-            return false
-        }
-    }
 }
 
 enum CloudSyncState: Equatable {
@@ -285,28 +276,6 @@ class CloudKitManager: ObservableObject {
                 guard state.claimResume() else { return }
                 continuation.resume(throwing: CloudRequestTimeoutError(operationName: operationName))
             }
-        }
-    }
-
-    private func performCloudRequest<T>(
-        _ operationName: String,
-        timeout seconds: Double? = nil,
-        operation: @escaping @Sendable () async throws -> T
-    ) async throws -> T {
-        beginCloudRequest()
-        defer { endCloudRequest() }
-
-        do {
-            let result = try await withTimeout(
-                seconds: seconds ?? cloudRequestTimeoutSeconds,
-                operationName: operationName,
-                operation: operation
-            )
-            markCloudHealthyIfNeeded()
-            return result
-        } catch {
-            markCloudDegraded(for: error, operationName: operationName)
-            throw error
         }
     }
 
@@ -1337,10 +1306,6 @@ class CloudKitManager: ObservableObject {
         }
 
         return true
-    }
-
-    func removeFavorite(for recipeID: CKRecord.ID) async -> Bool {
-        await setFavorite(false, for: recipeID)
     }
 
     private func syncPendingFavoriteOperations(surfaceErrorForKey: String? = nil) async throws {

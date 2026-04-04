@@ -415,7 +415,15 @@ private struct AppWindowContent: View {
             await MainActor.run {
                 model.error = nil
             }
-            if let document = await model.exportCurrentSourceDocument() {
+
+            guard let source = await MainActor.run(body: { model.currentSource }) else {
+                await MainActor.run {
+                    showAlert(title: "Export Failed", message: "Select a source before exporting.")
+                }
+                return
+            }
+
+            if let document = await model.exportSourceDocument(for: source) {
                 await MainActor.run {
                     exportDocument = document
                     isExporting = true

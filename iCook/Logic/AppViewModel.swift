@@ -1118,16 +1118,6 @@ final class AppViewModel: ObservableObject {
         return true
     }
     
-    // MARK: - Export
-    func exportCurrentSourceDocument() async -> RecipeExportDocument? {
-        guard let source = currentSource else {
-            error = "Select a source before exporting."
-            return nil
-        }
-
-        return await exportSourceDocument(for: source)
-    }
-
     func exportSourceDocument(for source: Source) async -> RecipeExportDocument? {
         error = nil
 
