@@ -236,6 +236,58 @@ struct RecipeDetailView: View {
 
                 detailsSection
 
+                if let ingredients = displayedRecipe.ingredients, !ingredients.isEmpty {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Image(systemName: "list.bullet")
+                                .foregroundStyle(.secondary)
+                            Text("Shopping List")
+                                .font(.title2)
+                                .bold()
+
+                            Button {
+                                copyShoppingList(ingredients)
+                            } label: {
+                                Image(systemName: "doc.on.clipboard")
+                            }
+                            .buttonStyle(.plain)
+
+                        }
+
+                        LazyVGrid(columns: [
+                            GridItem(.flexible(), alignment: .leading)
+                        ], alignment: .leading, spacing: 8) {
+                            ForEach(ingredients, id: \.self) { ingredient in
+                                HStack(alignment: .top, spacing: 12) {
+                                    Button {
+                                        if checkedIngredients.contains(ingredient) {
+                                            checkedIngredients.remove(ingredient)
+                                        } else {
+                                            checkedIngredients.insert(ingredient)
+                                        }
+                                    } label: {
+                                        Image(systemName: checkedIngredients.contains(ingredient) ? "checkmark.circle.fill" : "circle")
+                                            .foregroundStyle(checkedIngredients.contains(ingredient) ? .green : .secondary)
+                                            .font(.title3)
+                                    }
+                                    .buttonStyle(.plain)
+
+                                    Text(ingredient)
+                                        .textSelection(.enabled)
+                                        .font(.body)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                        .strikethrough(checkedIngredients.contains(ingredient))
+                                        .foregroundStyle(checkedIngredients.contains(ingredient) ? .secondary : .primary)
+
+                                    Spacer()
+                                }
+                            }
+                        }
+                    }
+                    .padding()
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                }
+
                 if !displayedRecipe.recipeSteps.isEmpty {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack {
@@ -316,58 +368,6 @@ struct RecipeDetailView: View {
                                 if step.stepNumber < displayedRecipe.recipeSteps.count {
                                     Divider()
                                         .padding(.horizontal)
-                                }
-                            }
-                        }
-                    }
-                    .padding()
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-                }
-
-                if let ingredients = displayedRecipe.ingredients, !ingredients.isEmpty {
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack {
-                            Image(systemName: "list.bullet")
-                                .foregroundStyle(.secondary)
-                            Text("Shopping List")
-                                .font(.title2)
-                                .bold()
-
-                            Button {
-                                copyShoppingList(ingredients)
-                            } label: {
-                                Image(systemName: "doc.on.clipboard")
-                            }
-                            .buttonStyle(.plain)
-
-                        }
-
-                        LazyVGrid(columns: [
-                            GridItem(.flexible(), alignment: .leading)
-                        ], alignment: .leading, spacing: 8) {
-                            ForEach(ingredients, id: \.self) { ingredient in
-                                HStack(alignment: .top, spacing: 12) {
-                                    Button {
-                                        if checkedIngredients.contains(ingredient) {
-                                            checkedIngredients.remove(ingredient)
-                                        } else {
-                                            checkedIngredients.insert(ingredient)
-                                        }
-                                    } label: {
-                                        Image(systemName: checkedIngredients.contains(ingredient) ? "checkmark.circle.fill" : "circle")
-                                            .foregroundStyle(checkedIngredients.contains(ingredient) ? .green : .secondary)
-                                            .font(.title3)
-                                    }
-                                    .buttonStyle(.plain)
-
-                                    Text(ingredient)
-                                        .textSelection(.enabled)
-                                        .font(.body)
-                                        .fixedSize(horizontal: false, vertical: true)
-                                        .strikethrough(checkedIngredients.contains(ingredient))
-                                        .foregroundStyle(checkedIngredients.contains(ingredient) ? .secondary : .primary)
-
-                                    Spacer()
                                 }
                             }
                         }
