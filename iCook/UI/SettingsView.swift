@@ -29,7 +29,7 @@ struct SourceSelector: View {
     @State var exportDocument = RecipeExportDocument()
     @State var exportFilename = "RecipesExport.icookexport"
     @State var exportingSourceID: CKRecord.ID?
-    @State private var hiddenSourceIDs = Set<CKRecord.ID>()
+    @State private var deletingSourceID: CKRecord.ID?
 #if os(macOS)
     @State var showShareCopiedToast = false
     @State var shareToastMessage = ""
@@ -71,7 +71,7 @@ struct SourceSelector: View {
 #endif
 
     var visibleSources: [Source] {
-        viewModel.sources.filter { !hiddenSourceIDs.contains($0.id) }
+        viewModel.sources
     }
 
     var sourceTotalsRefreshKey: String {
@@ -183,6 +183,7 @@ struct SourceSelector: View {
             recipeCount: recipeTotalsBySource[source.id, default: 0],
             isSelected: viewModel.currentSource?.id == source.id,
             isExporting: exportingSourceID == source.id,
+            isDeleting: deletingSourceID == source.id,
             onSelect: {
                 Task {
                     await viewModel.selectSource(source)
@@ -212,6 +213,7 @@ struct SourceSelector: View {
             recipeCount: recipeTotalsBySource[source.id, default: 0],
             isSelected: viewModel.currentSource?.id == source.id,
             isExporting: exportingSourceID == source.id,
+            isDeleting: deletingSourceID == source.id,
             onSelect: {
                 Task {
                     await viewModel.selectSource(source)
@@ -534,9 +536,10 @@ struct SourceSelector: View {
 
     func deleteSource(_ source: Source) async {
         printD("Deleting source: \(source.name)")
-        hiddenSourceIDs.insert(source.id)
+        deletingSourceID = source.id
         let deletedCurrentSource = viewModel.currentSource?.id == source.id
         let deleted = await viewModel.deleteSource(source)
+        deletingSourceID = nil
         if deleted {
             printD("Deleted source: \(source.name)")
             sourceToDelete = nil
@@ -545,7 +548,6 @@ struct SourceSelector: View {
             }
             await refreshRecipeTotals()
         } else {
-            hiddenSourceIDs.remove(source.id)
             printD("Failed to delete source: \(source.name)")
         }
     }
@@ -736,6 +738,7 @@ struct SourceRowWrapper: View {
     let recipeCount: Int
     let isSelected: Bool
     let isExporting: Bool
+    let isDeleting: Bool
     let onSelect: () -> Void
     let onShare: () -> Void
     let onExport: () -> Void
@@ -795,6 +798,7 @@ struct SourceRowWrapper: View {
             recipeCount: recipeCount,
             isSelected: isSelected,
             isExporting: isExporting,
+            isDeleting: isDeleting,
             isShared: isShared,
             isOwner: isOwner,
             canRename: canRename,
@@ -814,6 +818,7 @@ struct SourceRowWrapper: View {
             recipeCount: recipeCount,
             isSelected: isSelected,
             isExporting: isExporting,
+            isDeleting: isDeleting,
             isShared: isShared,
             isOwner: isOwner,
             canRename: canRename,
@@ -895,6 +900,7 @@ private struct IOSSourceRow: View {
     let recipeCount: Int
     let isSelected: Bool
     let isExporting: Bool
+    let isDeleting: Bool
     let isShared: Bool
     let isOwner: Bool
     let canRename: Bool
@@ -922,7 +928,7 @@ private struct IOSSourceRow: View {
                 showActionMenu = true
             } label: {
                 Group {
-                    if isExporting {
+                    if isDeleting || isExporting {
                         ProgressView()
                             .controlSize(.small)
                     } else {
@@ -933,9 +939,13 @@ private struct IOSSourceRow: View {
                 .frame(width: 28, height: 28)
             }
             .buttonStyle(.bordered)
+            .disabled(isDeleting)
         }
         .contentShape(Rectangle())
-        .onTapGesture(perform: onSelect)
+        .onTapGesture {
+            guard !isDeleting else { return }
+            onSelect()
+        }
         .contextMenu {
             if canRename {
                 Button(action: onRename) {
@@ -944,6 +954,7 @@ private struct IOSSourceRow: View {
                 .disabled(viewModel.isOfflineMode)
             }
         }
+        .disabled(isDeleting)
         .confirmationDialog("Collection Actions", isPresented: $showActionMenu, titleVisibility: .hidden) {
             Button(shareActionTitle) {
                 onShare()
@@ -973,6 +984,7 @@ private struct MacSourceRow: View {
     let recipeCount: Int
     let isSelected: Bool
     let isExporting: Bool
+    let isDeleting: Bool
     let isShared: Bool
     let isOwner: Bool
     let canRename: Bool
@@ -1013,7 +1025,7 @@ private struct MacSourceRow: View {
                 }
             } label: {
                 Group {
-                    if isExporting {
+                    if isDeleting || isExporting {
                         ProgressView()
                             .controlSize(.small)
                     } else {
@@ -1025,9 +1037,13 @@ private struct MacSourceRow: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
+            .disabled(isDeleting)
         }
         .contentShape(Rectangle())
-        .onTapGesture(perform: onSelect)
+        .onTapGesture {
+            guard !isDeleting else { return }
+            onSelect()
+        }
         .contextMenu {
             if canRename {
                 Button(action: onRename) {
@@ -1036,6 +1052,7 @@ private struct MacSourceRow: View {
                 .disabled(viewModel.isOfflineMode)
             }
         }
+        .disabled(isDeleting)
     }
 }
 #endif

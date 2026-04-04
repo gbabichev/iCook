@@ -138,7 +138,6 @@ class CloudKitManager: ObservableObject {
     }()
     private var participantIdentityCache: [CKRecord.ID: CKUserIdentity] = [:]
     private var sharedSourceEditability: [CKRecord.ID: Bool] = [:]
-    private var locallyDeletedSourceIDs = Set<CKRecord.ID>()
     private var pendingFavoriteOperations: [String: PendingFavoriteOperation] = [:]
     private let favoriteRecipeKeysKey = "FavoriteRecipeKeys"
     private let pendingFavoriteOperationsKey = "PendingFavoriteOperations"
@@ -1574,16 +1573,6 @@ class CloudKitManager: ObservableObject {
                 saveSharedSourceIDs()
             }
             
-            let fetchedSourceIDs = Set(allSources.map(\.id))
-            let confirmedDeletedSourceIDs = locallyDeletedSourceIDs.subtracting(fetchedSourceIDs)
-            if !confirmedDeletedSourceIDs.isEmpty {
-                locallyDeletedSourceIDs.subtract(confirmedDeletedSourceIDs)
-            }
-
-            if !locallyDeletedSourceIDs.isEmpty {
-                allSources.removeAll { locallyDeletedSourceIDs.contains($0.id) }
-            }
-
             if let current = currentSource,
                !allSources.contains(where: { $0.id == current.id }) {
                 currentSource = allSources.first
@@ -1781,72 +1770,77 @@ class CloudKitManager: ObservableObject {
             return
         }
 
-        locallyDeletedSourceIDs.insert(source.id)
-
         do {
             let isOwner = isSharedOwner(source)
             let database = isOwner || source.isPersonal ? privateDatabase : sharedDatabase
             let zoneID = source.id.zoneID
             let childRecordIDs = try await fetchChildRecordIDs(for: source.id, in: database, zoneID: zoneID)
 
-            if !childRecordIDs.recipes.isEmpty {
-                try await deleteRecords(withIDs: childRecordIDs.recipes, in: database)
-            }
-            if !childRecordIDs.categories.isEmpty {
-                try await deleteRecords(withIDs: childRecordIDs.categories, in: database)
-            }
-            if !childRecordIDs.tags.isEmpty {
-                try await deleteRecords(withIDs: childRecordIDs.tags, in: database)
-            }
-
             try await database.deleteRecord(withID: source.id)
 
-            for recipeID in childRecordIDs.recipes {
-                recipeCache.removeValue(forKey: recipeID)
-                removeCachedImages(for: recipeID)
-            }
-            for categoryID in childRecordIDs.categories {
-                categoryCache.removeValue(forKey: categoryID)
-                recipeCounts.removeValue(forKey: categoryID)
-            }
-            for tagID in childRecordIDs.tags {
-                tagCache.removeValue(forKey: tagID)
-            }
+            removeDeletedSourceLocally(source, childRecordIDs: childRecordIDs)
 
-            categories.removeAll { $0.sourceID == source.id }
-            tags.removeAll { $0.sourceID == source.id }
-            recipes.removeAll { $0.sourceID == source.id }
-
-            removeLocalCacheFiles(for: source)
-
-            sourceCache.removeValue(forKey: source.id)
-            // Remove from local array - reassign to ensure SwiftUI detects change
-            self.sources = sources.filter { $0.id != source.id }
-            unmarkSharedSource(id: source.id)
-            let sourceKey = cacheIdentifier(for: source.id)
-            sharedSourceIDs.remove(sourceKey)
-            recentlyUnsharedIDs.remove(sourceKey)
-            saveSharedSourceIDs()
-
-            if currentSource?.id == source.id {
-                currentSource = self.sources.first
-                if currentSource == nil {
-                    categories.removeAll()
-                    tags.removeAll()
-                    recipes.removeAll()
-                    recipeCounts.removeAll()
+            do {
+                if !childRecordIDs.recipes.isEmpty {
+                    try await deleteRecords(withIDs: childRecordIDs.recipes, in: database)
                 }
+                if !childRecordIDs.categories.isEmpty {
+                    try await deleteRecords(withIDs: childRecordIDs.categories, in: database)
+                }
+                if !childRecordIDs.tags.isEmpty {
+                    try await deleteRecords(withIDs: childRecordIDs.tags, in: database)
+                }
+            } catch {
+                printD("Deleted source \(source.name), but child record cleanup failed: \(error.localizedDescription)")
             }
 
-            updateSharedEditabilityFlag()
-            saveSourcesLocalCache()
-            saveCurrentSourceID()
             printD("Deleted source and child records: \(source.name) (categories=\(childRecordIDs.categories.count), recipes=\(childRecordIDs.recipes.count), tags=\(childRecordIDs.tags.count))")
         } catch {
-            locallyDeletedSourceIDs.remove(source.id)
             printD("Error deleting source: \(error.localizedDescription)")
             self.error = "Failed to delete source"
         }
+    }
+
+    private func removeDeletedSourceLocally(_ source: Source, childRecordIDs: ChildRecordIDs) {
+        for recipeID in childRecordIDs.recipes {
+            recipeCache.removeValue(forKey: recipeID)
+            removeCachedImages(for: recipeID)
+        }
+        for categoryID in childRecordIDs.categories {
+            categoryCache.removeValue(forKey: categoryID)
+            recipeCounts.removeValue(forKey: categoryID)
+        }
+        for tagID in childRecordIDs.tags {
+            tagCache.removeValue(forKey: tagID)
+        }
+
+        categories.removeAll { $0.sourceID == source.id }
+        tags.removeAll { $0.sourceID == source.id }
+        recipes.removeAll { $0.sourceID == source.id }
+
+        removeLocalCacheFiles(for: source)
+
+        sourceCache.removeValue(forKey: source.id)
+        self.sources = sources.filter { $0.id != source.id }
+        unmarkSharedSource(id: source.id)
+        let sourceKey = cacheIdentifier(for: source.id)
+        sharedSourceIDs.remove(sourceKey)
+        recentlyUnsharedIDs.remove(sourceKey)
+        saveSharedSourceIDs()
+
+        if currentSource?.id == source.id {
+            currentSource = self.sources.first
+            if currentSource == nil {
+                categories.removeAll()
+                tags.removeAll()
+                recipes.removeAll()
+                recipeCounts.removeAll()
+            }
+        }
+
+        updateSharedEditabilityFlag()
+        saveSourcesLocalCache()
+        saveCurrentSourceID()
     }
 
     private struct ChildRecordIDs {
