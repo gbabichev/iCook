@@ -1,9 +1,41 @@
 const revealed = document.querySelectorAll(".reveal");
 const yearNodes = document.querySelectorAll("[data-current-year]");
 const carousels = document.querySelectorAll("[data-carousel]");
+const topbars = document.querySelectorAll(".topbar");
 
 for (const node of yearNodes) {
   node.textContent = String(new Date().getFullYear());
+}
+
+for (const topbar of topbars) {
+  const toggle = topbar.querySelector(".menu-toggle");
+  const nav = topbar.querySelector(".nav-links");
+
+  if (!toggle || !nav) {
+    continue;
+  }
+
+  const closeMenu = () => {
+    topbar.classList.remove("is-open");
+    toggle.setAttribute("aria-expanded", "false");
+    toggle.setAttribute("aria-label", "Open menu");
+  };
+
+  toggle.addEventListener("click", () => {
+    const isOpen = topbar.classList.toggle("is-open");
+    toggle.setAttribute("aria-expanded", String(isOpen));
+    toggle.setAttribute("aria-label", isOpen ? "Close menu" : "Open menu");
+  });
+
+  nav.querySelectorAll("a").forEach((link) => {
+    link.addEventListener("click", closeMenu);
+  });
+
+  window.matchMedia("(min-width: 761px)").addEventListener("change", (event) => {
+    if (event.matches) {
+      closeMenu();
+    }
+  });
 }
 
 if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {

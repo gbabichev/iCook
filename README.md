@@ -61,7 +61,7 @@ Just a clean, focused space for your cooking.
 
 ## 🖥️ Install & Minimum Requirements
 
-- macOS 26.0 or later  
+- macOS / iPadOS / iOS 26.0 or later  
 - Apple Silicon & Intel
 - ~20 MB free disk space  
 - Free space in iCloud for recipe storage
@@ -71,6 +71,89 @@ Just a clean, focused space for your cooking.
 
 App Store Coming Soon
 <!-- <a href="#">App Store for macOS, iOS, and iPadOS Coming Soon</a> -->
+
+## Export Format
+
+iCook exports collections as a `.icookexport` file package.
+
+Package layout:
+
+```text
+MyCollection.icookexport/
+├── Recipes.json
+└── Images/
+    ├── <image files referenced by imageFilename>
+    └── ...
+```
+
+`Recipes.json` is a UTF-8 JSON document with this top-level schema:
+
+```json
+{
+  "source": {
+    "name": "Family Recipes"
+  },
+  "categories": [
+    {
+      "name": "Dinner",
+      "icon": "fork.knife",
+      "lastModified": "2026-04-04T14:30:00Z"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Favorite",
+      "lastModified": "2026-04-04T14:30:00Z"
+    }
+  ],
+  "recipes": [
+    {
+      "exportID": "A1B2C3D4-E5F6-7890-1234-56789ABCDEF0",
+      "name": "Tomato Soup",
+      "recipeTime": 45,
+      "details": "Best served warm.",
+      "categoryName": "Dinner",
+      "recipeSteps": [
+        {
+          "step_number": 1,
+          "instruction": "Saute onions.",
+          "ingredients": ["1 onion", "olive oil"]
+        }
+      ],
+      "imageFilename": "tomato-soup.jpg",
+      "tagNames": ["Favorite"],
+      "isFavorite": true,
+      "linkedRecipeExportIDs": ["11223344-5566-7788-99AA-BBCCDDEEFF00"],
+      "linkedRecipeNames": ["Croutons"],
+      "lastModified": "2026-04-04T14:30:00Z"
+    }
+  ]
+}
+```
+
+Field notes:
+
+- `source`: optional source-level metadata. Currently includes the exported collection `name`.
+- `categories`: array of exported categories. Each category has `name`, `icon`, and optional `lastModified`.
+- `tags`: array of exported tags. Older exports may omit this key entirely; import treats missing `tags` as an empty array.
+- `recipes`: array of exported recipes, sorted by name when written.
+- `exportID`: stable recipe identifier used to reconnect linked recipes during import. Optional for backward compatibility with older exports.
+- `recipeTime`: integer number of minutes.
+- `details`: optional freeform text.
+- `categoryName`: category display name used to map the recipe during import.
+- `recipeSteps`: ordered array of steps. Each step uses `step_number`, `instruction`, and `ingredients`.
+- `imageFilename`: optional filename that maps to a file inside the package `Images/` folder.
+- `tagNames`: optional array of tag names assigned to the recipe.
+- `isFavorite`: optional boolean used to restore favorite state during import.
+- `linkedRecipeExportIDs`: optional array of linked recipe export IDs. This is the preferred way to restore recipe-to-recipe links.
+- `linkedRecipeNames`: optional fallback array of linked recipe names for older or partially resolvable imports.
+- `lastModified`: optional ISO 8601 timestamp on categories, tags, and recipes.
+
+Import compatibility notes:
+
+- Plain `.json` exports are still readable, but packaged `.icookexport` files are the primary format because they preserve images.
+- Missing `source`, `tags`, `tagNames`, `isFavorite`, `linkedRecipeExportIDs`, `linkedRecipeNames`, `details`, `imageFilename`, and `lastModified` are all valid and treated as optional.
+- Images are referenced by filename only; the actual binary data lives in the package `Images/` directory, not inline in JSON.
 
 ## 📝 Changelog
 

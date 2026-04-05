@@ -18,11 +18,16 @@
   <div class="page-shell">
     <header class="hero">
       <nav class="topbar" aria-label="Primary">
-        <a class="brand" href="#top" aria-label="iCook home">
+        <a class="brand" href="index.html" aria-label="iCook home">
           <img src="icon-light.png" alt="" width="56" height="56">
           <span>iCook</span>
         </a>
-        <div class="nav-links">
+        <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="primary-nav" aria-label="Open menu">
+          <span></span>
+          <span></span>
+          <span></span>
+        </button>
+        <div class="nav-links" id="primary-nav">
           <a href="#features">Features</a>
           <a href="#platforms">Platforms</a>
           <a href="Tutorial.html">Tutorial</a>
@@ -40,7 +45,8 @@
             and cook from the same library across iPhone, iPad, and Mac.
           </p>
           <div class="hero-actions">
-            <a class="button button-primary" href="#features">Explore features</a>
+            <a class="button button-primary" href="#">View on App Store</a>
+            <a class="button button-secondary" href="#features">Explore features</a>
             <a class="button button-secondary" href="https://github.com/gbabichev/iCook">View repository</a>
           </div>
           <ul class="hero-points" aria-label="Highlights">
