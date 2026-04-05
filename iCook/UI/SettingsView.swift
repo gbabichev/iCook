@@ -436,6 +436,22 @@ struct SourceSelector: View {
                 }
 
                 Section("Help") {
+                    HStack {
+                        Text("Total Recipes")
+                        Spacer()
+                        Text("\(totalRecipeCountAllCollections)")
+                            .foregroundColor(.secondary)
+                            .monospacedDigit()
+                    }
+
+                    HStack {
+                        Text("Version")
+                        Spacer()
+                        Text(appVersionString)
+                            .foregroundColor(.secondary)
+                            .monospacedDigit()
+                    }
+
                     Button {
                         Task { @MainActor in
                             reopenTutorialFromSettings()
@@ -452,22 +468,6 @@ struct SourceSelector: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-
-                    HStack {
-                        Text("Total Recipes")
-                        Spacer()
-                        Text("\(totalRecipeCountAllCollections)")
-                            .foregroundColor(.secondary)
-                            .monospacedDigit()
-                    }
-
-                    HStack {
-                        Text("Version")
-                        Spacer()
-                        Text(appVersionString)
-                            .foregroundColor(.secondary)
-                            .monospacedDigit()
-                    }
                 }
             }
             .listStyle(.automatic)

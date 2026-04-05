@@ -195,11 +195,11 @@ struct CategoryList: View {
             ToolbarItem(placement: .primaryAction) {
                 Menu {
                     Button {
-                        showingAddCategory = true
+                        NotificationCenter.default.post(name: .requestAddRecipe, object: nil)
                     } label: {
-                        Label("Add Category", systemImage: "tray")
+                        Label("Add Recipe", systemImage: "fork.knife.circle")
                     }
-                    .disabled(model.currentSource == nil)
+                    .disabled(model.currentSource == nil || model.categories.isEmpty)
 
                     Button {
                         showingAddTag = true
@@ -207,13 +207,13 @@ struct CategoryList: View {
                         Label("Add Tag", systemImage: "tag")
                     }
                     .disabled(model.currentSource == nil)
-                    
+
                     Button {
-                        NotificationCenter.default.post(name: .requestAddRecipe, object: nil)
+                        showingAddCategory = true
                     } label: {
-                        Label("Add Recipe", systemImage: "fork.knife.circle")
+                        Label("Add Category", systemImage: "tray")
                     }
-                    .disabled(model.currentSource == nil || model.categories.isEmpty)
+                    .disabled(model.currentSource == nil)
                 } label: {
                     Image(systemName: "plus")
                 }
