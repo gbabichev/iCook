@@ -7,6 +7,13 @@ import AppKit
 #endif
 
 struct SourceSelector: View {
+    struct ExportPreviewPayload: Identifiable {
+        let source: Source
+        let snapshot: SourceExportSnapshot
+
+        var id: CKRecord.ID { source.id }
+    }
+
     @EnvironmentObject var viewModel: AppViewModel
     @Environment(\.dismiss) var dismiss
     @AppStorage("EnableFeelingLucky") var enableFeelingLucky = true
@@ -29,6 +36,12 @@ struct SourceSelector: View {
     @State var exportDocument = RecipeExportDocument()
     @State var exportFilename = "RecipesExport.icookexport"
     @State var exportingSourceID: CKRecord.ID?
+    @State private var exportPreview: ExportPreviewPayload?
+    @State private var exportSelectedCategoryIDs: Set<CKRecord.ID> = []
+    @State private var exportIncludeTags = true
+    @State private var exportIncludeFavorites = true
+    @State private var exportIncludeLinkedRecipes = true
+    @State private var isPreparingExportDocument = false
     @State private var deletingSourceID: CKRecord.ID?
 #if os(macOS)
     @State var showShareCopiedToast = false
@@ -127,6 +140,7 @@ struct SourceSelector: View {
         ) { result in
             cleanupTemporaryExportArtifact(named: exportFilename)
             isExporting = false
+            isPreparingExportDocument = false
             exportingSourceID = nil
         }
         .onChange(of: isExporting) { _, newValue in
@@ -137,11 +151,57 @@ struct SourceSelector: View {
 #endif
             if !newValue {
                 exportingSourceID = nil
+                isPreparingExportDocument = false
 #if os(macOS)
                 exportStatusSourceName = nil
 #endif
             }
         }
+        #if os(iOS)
+        .fullScreenCover(item: $exportPreview) { payload in
+            ExportPreviewSheet(
+                source: payload.source,
+                snapshot: payload.snapshot,
+                selectedCategoryIDs: $exportSelectedCategoryIDs,
+                includeTags: $exportIncludeTags,
+                includeFavorites: $exportIncludeFavorites,
+                includeLinkedRecipes: $exportIncludeLinkedRecipes,
+                isPreparingExport: isPreparingExportDocument,
+                onCancel: {
+                    guard !isPreparingExportDocument else { return }
+                    exportPreview = nil
+                },
+                onExport: {
+                    Task {
+                        await confirmExport(using: payload)
+                    }
+                }
+            )
+            .environmentObject(viewModel)
+        }
+        #else
+        .sheet(item: $exportPreview) { payload in
+            ExportPreviewSheet(
+                source: payload.source,
+                snapshot: payload.snapshot,
+                selectedCategoryIDs: $exportSelectedCategoryIDs,
+                includeTags: $exportIncludeTags,
+                includeFavorites: $exportIncludeFavorites,
+                includeLinkedRecipes: $exportIncludeLinkedRecipes,
+                isPreparingExport: isPreparingExportDocument,
+                onCancel: {
+                    guard !isPreparingExportDocument else { return }
+                    exportPreview = nil
+                },
+                onExport: {
+                    Task {
+                        await confirmExport(using: payload)
+                    }
+                }
+            )
+            .environmentObject(viewModel)
+        }
+        #endif
         .sheet(item: $editingSource) { source in
             EditSourceSheet(
                 isPresented: Binding(
@@ -479,15 +539,66 @@ struct SourceSelector: View {
             }
         }
 
-        if let document = await viewModel.exportSourceDocument(for: source) {
+        let snapshot = await viewModel.cloudKitManager.exportSnapshot(for: source)
+        exportSelectedCategoryIDs = Set(snapshot.categories.map(\.id))
+        exportIncludeTags = true
+        exportIncludeFavorites = true
+        exportIncludeLinkedRecipes = true
+        exportPreview = ExportPreviewPayload(source: source, snapshot: snapshot)
+        exportingSourceID = nil
+#if os(macOS)
+        withAnimation(.easeInOut(duration: 0.18)) {
+            exportStatusSourceName = nil
+        }
+#endif
+    }
+
+    @MainActor
+    private func confirmExport(using payload: ExportPreviewPayload) async {
+        guard !isPreparingExportDocument else { return }
+
+        isPreparingExportDocument = true
+        exportingSourceID = payload.source.id
+#if os(macOS)
+        withAnimation(.easeInOut(duration: 0.18)) {
+            exportStatusSourceName = payload.source.name
+        }
+#endif
+        defer {
+            if !isExporting {
+                exportingSourceID = nil
+                isPreparingExportDocument = false
+#if os(macOS)
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    exportStatusSourceName = nil
+                }
+#endif
+            }
+        }
+
+        let options = AppViewModel.ExportOptions(
+            selectedCategoryIDs: exportSelectedCategoryIDs,
+            includeTags: exportIncludeTags,
+            includeFavorites: exportIncludeFavorites,
+            includeLinkedRecipes: exportIncludeLinkedRecipes
+        )
+
+        if let document = await viewModel.exportSourceDocument(
+            for: payload.source,
+            snapshot: payload.snapshot,
+            options: options
+        ) {
+            exportPreview = nil
+
             if isExporting {
                 isExporting = false
                 await Task.yield()
             }
 
             exportDocument = document
-            exportFilename = suggestedExportFilename(for: source)
+            exportFilename = suggestedExportFilename(for: payload.source)
             cleanupTemporaryExportArtifact(named: exportFilename)
+            isPreparingExportDocument = false
             await Task.yield()
             isExporting = true
         }

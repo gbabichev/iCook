@@ -11,9 +11,15 @@ enum RecipeExportConstants {
 struct ExportedCategory: Codable {
     let name: String
     let icon: String
+    let lastModified: Date?
 }
 
 struct ExportedTag: Codable {
+    let name: String
+    let lastModified: Date?
+}
+
+struct ExportedSourceMetadata: Codable {
     let name: String
 }
 
@@ -26,22 +32,27 @@ struct ExportedRecipe: Codable {
     let recipeSteps: [RecipeStep]
     let imageFilename: String?
     let tagNames: [String]?
+    let isFavorite: Bool?
     let linkedRecipeExportIDs: [String]?
     let linkedRecipeNames: [String]?
+    let lastModified: Date?
 }
 
 struct RecipeExportPackage: Codable {
+    let source: ExportedSourceMetadata?
     let categories: [ExportedCategory]
     let tags: [ExportedTag]
     let recipes: [ExportedRecipe]
     
     enum CodingKeys: String, CodingKey {
+        case source
         case categories
         case tags
         case recipes
     }
     
-    init(categories: [ExportedCategory], tags: [ExportedTag], recipes: [ExportedRecipe]) {
+    init(source: ExportedSourceMetadata? = nil, categories: [ExportedCategory], tags: [ExportedTag], recipes: [ExportedRecipe]) {
+        self.source = source
         self.categories = categories
         self.tags = tags
         self.recipes = recipes
@@ -49,6 +60,7 @@ struct RecipeExportPackage: Codable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.source = try container.decodeIfPresent(ExportedSourceMetadata.self, forKey: .source)
         self.categories = try container.decode([ExportedCategory].self, forKey: .categories)
         self.tags = try container.decodeIfPresent([ExportedTag].self, forKey: .tags) ?? []
         self.recipes = try container.decode([ExportedRecipe].self, forKey: .recipes)
