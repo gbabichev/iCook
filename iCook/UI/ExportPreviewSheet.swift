@@ -6,7 +6,7 @@ struct ExportPreviewSheet: View {
 
     let source: Source
     let snapshot: SourceExportSnapshot
-    @Binding var selectedCategoryIDs: Set<CKRecord.ID>
+    @Binding var selectedRecipeIDs: Set<CKRecord.ID>
     @Binding var includeTags: Bool
     @Binding var includeFavorites: Bool
     @Binding var includeLinkedRecipes: Bool
@@ -32,38 +32,11 @@ struct ExportPreviewSheet: View {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Choose what to include in the export for \(source.name).")
                             .foregroundStyle(.secondary)
-
                         Text(selectionSummary)
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
                     .padding(.vertical, 4)
-                }
-
-                Section {
-                    ForEach(sortedCategories, id: \.id) { category in
-                        Toggle(isOn: binding(for: category.id)) {
-                            HStack(spacing: 10) {
-                                Text(category.icon)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(category.name)
-                                    Text("\(recipeCount(for: category)) recipe\(recipeCount(for: category) == 1 ? "" : "s")")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                        }
-                        .disabled(isPreparingExport)
-                    }
-                } header: {
-                    HStack {
-                        Text("Categories")
-                        Spacer()
-                        Button("Select All", action: selectAll)
-                            .disabled(isPreparingExport || sortedCategories.isEmpty)
-                        Button("Deselect All", action: deselectAll)
-                            .disabled(isPreparingExport || sortedCategories.isEmpty)
-                    }
                 }
 
                 Section("Options") {
@@ -73,6 +46,38 @@ struct ExportPreviewSheet: View {
                         .disabled(isPreparingExport)
                     Toggle("Include linked recipes", isOn: $includeLinkedRecipes)
                         .disabled(isPreparingExport)
+                }
+
+                ForEach(groupedRecipes.keys.sorted(), id: \.self) { categoryName in
+                    if let items = groupedRecipes[categoryName] {
+                        Section {
+                            ForEach(items, id: \.offset) { item in
+                                Toggle(isOn: binding(for: item.element.id)) {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(item.element.name)
+                                            .font(.body)
+                                        Text("Time: \(item.element.recipeTime) min")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                .disabled(isPreparingExport)
+                            }
+                        } header: {
+                            HStack {
+                                Text("\(categoryName) (\(items.count))")
+                                Spacer()
+                                Button("Select All") {
+                                    selectAll(in: items.map(\.element.id))
+                                }
+                                .disabled(isPreparingExport)
+                                Button("None") {
+                                    deselectAll(in: items.map(\.element.id))
+                                }
+                                .disabled(isPreparingExport)
+                            }
+                        }
+                    }
                 }
 
                 Section("Summary") {
@@ -130,9 +135,9 @@ struct ExportPreviewSheet: View {
 
             HStack {
                 Button("Select All", action: selectAll)
-                    .disabled(isPreparingExport || sortedCategories.isEmpty)
+                    .disabled(isPreparingExport || sortedRecipes.isEmpty)
                 Button("Deselect All", action: deselectAll)
-                    .disabled(isPreparingExport || sortedCategories.isEmpty)
+                    .disabled(isPreparingExport || sortedRecipes.isEmpty)
                 Spacer()
                 Text(selectionSummary)
                     .font(.subheadline)
@@ -140,26 +145,6 @@ struct ExportPreviewSheet: View {
             }
 
             List {
-                Section("Categories") {
-                    ForEach(sortedCategories, id: \.id) { category in
-                        Toggle(isOn: binding(for: category.id)) {
-                            HStack(spacing: 10) {
-                                Text(category.icon)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(category.name)
-                                    Text("\(recipeCount(for: category)) recipe\(recipeCount(for: category) == 1 ? "" : "s")")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                        }
-#if os(macOS)
-                        .toggleStyle(.checkbox)
-#endif
-                        .disabled(isPreparingExport)
-                    }
-                }
-
                 Section("Options") {
                     Toggle("Include tags", isOn: $includeTags)
                         .disabled(isPreparingExport)
@@ -167,6 +152,28 @@ struct ExportPreviewSheet: View {
                         .disabled(isPreparingExport)
                     Toggle("Include linked recipes", isOn: $includeLinkedRecipes)
                         .disabled(isPreparingExport)
+                }
+
+                ForEach(groupedRecipes.keys.sorted(), id: \.self) { categoryName in
+                    if let items = groupedRecipes[categoryName] {
+                        Section(header: Text("\(categoryName) (\(items.count))")) {
+                            ForEach(items, id: \.offset) { item in
+                                Toggle(isOn: binding(for: item.element.id)) {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(item.element.name)
+                                            .font(.body)
+                                        Text("Time: \(item.element.recipeTime) min")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+#if os(macOS)
+                                .toggleStyle(.checkbox)
+#endif
+                                .disabled(isPreparingExport)
+                            }
+                        }
+                    }
                 }
 
                 Section("Summary") {
@@ -210,13 +217,21 @@ struct ExportPreviewSheet: View {
         .frame(minWidth: 560, minHeight: 520)
     }
 
-    private var sortedCategories: [Category] {
-        snapshot.categories.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    private var sortedRecipes: [Recipe] {
+        snapshot.recipes.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    private var groupedRecipes: [String: [(offset: Int, element: Recipe)]] {
+        let categoryNameByID = Dictionary(uniqueKeysWithValues: snapshot.categories.map { ($0.id, $0.name) })
+        return Dictionary(
+            grouping: Array(sortedRecipes.enumerated()),
+            by: { categoryNameByID[$0.element.categoryID] ?? "Uncategorized" }
+        )
     }
 
     private var options: AppViewModel.ExportOptions {
         AppViewModel.ExportOptions(
-            selectedCategoryIDs: selectedCategoryIDs,
+            selectedRecipeIDs: selectedRecipeIDs,
             includeTags: includeTags,
             includeFavorites: includeFavorites,
             includeLinkedRecipes: includeLinkedRecipes
@@ -228,31 +243,35 @@ struct ExportPreviewSheet: View {
     }
 
     private var selectionSummary: String {
-        "\(selectedCategoryIDs.count) of \(snapshot.categories.count) categories selected"
+        "\(selectedRecipeIDs.count) of \(snapshot.recipes.count) recipes selected"
     }
 
-    private func recipeCount(for category: Category) -> Int {
-        snapshot.recipes.filter { $0.categoryID == category.id }.count
-    }
-
-    private func binding(for categoryID: CKRecord.ID) -> Binding<Bool> {
+    private func binding(for recipeID: CKRecord.ID) -> Binding<Bool> {
         Binding(
-            get: { selectedCategoryIDs.contains(categoryID) },
+            get: { selectedRecipeIDs.contains(recipeID) },
             set: { isSelected in
                 if isSelected {
-                    selectedCategoryIDs.insert(categoryID)
+                    selectedRecipeIDs.insert(recipeID)
                 } else {
-                    selectedCategoryIDs.remove(categoryID)
+                    selectedRecipeIDs.remove(recipeID)
                 }
             }
         )
     }
 
     private func selectAll() {
-        selectedCategoryIDs = Set(snapshot.categories.map(\.id))
+        selectedRecipeIDs = Set(snapshot.recipes.map(\.id))
     }
 
     private func deselectAll() {
-        selectedCategoryIDs.removeAll()
+        selectedRecipeIDs.removeAll()
+    }
+
+    private func selectAll(in recipeIDs: [CKRecord.ID]) {
+        selectedRecipeIDs.formUnion(recipeIDs)
+    }
+
+    private func deselectAll(in recipeIDs: [CKRecord.ID]) {
+        selectedRecipeIDs.subtract(recipeIDs)
     }
 }

@@ -30,7 +30,7 @@ final class AppViewModel: ObservableObject {
         let images: [String: Data]
     }
     struct ExportOptions {
-        var selectedCategoryIDs: Set<CKRecord.ID>
+        var selectedRecipeIDs: Set<CKRecord.ID>
         var includeTags = true
         var includeFavorites = true
         var includeLinkedRecipes = true
@@ -40,6 +40,11 @@ final class AppViewModel: ObservableObject {
         let recipeCount: Int
         let tagCount: Int
         let favoriteCount: Int
+    }
+    struct ImportOptions {
+        var includeTags = true
+        var includeFavorites = true
+        var includeLinkedRecipes = true
     }
     struct ImportProgress {
         let startedAt: Date
@@ -1159,7 +1164,7 @@ final class AppViewModel: ObservableObject {
         } else {
             snapshot = await cloudKitManager.exportSnapshot(for: source)
         }
-        let options = providedOptions ?? ExportOptions(selectedCategoryIDs: Set(snapshot.categories.map(\.id)))
+        let options = providedOptions ?? ExportOptions(selectedRecipeIDs: Set(snapshot.recipes.map(\.id)))
         let selection = filteredExportSelection(from: snapshot, options: options)
         let categoryLookup = Dictionary(uniqueKeysWithValues: selection.categories.map { ($0.id, $0.name) })
         let tagLookup = Dictionary(uniqueKeysWithValues: selection.tags.map { ($0.id, $0.name) })
@@ -1247,7 +1252,8 @@ final class AppViewModel: ObservableObject {
     func importRecipes(
         from preview: ImportPreview,
         selectedRecipes: [ExportedRecipe],
-        destinationSourceID: CKRecord.ID? = nil
+        destinationSourceID: CKRecord.ID? = nil,
+        options: ImportOptions = ImportOptions()
     ) async -> ImportResult {
         error = nil
         isImportCancellationRequested = false
@@ -1265,10 +1271,10 @@ final class AppViewModel: ObservableObject {
             await selectSource(source, skipCacheOnLoad: false)
         }
         
-        let recipesRequiringLinkUpdates = selectedRecipes.filter {
+        let recipesRequiringLinkUpdates = options.includeLinkedRecipes ? selectedRecipes.filter {
             ($0.linkedRecipeExportIDs?.isEmpty == false) || ($0.linkedRecipeNames?.isEmpty == false)
-        }
-        let recipesRequiringFavoriteUpdates = selectedRecipes.filter { $0.isFavorite == true }
+        } : []
+        let recipesRequiringFavoriteUpdates = options.includeFavorites ? selectedRecipes.filter { $0.isFavorite == true } : []
         beginImportProgress(
             totalRecipes: selectedRecipes.count,
             totalUnits: selectedRecipes.count + recipesRequiringLinkUpdates.count + recipesRequiringFavoriteUpdates.count
@@ -1299,11 +1305,13 @@ final class AppViewModel: ObservableObject {
         }
         
         let selectedCategoryNames = Set(selectedRecipes.map { $0.categoryName.lowercased() })
-        let selectedTagNames = Set(
-            selectedRecipes
-                .flatMap { $0.tagNames ?? [] }
-                .map { $0.lowercased() }
-        )
+        let selectedTagNames = options.includeTags
+            ? Set(
+                selectedRecipes
+                    .flatMap { $0.tagNames ?? [] }
+                    .map { $0.lowercased() }
+            )
+            : []
         
         for exportedCategory in package.categories where selectedCategoryNames.contains(exportedCategory.name.lowercased()) {
             if shouldCancelImport() {
@@ -1362,7 +1370,9 @@ final class AppViewModel: ObservableObject {
                 advanceImportProgress(importedRecipes: importedCount)
                 continue
             }
-            let recipeTagIDs = (recipe.tagNames ?? []).compactMap { tagIDsByName[$0.lowercased()] }
+            let recipeTagIDs = options.includeTags
+                ? (recipe.tagNames ?? []).compactMap { tagIDsByName[$0.lowercased()] }
+                : []
             let createdRecipeID = await createRecipeWithStepsResult(
                 categoryId: categoryID,
                 name: recipe.name,
@@ -1535,31 +1545,10 @@ final class AppViewModel: ObservableObject {
         from snapshot: SourceExportSnapshot,
         options: ExportOptions
     ) -> SourceExportSnapshot {
-        let recipesByID = Dictionary(uniqueKeysWithValues: snapshot.recipes.map { ($0.id, $0) })
-        let validCategoryIDs = Set(snapshot.categories.map(\.id))
-        let selectedCategoryIDs = options.selectedCategoryIDs.intersection(validCategoryIDs)
-
-        var selectedRecipeIDs = Set(
-            snapshot.recipes
-                .filter { selectedCategoryIDs.contains($0.categoryID) }
-                .map(\.id)
-        )
-
-        if options.includeLinkedRecipes {
-            var pendingRecipeIDs = Array(selectedRecipeIDs)
-            while let nextRecipeID = pendingRecipeIDs.popLast() {
-                guard let recipe = recipesByID[nextRecipeID] else { continue }
-                for linkedRecipeID in recipe.linkedRecipeIDs {
-                    guard recipesByID[linkedRecipeID] != nil else { continue }
-                    if selectedRecipeIDs.insert(linkedRecipeID).inserted {
-                        pendingRecipeIDs.append(linkedRecipeID)
-                    }
-                }
-            }
-        }
-
+        let validRecipeIDs = Set(snapshot.recipes.map(\.id))
+        let selectedRecipeIDs = options.selectedRecipeIDs.intersection(validRecipeIDs)
         let selectedRecipes = snapshot.recipes.filter { selectedRecipeIDs.contains($0.id) }
-        let finalCategoryIDs = selectedCategoryIDs.union(selectedRecipes.map(\.categoryID))
+        let finalCategoryIDs = Set(selectedRecipes.map(\.categoryID))
         let selectedCategories = snapshot.categories.filter { finalCategoryIDs.contains($0.id) }
         let selectedTagIDs = Set(selectedRecipes.flatMap(\.tagIDs))
         let selectedTags = options.includeTags

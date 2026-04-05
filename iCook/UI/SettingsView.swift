@@ -37,7 +37,7 @@ struct SourceSelector: View {
     @State var exportFilename = "RecipesExport.icookexport"
     @State var exportingSourceID: CKRecord.ID?
     @State private var exportPreview: ExportPreviewPayload?
-    @State private var exportSelectedCategoryIDs: Set<CKRecord.ID> = []
+    @State private var exportSelectedRecipeIDs: Set<CKRecord.ID> = []
     @State private var exportIncludeTags = true
     @State private var exportIncludeFavorites = true
     @State private var exportIncludeLinkedRecipes = true
@@ -162,7 +162,7 @@ struct SourceSelector: View {
             ExportPreviewSheet(
                 source: payload.source,
                 snapshot: payload.snapshot,
-                selectedCategoryIDs: $exportSelectedCategoryIDs,
+                selectedRecipeIDs: $exportSelectedRecipeIDs,
                 includeTags: $exportIncludeTags,
                 includeFavorites: $exportIncludeFavorites,
                 includeLinkedRecipes: $exportIncludeLinkedRecipes,
@@ -184,7 +184,7 @@ struct SourceSelector: View {
             ExportPreviewSheet(
                 source: payload.source,
                 snapshot: payload.snapshot,
-                selectedCategoryIDs: $exportSelectedCategoryIDs,
+                selectedRecipeIDs: $exportSelectedRecipeIDs,
                 includeTags: $exportIncludeTags,
                 includeFavorites: $exportIncludeFavorites,
                 includeLinkedRecipes: $exportIncludeLinkedRecipes,
@@ -540,7 +540,7 @@ struct SourceSelector: View {
         }
 
         let snapshot = await viewModel.cloudKitManager.exportSnapshot(for: source)
-        exportSelectedCategoryIDs = Set(snapshot.categories.map(\.id))
+        exportSelectedRecipeIDs = Set(snapshot.recipes.map(\.id))
         exportIncludeTags = true
         exportIncludeFavorites = true
         exportIncludeLinkedRecipes = true
@@ -577,7 +577,7 @@ struct SourceSelector: View {
         }
 
         let options = AppViewModel.ExportOptions(
-            selectedCategoryIDs: exportSelectedCategoryIDs,
+            selectedRecipeIDs: exportSelectedRecipeIDs,
             includeTags: exportIncludeTags,
             includeFavorites: exportIncludeFavorites,
             includeLinkedRecipes: exportIncludeLinkedRecipes

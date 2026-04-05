@@ -248,7 +248,6 @@ private struct AppWindowContent: View {
 #if os(macOS)
     let appDelegate: MacAppDelegate
     @State private var isExporting = false
-    @State private var isImporting = false
     @State private var exportDocument = RecipeExportDocument()
     @State private var showAbout = false
     @State private var hostWindow: NSWindow?
@@ -257,9 +256,13 @@ private struct AppWindowContent: View {
 #if os(iOS)
     let iosAppDelegate: IOSAppDelegate
 #endif
+    @State private var isImporting = false
     @State private var importPreview: AppViewModel.ImportPreview?
     @State private var selectedImportIndices: Set<Int> = []
     @State private var importDestinationSourceID: CKRecord.ID?
+    @State private var importIncludeTags = true
+    @State private var importIncludeFavorites = true
+    @State private var importIncludeLinkedRecipes = true
     @State private var securityScopedImportURL: URL?
     @State private var isCommittingImport = false
     @State private var importCommitTask: Task<Void, Never>?
@@ -291,6 +294,9 @@ private struct AppWindowContent: View {
                     importPreview = preview
                     selectedImportIndices = Set(preview.package.recipes.indices)
                     importDestinationSourceID = model.currentSource?.id
+                    importIncludeTags = true
+                    importIncludeFavorites = true
+                    importIncludeLinkedRecipes = true
                     securityScopedImportURL = canAccess ? url : nil
                 } else {
                     printD("Import preview failed for: \(url.lastPathComponent)")
@@ -314,7 +320,12 @@ private struct AppWindowContent: View {
             let result = await model.importRecipes(
                 from: preview,
                 selectedRecipes: selectedRecipes,
-                destinationSourceID: importDestinationSourceID
+                destinationSourceID: importDestinationSourceID,
+                options: AppViewModel.ImportOptions(
+                    includeTags: importIncludeTags,
+                    includeFavorites: importIncludeFavorites,
+                    includeLinkedRecipes: importIncludeLinkedRecipes
+                )
             )
             await MainActor.run {
                 importCommitTask = nil
@@ -378,6 +389,9 @@ private struct AppWindowContent: View {
         importPreview = nil
         selectedImportIndices.removeAll()
         importDestinationSourceID = nil
+        importIncludeTags = true
+        importIncludeFavorites = true
+        importIncludeLinkedRecipes = true
         securityScopedImportURL = nil
         isCommittingImport = false
     }
@@ -659,7 +673,7 @@ private struct AppWindowContent: View {
                 guard let url = urls.first else { return }
                 presentImportPreview(for: url)
             case .failure(let error):
-                showAlert(title: "Import Failed", message: error.localizedDescription)
+                model.error = error.localizedDescription
             }
         }
         .sheet(item: $importPreview) { preview in
@@ -667,22 +681,9 @@ private struct AppWindowContent: View {
                 preview: preview,
                 selectedIndices: $selectedImportIndices,
                 destinationSourceID: $importDestinationSourceID,
-                isImporting: isCommittingImport,
-                importProgress: model.importProgress,
-                onSelectAll: { selectedImportIndices = Set(preview.package.recipes.indices) },
-                onDeselectAll: { selectedImportIndices.removeAll() },
-                onCancel: { cancelImportPreview() },
-                onImport: { confirmImportSelection() },
-                onCancelImport: { cancelActiveImport() }
-            )
-            .environmentObject(model)
-        }
-#else
-        .sheet(item: $importPreview) { preview in
-            ImportPreviewSheet(
-                preview: preview,
-                selectedIndices: $selectedImportIndices,
-                destinationSourceID: $importDestinationSourceID,
+                includeTags: $importIncludeTags,
+                includeFavorites: $importIncludeFavorites,
+                includeLinkedRecipes: $importIncludeLinkedRecipes,
                 isImporting: isCommittingImport,
                 importProgress: model.importProgress,
                 onSelectAll: { selectedImportIndices = Set(preview.package.recipes.indices) },
@@ -693,6 +694,38 @@ private struct AppWindowContent: View {
             )
             .environmentObject(model)
             .presentationDetents([.medium, .large])
+        }
+#else
+        .fileImporter(
+            isPresented: $isImporting,
+            allowedContentTypes: [RecipeExportConstants.contentType, .json],
+            allowsMultipleSelection: false
+        ) { result in
+            switch result {
+            case .success(let urls):
+                guard let url = urls.first else { return }
+                presentImportPreview(for: url)
+            case .failure(let error):
+                model.error = error.localizedDescription
+            }
+        }
+        .fullScreenCover(item: $importPreview) { preview in
+            ImportPreviewSheet(
+                preview: preview,
+                selectedIndices: $selectedImportIndices,
+                destinationSourceID: $importDestinationSourceID,
+                includeTags: $importIncludeTags,
+                includeFavorites: $importIncludeFavorites,
+                includeLinkedRecipes: $importIncludeLinkedRecipes,
+                isImporting: isCommittingImport,
+                importProgress: model.importProgress,
+                onSelectAll: { selectedImportIndices = Set(preview.package.recipes.indices) },
+                onDeselectAll: { selectedImportIndices.removeAll() },
+                onCancel: { cancelImportPreview() },
+                onImport: { confirmImportSelection() },
+                onCancelImport: { cancelActiveImport() }
+            )
+            .environmentObject(model)
         }
 #endif
     }

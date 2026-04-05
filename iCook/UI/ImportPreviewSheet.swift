@@ -12,6 +12,9 @@ struct ImportPreviewSheet: View {
     let preview: AppViewModel.ImportPreview
     @Binding var selectedIndices: Set<Int>
     @Binding var destinationSourceID: CKRecord.ID?
+    @Binding var includeTags: Bool
+    @Binding var includeFavorites: Bool
+    @Binding var includeLinkedRecipes: Bool
     let isImporting: Bool
     let importProgress: AppViewModel.ImportProgress?
     let onSelectAll: () -> Void
@@ -23,6 +26,114 @@ struct ImportPreviewSheet: View {
     @State private var showNewCollectionSheet = false
     
     var body: some View {
+        Group {
+#if os(iOS)
+            iOSView
+#else
+            macOSView
+#endif
+        }
+    }
+
+#if os(iOS)
+    private var iOSView: some View {
+        NavigationStack {
+            List {
+                Section {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Choose which recipes to import from \(preview.url.lastPathComponent).")
+                            .foregroundStyle(.secondary)
+                        Text(selectionSummary)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 4)
+                }
+
+                Section {
+                    destinationCollectionSection
+                } header: {
+                    Text("Destination Collection")
+                }
+
+                Section("Options") {
+                    Toggle("Restore tags", isOn: $includeTags)
+                        .disabled(isImporting)
+                    Toggle("Restore favorites", isOn: $includeFavorites)
+                        .disabled(isImporting)
+                    Toggle("Restore linked recipes", isOn: $includeLinkedRecipes)
+                        .disabled(isImporting)
+                }
+
+                ForEach(groupedByCategory.keys.sorted(), id: \.self) { category in
+                    if let items = groupedByCategory[category] {
+                        Section {
+                            ForEach(items, id: \.offset) { item in
+                                Toggle(isOn: binding(for: item.offset)) {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(item.element.name)
+                                            .font(.body)
+                                        Text("Time: \(item.element.recipeTime) min")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                .disabled(isImporting)
+                            }
+                        } header: {
+                            HStack {
+                                Text("\(category) (\(items.count))")
+                                Spacer()
+                                Button("Select All") {
+                                    selectAll(in: items.map(\.offset))
+                                }
+                                .disabled(isImporting)
+                                Button("None") {
+                                    deselectAll(in: items.map(\.offset))
+                                }
+                                .disabled(isImporting)
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Import Recipes")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancel", action: onCancel)
+                        .disabled(isImporting)
+                }
+
+                ToolbarItem(placement: .topBarTrailing) {
+                    if isImporting {
+                        Button("Cancel Import", action: onCancelImport)
+                    } else {
+                        Button("Import", action: onImport)
+                            .disabled(selectedIndices.isEmpty || !hasDestinationCollection)
+                            .fontWeight(.semibold)
+                    }
+                }
+            }
+            .overlay {
+                if isImporting {
+                    Color.black.opacity(0.08)
+                        .ignoresSafeArea()
+                        .allowsHitTesting(false)
+                }
+            }
+        }
+        .sheet(isPresented: $showNewCollectionSheet) {
+            ImportCollectionQuickAddSheet { sourceID in
+                destinationSourceID = sourceID
+            }
+            .environmentObject(model)
+        }
+        .interactiveDismissDisabled(isImporting)
+    }
+#endif
+
+    private var macOSView: some View {
         VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Import Recipes")
@@ -45,6 +156,15 @@ struct ImportPreviewSheet: View {
             }
             
             List {
+                Section("Options") {
+                    Toggle("Restore tags", isOn: $includeTags)
+                        .disabled(isImporting)
+                    Toggle("Restore favorites", isOn: $includeFavorites)
+                        .disabled(isImporting)
+                    Toggle("Restore linked recipes", isOn: $includeLinkedRecipes)
+                        .disabled(isImporting)
+                }
+
                 ForEach(groupedByCategory.keys.sorted(), id: \.self) { category in
                     if let items = groupedByCategory[category] {
                         Section(header: Text("\(category) (\(items.count))")) {
@@ -67,12 +187,7 @@ struct ImportPreviewSheet: View {
                     }
                 }
             }
-#if os(iOS)
-            .listStyle(.insetGrouped)
-#endif
-#if os(macOS)
             .frame(minHeight: 320)
-#endif
             
             HStack {
                 if isImporting, let importProgress {
@@ -106,9 +221,7 @@ struct ImportPreviewSheet: View {
             .environmentObject(model)
         }
         .interactiveDismissDisabled(isImporting)
-#if os(macOS)
         .frame(minWidth: 560, minHeight: 520)
-#endif
     }
 
     @ViewBuilder
@@ -200,6 +313,14 @@ struct ImportPreviewSheet: View {
                 }
             }
         )
+    }
+
+    private func selectAll(in indices: [Int]) {
+        selectedIndices.formUnion(indices)
+    }
+
+    private func deselectAll(in indices: [Int]) {
+        selectedIndices.subtract(indices)
     }
 }
 
