@@ -69,8 +69,7 @@ Just a clean, focused space for your cooking.
 
 ### ⚙️ Installation
 
-App Store Coming Soon
-<!-- <a href="#">App Store for macOS, iOS, and iPadOS Coming Soon</a> -->
+<a href="https://apps.apple.com/us/app/icook-recipe-manager/id6754727644">App Store for macOS, iOS, and iPadOS</a>
 
 ## Export Format
 
