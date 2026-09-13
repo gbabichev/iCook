@@ -219,6 +219,12 @@ struct iCookApp: App {
                     Label("Export Recipes…", systemImage: "square.and.arrow.up")
                 }
             }
+
+            CommandGroup(after: .help) {
+                Button("Show Tutorial") {
+                    NotificationCenter.default.post(name: .showTutorial, object: nil)
+                }
+            }
         }
 
         WindowGroup("iCook", id: "secondary") {

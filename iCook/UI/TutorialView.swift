@@ -69,18 +69,23 @@ struct TutorialView: View {
                 .padding(.horizontal, 20)
                 .padding(.top, 8)
 
+#if os(iOS)
                 TabView(selection: $index) {
                     ForEach(Array(steps.enumerated()), id: \.offset) { idx, step in
                         TutorialStepCard(step: step)
                             .padding(.horizontal, 20)
-#if os(macOS)
-                            .tabItem { Text(step.title) }
-#endif
                             .tag(idx)
                     }
                 }
                 .modifier(TutorialPagingStyle())
                 .animation(.easeInOut(duration: 0.2), value: index)
+#else
+                TutorialStepCard(step: steps[index])
+                    .padding(.horizontal, 20)
+                    .id(index)
+                    .transition(.opacity)
+                    .animation(.easeInOut(duration: 0.2), value: index)
+#endif
 
                 VStack(spacing: 12) {
                     HStack(spacing: 8) {
