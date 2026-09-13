@@ -685,6 +685,11 @@ final class AppViewModel: ObservableObject {
         
         printD("deleteRecipe: Posting recipeDeleted notification")
         NotificationCenter.default.post(name: .recipeDeleted, object: id as CKRecord.ID)
+#if os(macOS) || os(iOS)
+        if #available(iOS 27.0, macOS 27.0, *) {
+            try? await RecipeIntentIndexer.remove(id)
+        }
+#endif
         printD("deleteRecipe: Successfully deleted recipe")
         return true
     }
@@ -966,6 +971,13 @@ final class AppViewModel: ObservableObject {
             cloudKitManager.cacheRecipesSnapshot(currentRecipes, for: source)
             let categoryRecipes = currentRecipes.filter { $0.categoryID == categoryId }
             cloudKitManager.cacheRecipes(categoryRecipes, for: source, categoryID: categoryId)
+
+#if os(macOS) || os(iOS)
+            if #available(iOS 27.0, macOS 27.0, *) {
+                let categoryName = categories.first(where: { $0.id == categoryId })?.name ?? "Uncategorized"
+                try? await RecipeIntentIndexer.index(recipeWithImage, in: source, categoryName: categoryName)
+            }
+#endif
             
             // Small delay to ensure UI updates before sheet dismisses
             try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 second
@@ -1085,6 +1097,13 @@ final class AppViewModel: ObservableObject {
             // Refresh from CloudKit without purging local cache first.
             await loadCategories()
             await loadRecipesForCategory()
+
+#if os(macOS) || os(iOS)
+            if #available(iOS 27.0, macOS 27.0, *) {
+                let categoryName = categories.first(where: { $0.id == updatedRecipe.categoryID })?.name ?? "Uncategorized"
+                try? await RecipeIntentIndexer.index(updatedRecipe, in: source, categoryName: categoryName)
+            }
+#endif
         }
         
         refreshOfflineState()

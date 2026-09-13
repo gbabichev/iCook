@@ -9,6 +9,9 @@ import SwiftUI
 import CloudKit
 import Combine
 import UniformTypeIdentifiers
+#if os(macOS) || os(iOS)
+import AppIntents
+#endif
 #if os(macOS)
 import AppKit
 
@@ -162,6 +165,14 @@ struct iCookApp: App {
 #if os(iOS)
     @UIApplicationDelegateAdaptor(IOSAppDelegate.self) private var iosAppDelegate
 #endif
+
+    init() {
+#if os(macOS) || os(iOS)
+        if #available(iOS 27.0, macOS 27.0, *) {
+            iCookAppShortcuts.updateAppShortcutParameters()
+        }
+#endif
+    }
     
     var body: some Scene {
 #if os(macOS)

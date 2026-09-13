@@ -133,6 +133,7 @@ enum RecipeCollectionType: Hashable {
 
 struct RecipeCollectionView: View {
     let collectionType: RecipeCollectionType
+    @Binding var systemSearchQuery: String
     @EnvironmentObject private var model: AppViewModel
     @AppStorage("EnableFeelingLucky") private var enableFeelingLucky = true
     @AppStorage("ShowInlineTitles") private var showInlineTitles = false
@@ -490,8 +491,12 @@ struct RecipeCollectionView: View {
     // MARK: - Toolbar Views
 
     // Initializers
-    init(collectionType: RecipeCollectionType = .home) {
+    init(
+        collectionType: RecipeCollectionType = .home,
+        systemSearchQuery: Binding<String> = .constant("")
+    ) {
         self.collectionType = collectionType
+        _systemSearchQuery = systemSearchQuery
     }
     
     // MARK: - Header Views
@@ -1037,8 +1042,14 @@ struct RecipeCollectionView: View {
                 Task { await handleRefresh() }
             }
 #endif
-            .task { await initialLoadIfNeeded() }
+            .task {
+                await initialLoadIfNeeded()
+                consumeSystemSearchQueryIfNeeded()
+            }
             .onChange(of: collectionType) { _, _ in Task { await handleCollectionTypeChange() } }
+            .onChange(of: systemSearchQuery) { _, _ in
+                consumeSystemSearchQueryIfNeeded()
+            }
             .searchable(text: $searchText, isPresented: $isSearchPresented, placement: .toolbar, prompt: searchPromptText)
 #if os(iOS)
             .searchScopes($searchScope) {
@@ -1297,6 +1308,32 @@ struct RecipeCollectionView: View {
         }
     }
 
+    private func consumeSystemSearchQueryIfNeeded() {
+        guard case .home = collectionType else { return }
+
+        let query = normalizedSystemSearchQuery(systemSearchQuery)
+        guard !query.isEmpty else { return }
+
+        searchScope = .name
+        isSearchPresented = true
+        searchText = query
+        showingSearchResults = true
+        searchResults = filteredRecipes(for: query)
+        systemSearchQuery = ""
+    }
+
+    private func normalizedSystemSearchQuery(_ query: String) -> String {
+        var normalized = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if normalized.lowercased().hasPrefix("the ") {
+            normalized.removeFirst(4)
+        }
+        for suffix in [" recipes", " recipe"] where normalized.lowercased().hasSuffix(suffix) {
+            normalized.removeLast(suffix.count)
+            break
+        }
+        return normalized.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private func handleCollectionTypeChange() async {
         if case .home = collectionType {
             // Reset home featured when returning home; keep category featured intact to avoid placeholder flicker.
@@ -1324,6 +1361,7 @@ struct RecipeCollectionView: View {
         // Keep category/tag/home switches consistent with search: always reset list position to top.
         searchActivationScrollResetToken &+= 1
         #endif
+        consumeSystemSearchQueryIfNeeded()
         // Don't reload data - it's already in model.recipes
         // Only reload on initial load or manual refresh
     }

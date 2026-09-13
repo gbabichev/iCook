@@ -9,6 +9,7 @@ struct ContentView: View {
     private let isPhone = UIDevice.current.userInterfaceIdiom == .phone
     #endif
     @AppStorage("HasSeenTutorial") private var hasSeenTutorial = false
+    @AppStorage(RecipeSystemSearchRequest.defaultsKey) private var pendingSystemRecipeSearch = ""
     
     @State private var preferredColumn: NavigationSplitViewColumn = .detail
     @State private var showingAddCategory = false
@@ -88,7 +89,10 @@ struct ContentView: View {
         } detail: {
             // Single NavigationStack for the detail view
             NavigationStack(path: $navPath) {
-                RecipeCollectionView(collectionType: collectionType ?? lastCollectionType)
+                RecipeCollectionView(
+                    collectionType: collectionType ?? lastCollectionType,
+                    systemSearchQuery: $pendingSystemRecipeSearch
+                )
             }
             .id(navStackKey)
 #if os(iOS)
@@ -101,6 +105,11 @@ struct ContentView: View {
         splitViewContent
         .task {
             await handleInitialLoadTask()
+#if os(macOS) || os(iOS)
+            if #available(iOS 27.0, macOS 27.0, *) {
+                try? await RecipeIntentIndexer.refresh()
+            }
+#endif
         }
         .onChange(of: model.currentSource?.id) {
             handleCurrentSourceIDChange()
@@ -174,17 +183,32 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .requestFeelingLucky)) { notification in
             handleFeelingLuckyRequest(notification)
         }
+        .onReceive(NotificationCenter.default.publisher(for: RecipeSystemSearchRequest.notification)) { _ in
+            handleSystemRecipeSearchRequest()
+        }
+        .onChange(of: pendingSystemRecipeSearch) { _, newValue in
+            if !newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                handleSystemRecipeSearchRequest()
+            }
+        }
         .onAppear {
             handleOnAppear()
+            if !pendingSystemRecipeSearch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                handleSystemRecipeSearchRequest()
+            }
         }
     }
 
     @MainActor
     private func handleInitialLoadTask() async {
+        let isHandlingSystemSearch = !pendingSystemRecipeSearch
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty
         logLaunch("handleInitialLoadTask start")
         await model.loadSources()
         logLaunch("after loadSources sources=\(model.sources.count) currentSource=\(model.currentSource?.name ?? "nil")")
-        if !didRestoreLastViewed,
+        if !isHandlingSystemSearch,
+           !didRestoreLastViewed,
            let saved = model.loadAppLocation(),
            let source = model.sources.first(where: { $0.id == saved.sourceID }) {
             logLaunch("restoring saved location=\(describeLocation(saved.location)) source=\(source.name)")
@@ -347,6 +371,15 @@ struct ContentView: View {
     private func handleAddRecipeRequest() {
         guard !model.isOfflineMode, model.currentSource != nil, !model.categories.isEmpty else { return }
         showingAddRecipe = true
+    }
+
+    private func handleSystemRecipeSearchRequest() {
+        if navPath.count > 0 {
+            navPath = NavigationPath()
+        }
+        preferredColumn = .detail
+        collectionType = .home
+        model.saveAppLocation(.allRecipes)
     }
 
     private func handleFeelingLuckyRequest(_ notification: Notification) {
