@@ -530,6 +530,9 @@ private struct AppWindowContent: View {
     var body: some View {
         ZStack {
             ContentView()
+#if os(macOS)
+                .windowToolbarFullScreenVisibility(.onHover)
+#endif
                 .onOpenURL { url in
                     if isExportURL(url) {
                         printD("onOpenURL received import file: \(url.lastPathComponent)")

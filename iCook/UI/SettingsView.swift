@@ -17,7 +17,7 @@ struct SourceSelector: View {
     @EnvironmentObject var viewModel: AppViewModel
     @Environment(\.dismiss) var dismiss
     @AppStorage("EnableFeelingLucky") var enableFeelingLucky = true
-    @AppStorage("ShowInlineTitles") var showInlineTitles = true
+    @AppStorage("ShowInlineTitles") var showInlineTitles = false
     @AppStorage("ShowRecipeDetailTags") var showRecipeDetailTags = true
     @AppStorage("AutoCheckStepsFromIngredients") var autoCheckStepsFromIngredients = false
     @AppStorage("AutoScrollToNextStep") var autoScrollToNextStep = true

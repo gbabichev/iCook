@@ -5,7 +5,7 @@ struct RecipeDetailView: View {
     let recipe: Recipe
     @EnvironmentObject private var model: AppViewModel
     @Environment(\.dismiss) private var dismiss
-    @AppStorage("ShowInlineTitles") private var showInlineTitles = true
+    @AppStorage("ShowInlineTitles") private var showInlineTitles = false
     @AppStorage("ShowRecipeDetailTags") private var showRecipeDetailTags = true
     @AppStorage("AutoCheckStepsFromIngredients") private var autoCheckStepsFromIngredients = false
     @AppStorage("AutoScrollToNextStep") private var autoScrollToNextStep = true
@@ -175,10 +175,16 @@ struct RecipeDetailView: View {
                     detailContent(proxy: proxy, scrollProxy: scrollProxy)
                 }
                 .recipeFlexibleHeaderScrollView()
+#if os(iOS)
+                .scrollEdgeEffectStyle(.soft, for: .top)
+#endif
             } else {
                 ScrollView(.vertical) {
                     detailContent(proxy: proxy, scrollProxy: scrollProxy)
                 }
+#if os(iOS)
+                .scrollEdgeEffectStyle(.soft, for: .top)
+#endif
             }
         }
     }

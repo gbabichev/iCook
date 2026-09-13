@@ -135,7 +135,7 @@ struct RecipeCollectionView: View {
     let collectionType: RecipeCollectionType
     @EnvironmentObject private var model: AppViewModel
     @AppStorage("EnableFeelingLucky") private var enableFeelingLucky = true
-    @AppStorage("ShowInlineTitles") private var showInlineTitles = true
+    @AppStorage("ShowInlineTitles") private var showInlineTitles = false
     @AppStorage("RecipeSortOption") private var recipeSortOptionRawValue = RecipeSortOption.alphabetical.rawValue
     
     // Toolbar state - passed from parent or locally managed
@@ -1521,6 +1521,9 @@ struct RecipeCollectionView: View {
                 .id(AnyHashable(model.recipesRefreshTrigger))
             }
             .collectionFlexibleHeaderScrollView()
+#if os(iOS)
+            .scrollEdgeEffectStyle(.soft, for: .top)
+#endif
             .id(searchActivationScrollResetToken)
         }
     }
