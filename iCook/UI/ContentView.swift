@@ -5,6 +5,7 @@ import CloudKit
 
 struct ContentView: View {
     @EnvironmentObject private var model: AppViewModel
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     #if os(iOS)
     private let isPhone = UIDevice.current.userInterfaceIdiom == .phone
     #endif
@@ -79,7 +80,8 @@ struct ContentView: View {
                     editingTag: $editingTag,
                     showingAddCategory: $showingAddCategory,
                     showingAddTag: $showingAddTag,
-                    collectionType: $collectionType
+                    collectionType: $collectionType,
+                    allowsSidebarSearch: horizontalSizeClass == .compact
                 )
             }
             .navigationSplitViewColumnWidth(min: 250, ideal: 250, max: 400)

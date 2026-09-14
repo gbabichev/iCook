@@ -65,6 +65,7 @@ struct CategoryList: View {
     @Binding var showingAddCategory: Bool
     @Binding var showingAddTag: Bool
     @Binding var collectionType: RecipeCollectionType?
+    let allowsSidebarSearch: Bool
     @AppStorage("SidebarCategoriesExpanded") private var isCategoriesExpanded = true
     @AppStorage("SidebarTagsExpanded") private var isTagsExpanded = true
     @State private var showSourcesOverlay = false
@@ -237,17 +238,23 @@ struct CategoryList: View {
     @ViewBuilder
     private var displayedListContent: some View {
 #if os(iOS)
-        SidebarSearchContent(searchText: searchText, searchScope: searchScope) {
-            categoryListContent
-        }
-        .searchable(
-            text: $searchText,
-            placement: .toolbar,
-            prompt: searchScope == .name ? "Search Recipes" : "Search Ingredients"
-        )
-        .searchScopes($searchScope) {
-            ForEach(RecipeSearchScope.allCases, id: \.self) { scope in
-                Text(scope.title).tag(scope)
+        Group {
+            if allowsSidebarSearch {
+                SidebarSearchContent(searchText: searchText, searchScope: searchScope) {
+                    categoryListContent
+                }
+                .searchable(
+                    text: $searchText,
+                    placement: .toolbar,
+                    prompt: searchScope == .name ? "Search Recipes" : "Search Ingredients"
+                )
+                .searchScopes($searchScope) {
+                    ForEach(RecipeSearchScope.allCases, id: \.self) { scope in
+                        Text(scope.title).tag(scope)
+                    }
+                }
+            } else {
+                categoryListContent
             }
         }
         .navigationDestination(for: Recipe.self) { recipe in
