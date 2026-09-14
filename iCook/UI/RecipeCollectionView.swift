@@ -178,6 +178,7 @@ struct RecipeCollectionView: View {
     @State private var showingSearchResults = false
     @State private var searchScope: RecipeSearchScope = .name
     @State private var searchActivationScrollResetToken = 0
+    @State private var collectionScrollPosition = ScrollPosition(edge: .top)
     @State private var showRevokedToast = false
     @State private var revokedToastMessage = ""
     @State private var featuredHomeRecipe: Recipe?
@@ -535,6 +536,7 @@ struct RecipeCollectionView: View {
             .resizable()
             .aspectRatio(contentMode: .fill)
             .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
+            .clipped()
             .backgroundExtensionEffect()
             .collectionFlexibleHeaderContent(baseHeight: baseHeight)
             .overlay(alignment: .bottom) {
@@ -1092,7 +1094,6 @@ struct RecipeCollectionView: View {
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .shareRevokedToast), perform: handleShareRevokedToast)
-            .refreshable { await handleRefresh() }
             .sheet(isPresented: $showingOfflineNotice) { offlineNoticeSheet }
             .overlay { deletingOverlay }
             .toolbar {
@@ -1191,7 +1192,7 @@ struct RecipeCollectionView: View {
     private func handleRefresh() async {
         guard !isRefreshInFlight else { return }
         isRefreshInFlight = true
-        showRefreshSpinner = true
+        defer { isRefreshInFlight = false }
         let start = Date()
         if model.canRetryCloudConnection {
             await model.retryCloudConnectionAndRefresh(skipRecipeCache: true)
@@ -1201,12 +1202,13 @@ struct RecipeCollectionView: View {
         if showingSearchResults {
             performSearch()
         }
+        let minimumRefreshDuration: TimeInterval = 5
         let elapsed = Date().timeIntervalSince(start)
-        if elapsed < 0.8 {
-            try? await Task.sleep(nanoseconds: UInt64((0.8 - elapsed) * 1_000_000_000))
+        if elapsed < minimumRefreshDuration {
+            try? await Task.sleep(
+                nanoseconds: UInt64((minimumRefreshDuration - elapsed) * 1_000_000_000)
+            )
         }
-        showRefreshSpinner = false
-        isRefreshInFlight = false
     }
 
     @MainActor
@@ -1349,21 +1351,17 @@ struct RecipeCollectionView: View {
 
     @ToolbarContentBuilder
     private func buildToolbar(showsFeaturedHeader: Bool, showInlineTitles: Bool) -> some ToolbarContent {
-        if model.isLoadingCategories {
+        if isRefreshInFlight || model.isLoadingCategories || showRefreshSpinner {
             ToolbarItem(placement: .navigation) {
-                Button(action: {}) {
-                    ProgressView()
-                        .scaleEffect(0.7)
-                }
-                .disabled(true)
-            }
-        } else if showRefreshSpinner {
-            ToolbarItem(placement: .navigation) {
-                Button(action: {}) {
-                    ProgressView()
-                        .scaleEffect(0.7)
-                }
-                .disabled(true)
+#if os(macOS)
+                ProgressView()
+                    .scaleEffect(0.5)
+                    .accessibilityLabel(isRefreshInFlight ? "Refreshing recipes" : "Loading recipes")
+#else
+                ProgressView()
+                    .controlSize(.small)
+                    .accessibilityLabel(isRefreshInFlight ? "Refreshing recipes" : "Loading recipes")
+#endif
             }
         }
 
@@ -1431,7 +1429,8 @@ struct RecipeCollectionView: View {
     private var mainContent: some View {
         GeometryReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 16) {
+                // The grid handles lazy recipe creation; keep the hero geometry stable.
+                VStack(alignment: .leading, spacing: 16) {
                     if !hasLoadedInitially || isLoading || (isFilteredCollection && featuredRecipe == nil && !recipes.isEmpty && !showingSearchResults) {
                         // Show loading spinner while data is loading OR while featured recipe is being selected (for categories)
                         VStack(spacing: 16) {
@@ -1518,14 +1517,21 @@ struct RecipeCollectionView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .topLeading)
-                // Reset the scroll view when recipes change so category/home reflect updates.
-                .id(AnyHashable(model.recipesRefreshTrigger))
+#if os(iOS)
+                .background(CollectionRefreshIndicatorHider())
+#endif
             }
             .collectionFlexibleHeaderScrollView()
+            .refreshable { await handleRefresh() }
 #if os(iOS)
             .scrollEdgeEffectStyle(.soft, for: .top)
 #endif
-            .id(searchActivationScrollResetToken)
+            .scrollPosition($collectionScrollPosition)
+            .onChange(of: searchActivationScrollResetToken) { _, _ in
+                // Preserve the scroll view and its native refresh control across
+                // collection/search navigation; only reset the content position.
+                collectionScrollPosition.scrollTo(edge: .top)
+            }
         }
     }
 }
@@ -1550,6 +1556,7 @@ private struct CollectionFlexibleHeaderScrollViewModifier: ViewModifier {
             .onScrollGeometryChange(for: CGFloat.self) { geometry in
                 min(geometry.contentOffset.y + geometry.contentInsets.top, 0)
             } action: { _, newOffset in
+                // Use the current inset; navigation and refresh both change it.
                 offset = newOffset
             }
             .environment(\.collectionFlexibleHeaderOffset, offset)
@@ -1572,7 +1579,9 @@ private struct CollectionFlexibleHeaderContentEnvironmentModifier: ViewModifier 
     let baseHeight: CGFloat
 
     func body(content: Content) -> some View {
-        content.modifier(CollectionFlexibleHeaderContentModifier(offset: offset, baseHeight: baseHeight))
+        content.modifier(CollectionFlexibleHeaderContentModifier(
+            offset: offset, baseHeight: baseHeight
+        ))
     }
 }
 
@@ -1584,9 +1593,12 @@ private extension ScrollView {
 
 private extension View {
     func collectionFlexibleHeaderContent(baseHeight: CGFloat) -> some View {
-        modifier(CollectionFlexibleHeaderContentEnvironmentModifier(baseHeight: baseHeight))
+        modifier(CollectionFlexibleHeaderContentEnvironmentModifier(
+            baseHeight: baseHeight
+        ))
     }
 }
+
 
 // MARK: - View Modifiers Extension
 private struct ToastModifier: ViewModifier {
@@ -1624,10 +1636,13 @@ extension View {
         showInlineTitles: Bool
     ) -> some View {
         if showsFeaturedHeader && !showInlineTitles {
+#if os(macOS)
             self
                 .navigationTitle("")
                 .toolbar(removing: .title)
-#if os(iOS)
+#else
+            self
+                .navigationTitle("")
                 .navigationBarTitleDisplayMode(.inline)
 #endif
         } else {
