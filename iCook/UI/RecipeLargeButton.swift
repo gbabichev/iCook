@@ -177,3 +177,78 @@ struct RecipeLargeButtonWithState: View {
         }
     }
 }
+
+/// The single card-grid presentation used by every recipe search entry point.
+struct RecipeSearchResultsView: View {
+    @EnvironmentObject private var model: AppViewModel
+
+    let recipes: [Recipe]
+    let searchText: String
+    let onSelect: (Recipe) -> Void
+    var onEdit: ((Recipe) -> Void)? = nil
+    var topPadding: CGFloat = 16
+
+    private let columns = [GridItem(.adaptive(minimum: 190), spacing: 15)]
+
+    private func categoryName(for recipe: Recipe) -> String? {
+        model.categories.first(where: { $0.id == recipe.categoryID })?.name
+    }
+
+    private func tagNames(for recipe: Recipe) -> [String] {
+        guard !recipe.tagIDs.isEmpty, !model.tags.isEmpty else { return [] }
+        let namesByID = Dictionary(uniqueKeysWithValues: model.tags.map { ($0.id, $0.name) })
+        var seen = Set<String>()
+
+        return recipe.tagIDs.compactMap { tagID in
+            guard let name = namesByID[tagID], !name.isEmpty, seen.insert(name).inserted else {
+                return nil
+            }
+            return name
+        }
+    }
+
+    @ViewBuilder
+    private func recipeLink(_ recipe: Recipe, index: Int) -> some View {
+        let link = NavigationLink(value: recipe) {
+            RecipeLargeButtonWithState(
+                recipe: recipe,
+                categoryName: categoryName(for: recipe),
+                tagNames: tagNames(for: recipe),
+                index: index
+            )
+        }
+        .simultaneousGesture(TapGesture().onEnded {
+            onSelect(recipe)
+        })
+        .buttonStyle(.plain)
+
+        if let onEdit {
+            link.contextMenu {
+                Button {
+                    onEdit(recipe)
+                } label: {
+                    Label("Edit Recipe", systemImage: "pencil")
+                }
+                .disabled(model.isOfflineMode)
+            }
+        } else {
+            link
+        }
+    }
+
+    var body: some View {
+        if recipes.isEmpty {
+            ContentUnavailableView.search(text: searchText)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 80)
+        } else {
+            LazyVGrid(columns: columns, spacing: 15) {
+                ForEach(Array(recipes.enumerated()), id: \.element.id) { index, recipe in
+                    recipeLink(recipe, index: index)
+                }
+            }
+            .padding(.horizontal, 15)
+            .padding(.top, topPadding)
+        }
+    }
+}

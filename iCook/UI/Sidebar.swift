@@ -9,6 +9,55 @@ import SwiftUI
 
 // MARK: - List Column (Landmarks: *List)
 
+#if os(iOS)
+private struct SidebarSearchContent<DefaultContent: View>: View {
+    @Environment(\.isSearching) private var isSearching
+    let searchText: String
+    let searchScope: RecipeSearchScope
+    @ViewBuilder let defaultContent: () -> DefaultContent
+
+    var body: some View {
+        if isSearching {
+            SidebarRecipeSearchResults(searchText: searchText, searchScope: searchScope)
+        } else {
+            defaultContent()
+        }
+    }
+}
+
+private struct SidebarRecipeSearchResults: View {
+    @EnvironmentObject private var model: AppViewModel
+    let searchText: String
+    let searchScope: RecipeSearchScope
+
+    private var matchingRecipes: [Recipe] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let recipes = model.recipes.sorted {
+            $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        }
+        guard !query.isEmpty else { return recipes }
+
+        return recipes.filter { $0.matchesSearch(query, scope: searchScope) }
+    }
+
+    var body: some View {
+        ScrollView {
+            RecipeSearchResultsView(
+                recipes: matchingRecipes,
+                searchText: searchText,
+                onSelect: { recipe in
+                    model.saveLastViewedRecipe(recipe)
+                    model.saveAppLocation(
+                        .recipe(recipeID: recipe.id, categoryID: recipe.categoryID)
+                    )
+                }
+            )
+        }
+        .scrollDismissesKeyboard(.immediately)
+    }
+}
+#endif
+
 struct CategoryList: View {
     @EnvironmentObject private var model: AppViewModel
     @Binding var editingCategory: Category?
@@ -19,6 +68,10 @@ struct CategoryList: View {
     @AppStorage("SidebarCategoriesExpanded") private var isCategoriesExpanded = true
     @AppStorage("SidebarTagsExpanded") private var isTagsExpanded = true
     @State private var showSourcesOverlay = false
+#if os(iOS)
+    @State private var searchText = ""
+    @State private var searchScope: RecipeSearchScope = .name
+#endif
     
     private var homeRecipeCount: Int {
         model.recipeCounts.values.reduce(0, +)
@@ -50,7 +103,7 @@ struct CategoryList: View {
         }
     }
     
-    var body: some View {
+    private var categoryListContent: some View {
         List(selection: $collectionType) {
             Section("Home") {
                 NavigationLink(value: RecipeCollectionType.home) {
@@ -179,6 +232,34 @@ struct CategoryList: View {
             }
         }
         .listStyle(.sidebar)
+    }
+
+    @ViewBuilder
+    private var displayedListContent: some View {
+#if os(iOS)
+        SidebarSearchContent(searchText: searchText, searchScope: searchScope) {
+            categoryListContent
+        }
+        .searchable(
+            text: $searchText,
+            placement: .toolbar,
+            prompt: searchScope == .name ? "Search Recipes" : "Search Ingredients"
+        )
+        .searchScopes($searchScope) {
+            ForEach(RecipeSearchScope.allCases, id: \.self) { scope in
+                Text(scope.title).tag(scope)
+            }
+        }
+        .navigationDestination(for: Recipe.self) { recipe in
+            RecipeDetailView(recipe: recipe)
+        }
+#else
+        categoryListContent
+#endif
+    }
+
+    var body: some View {
+        displayedListContent
         .refreshable {
             await refreshCategoriesSmooth()
         }

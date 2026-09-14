@@ -8,7 +8,7 @@
 import SwiftUI
 import CloudKit
 
-private enum RecipeSearchScope: String, CaseIterable, Hashable {
+enum RecipeSearchScope: String, CaseIterable, Hashable {
     case name
     case ingredient
 
@@ -18,6 +18,19 @@ private enum RecipeSearchScope: String, CaseIterable, Hashable {
             return "Search Recipe Name"
         case .ingredient:
             return "Search Ingredient"
+        }
+    }
+}
+
+extension Recipe {
+    func matchesSearch(_ query: String, scope: RecipeSearchScope) -> Bool {
+        switch scope {
+        case .name:
+            return name.range(of: query, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+        case .ingredient:
+            return (ingredients ?? []).contains { ingredient in
+                ingredient.range(of: query, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+            }
         }
     }
 }
@@ -171,9 +184,6 @@ struct RecipeCollectionView: View {
     @State private var isShowingTagRecipePicker = false
     
     
-    // Adaptive columns with consistent spacing - account for spacing in minimum width
-    private let columns = [GridItem(.adaptive(minimum: 190), spacing: 15)]
-
     private var recipeSortOption: RecipeSortOption {
         get { RecipeSortOption(rawValue: recipeSortOptionRawValue) ?? .alphabetical }
         nonmutating set { recipeSortOptionRawValue = newValue.rawValue }
@@ -320,20 +330,6 @@ struct RecipeCollectionView: View {
         }
     }
 
-    private func tagNames(for recipe: Recipe) -> [String] {
-        guard !recipe.tagIDs.isEmpty, !model.tags.isEmpty else { return [] }
-        let namesByID = Dictionary(uniqueKeysWithValues: model.tags.map { ($0.id, $0.name) })
-        var seen = Set<String>()
-        var orderedNames: [String] = []
-        for tagID in recipe.tagIDs {
-            guard let name = namesByID[tagID], !name.isEmpty else { continue }
-            if seen.insert(name).inserted {
-                orderedNames.append(name)
-            }
-        }
-        return orderedNames
-    }
-    
     private var isSearchActive: Bool {
         showingSearchResults || !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
@@ -616,61 +612,36 @@ struct RecipeCollectionView: View {
     }
     
     // MARK: - Recipes Grid Section
+
+    private func saveNavigationState(for recipe: Recipe) {
+        model.saveLastViewedRecipe(recipe)
+
+        switch collectionType {
+        case .home, .favorites, .tag:
+            model.saveAppLocation(.recipe(recipeID: recipe.id, categoryID: recipe.categoryID))
+        case .category(let category):
+            model.saveAppLocation(.recipe(recipeID: recipe.id, categoryID: category.id))
+        }
+    }
     
     @ViewBuilder
     private func recipesGridSection() -> some View {
         VStack(alignment: .leading, spacing: 16) {
-            // Show grid if there are recipes, or centered no results message if searching with no results
-            if !remainingRecipes.isEmpty {
-                LazyVGrid(columns: columns, spacing: 15) {
-                    ForEach(Array(remainingRecipes.enumerated()), id: \.element.id) { index, recipe in
-                        NavigationLink(value: recipe) {
-                            RecipeLargeButtonWithState(
-                                recipe: recipe,
-                                categoryName: categoryName(for: recipe),
-                                tagNames: tagNames(for: recipe),
-                                index: index
-                            )
-                        }
-                        .simultaneousGesture(TapGesture().onEnded {
-                            model.saveLastViewedRecipe(recipe)
-                            // Save app location when navigating to recipe
-                            switch collectionType {
-                            case .home:
-                                model.saveAppLocation(.recipe(recipeID: recipe.id, categoryID: recipe.categoryID))
-                            case .favorites:
-                                model.saveAppLocation(.recipe(recipeID: recipe.id, categoryID: recipe.categoryID))
-                            case .category(let category):
-                                model.saveAppLocation(.recipe(recipeID: recipe.id, categoryID: category.id))
-                            case .tag:
-                                model.saveAppLocation(.recipe(recipeID: recipe.id, categoryID: recipe.categoryID))
-                            }
-                        })
-                        .buttonStyle(.plain)
-                        .contextMenu {
-                            Button {
-                                editingRecipe = recipe
-                            } label: {
-                                Label("Edit Recipe", systemImage: "pencil")
-                            }
-                            .disabled(model.isOfflineMode)
-                        }
-                    }
-                }
-                .padding(.horizontal, 15)
-            } else if showingSearchResults {
-                // Centered no results message
-                VStack(spacing: 12) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 48))
-                        .foregroundColor(.secondary)
-                    
-                    Text("No results found")
-                        .font(.title3)
-                        .foregroundColor(.secondary)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.top, 40)
+            if showingSearchResults {
+                RecipeSearchResultsView(
+                    recipes: remainingRecipes,
+                    searchText: searchText,
+                    onSelect: saveNavigationState,
+                    onEdit: { recipe in editingRecipe = recipe }
+                )
+            } else if !remainingRecipes.isEmpty {
+                RecipeSearchResultsView(
+                    recipes: remainingRecipes,
+                    searchText: "",
+                    onSelect: saveNavigationState,
+                    onEdit: { recipe in editingRecipe = recipe },
+                    topPadding: 0
+                )
             }
         }
     }
@@ -909,15 +880,7 @@ struct RecipeCollectionView: View {
     }
 
     private func recipeMatchesSearch(_ recipe: Recipe, query: String) -> Bool {
-        switch searchScope {
-        case .name:
-            return recipe.name.range(of: query, options: [.caseInsensitive, .diacriticInsensitive]) != nil
-        case .ingredient:
-            let ingredients = recipe.ingredients ?? []
-            return ingredients.contains { ingredient in
-                ingredient.range(of: query, options: [.caseInsensitive, .diacriticInsensitive]) != nil
-            }
-        }
+        recipe.matchesSearch(query, scope: searchScope)
     }
     
     private func performSearch() {
