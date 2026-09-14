@@ -299,6 +299,9 @@ final class AppViewModel: ObservableObject {
     }
 
     func refreshSourcesAndCurrentContent(skipRecipeCache: Bool = true, forceProbe: Bool = false) async {
+        // A refresh must never turn an offline cache miss into an empty UI or
+        // spend time probing a network path that NWPath has already declared down.
+        guard cloudConnectionState != .offline else { return }
         if forceProbe {
             error = nil
             cloudKitManager.error = nil

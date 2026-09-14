@@ -1191,6 +1191,9 @@ struct RecipeCollectionView: View {
 
     private func handleRefresh() async {
         guard !isRefreshInFlight else { return }
+        // Pull-to-refresh is a data refresh, not a connectivity probe. Keep the
+        // last-known-good cache untouched while the device is definitively offline.
+        guard model.cloudKitManager.reachabilityStatus != .offline else { return }
         isRefreshInFlight = true
         defer { isRefreshInFlight = false }
         let start = Date()

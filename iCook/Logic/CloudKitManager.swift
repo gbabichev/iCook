@@ -30,6 +30,24 @@ private struct CloudRequestTimeoutError: LocalizedError {
     }
 }
 
+private struct IncompleteCloudQueryError: LocalizedError {
+    let recordType: String
+    let failures: [CKRecord.ID: Error]
+
+    var errorDescription: String? {
+        "CloudKit returned an incomplete \(recordType) result (\(failures.count) record failure\(failures.count == 1 ? "" : "s"))."
+    }
+}
+
+private struct CloudRecordDecodeError: LocalizedError {
+    let recordType: String
+    let recordID: CKRecord.ID
+
+    var errorDescription: String? {
+        "CloudKit returned a malformed \(recordType) record (\(recordID.recordName))."
+    }
+}
+
 private final class TimeoutState: @unchecked Sendable {
     private let lock = NSLock()
     nonisolated(unsafe) private var hasResumed = false
@@ -109,6 +127,7 @@ class CloudKitManager: ObservableObject {
     private let networkMonitorQueue = DispatchQueue(label: "iCook.CloudKitNetworkMonitor")
     private let cloudRequestTimeoutSeconds: Double = 12
     private var activeCloudRequestCount = 0
+    private var connectivityRecoveryTask: Task<Void, Never>?
     
     // Caches
     private var sourceCache: [CKRecord.ID: Source] = [:]
@@ -172,6 +191,7 @@ class CloudKitManager: ObservableObject {
     }
 
     private func handleNetworkPathUpdate(_ path: NWPath) {
+        let previousStatus = reachabilityStatus
         let nextStatus: CloudReachabilityStatus
         switch path.status {
         case .satisfied:
@@ -191,10 +211,40 @@ class CloudKitManager: ObservableObject {
         }
 
         updateOfflineMode()
+
+        if previousStatus == .offline,
+           nextStatus == .online || nextStatus == .constrained,
+           isCloudKitAvailable {
+            scheduleCloudRecovery(after: 0.5)
+        }
+    }
+
+    private func scheduleCloudRecovery(after delay: TimeInterval = 5) {
+        connectivityRecoveryTask?.cancel()
+        connectivityRecoveryTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            guard !Task.isCancelled, let self,
+                  self.reachabilityStatus != .offline else { return }
+            await self.setupiCloudUser()
+            guard !Task.isCancelled,
+                  self.isCloudKitAvailable,
+                  self.cloudSyncState != .degraded else { return }
+
+            await self.loadSources()
+            if let source = self.currentSource {
+                await self.loadCategories(for: source)
+                await self.loadRandomRecipes(for: source, skipCache: true)
+            }
+            NotificationCenter.default.post(name: .sourcesRefreshed, object: nil)
+        }
     }
 
     private func updateOfflineMode() {
         isOfflineMode = !isCloudKitAvailable || reachabilityStatus == .offline || cloudSyncState == .degraded
+    }
+
+    private var canAttemptCloudRead: Bool {
+        isCloudKitAvailable && reachabilityStatus != .offline
     }
 
     private func beginCloudRequest() {
@@ -278,6 +328,101 @@ class CloudKitManager: ObservableObject {
         }
     }
 
+    private func performCloudRequest<T>(
+        operationName: String,
+        maxAttempts: Int = 3,
+        operation: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
+        var attempt = 1
+
+        while true {
+            do {
+                return try await withTimeout(
+                    seconds: cloudRequestTimeoutSeconds,
+                    operationName: operationName,
+                    operation: operation
+                )
+            } catch {
+                guard attempt < maxAttempts, isRetryableCloudError(error) else {
+                    markCloudDegraded(for: error, operationName: operationName)
+                    throw error
+                }
+
+                let delay = retryDelaySeconds(for: error, attempt: attempt)
+                printD("Retrying \(operationName) in \(String(format: "%.1f", delay))s (attempt \(attempt + 1)/\(maxAttempts))")
+                try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                attempt += 1
+            }
+        }
+    }
+
+    private func saveRecord(
+        _ record: CKRecord,
+        in database: CKDatabase,
+        operationName: String
+    ) async throws -> CKRecord {
+        let requestDatabase = database
+        return try await performCloudRequest(operationName: operationName) {
+            try await requestDatabase.save(record)
+        }
+    }
+
+    private func fetchRecord(
+        withID recordID: CKRecord.ID,
+        from database: CKDatabase,
+        operationName: String
+    ) async throws -> CKRecord {
+        let requestDatabase = database
+        return try await performCloudRequest(operationName: operationName) {
+            try await requestDatabase.record(for: recordID)
+        }
+    }
+
+    private func deleteRecord(
+        withID recordID: CKRecord.ID,
+        from database: CKDatabase,
+        operationName: String
+    ) async throws {
+        let requestDatabase = database
+        _ = try await performCloudRequest(operationName: operationName) {
+            try await requestDatabase.deleteRecord(withID: recordID)
+        }
+    }
+
+    private func isRetryableCloudError(_ error: Error) -> Bool {
+        if error is CloudRequestTimeoutError { return true }
+        guard let ckError = error as? CKError else {
+            return isNetworkRelatedError(error)
+        }
+        switch ckError.code {
+        case .networkUnavailable, .networkFailure, .serviceUnavailable,
+                .requestRateLimited, .zoneBusy:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func retryDelaySeconds(for error: Error, attempt: Int) -> Double {
+        if let ckError = error as? CKError,
+           let retryAfter = ckError.userInfo[CKErrorRetryAfterKey] as? NSNumber {
+            return max(0.1, retryAfter.doubleValue)
+        }
+
+        let exponentialDelay = min(pow(2, Double(attempt - 1)), 8)
+        return exponentialDelay + Double.random(in: 0...0.25)
+    }
+
+    private func rejectCloudMutationIfUnavailable() -> Bool {
+        guard isCloudKitAvailable,
+              reachabilityStatus != .offline,
+              cloudSyncState != .degraded else {
+            error = cloudStatusMessage ?? "You're offline. Changes are disabled until iCloud reconnects."
+            return true
+        }
+        return false
+    }
+
     func prepareForRetry() {
         error = nil
         if reachabilityStatus != .offline {
@@ -290,20 +435,27 @@ class CloudKitManager: ObservableObject {
     private func setupiCloudUser() async {
         do {
             let container = self.container
-            let status = try await withTimeout(seconds: cloudRequestTimeoutSeconds, operationName: "iCloud account") {
+            let status = try await performCloudRequest(operationName: "iCloud account") {
                 try await container.accountStatus()
             }
             guard status == .available else {
+                if status == .couldNotDetermine || status == .temporarilyUnavailable {
+                    isCloudKitAvailable = true
+                    cloudSyncState = .degraded
+                    self.error = "iCloud is temporarily unavailable. Showing cached data."
+                    cloudStatusMessage = self.error
+                    updateOfflineMode()
+                    scheduleCloudRecovery()
+                    return
+                }
                 isCloudKitAvailable = false
                 switch status {
                 case .noAccount:
                     self.error = "iCloud not available. Using local storage only."
                 case .restricted:
                     self.error = "iCloud access is restricted for this account."
-                case .couldNotDetermine:
-                    self.error = "Could not determine iCloud account status."
-                case .temporarilyUnavailable:
-                    self.error = "iCloud is temporarily unavailable."
+                case .couldNotDetermine, .temporarilyUnavailable:
+                    break
                 case .available:
                     self.error = nil
                 @unknown default:
@@ -327,7 +479,7 @@ class CloudKitManager: ObservableObject {
         
         do {
             let container = self.container
-            let userRecord = try await withTimeout(seconds: cloudRequestTimeoutSeconds, operationName: "iCloud user") {
+            let userRecord = try await performCloudRequest(operationName: "iCloud user") {
                 try await container.userRecordID()
             }
             userIdentifier = userRecord.recordName
@@ -335,7 +487,8 @@ class CloudKitManager: ObservableObject {
             normalizeFavoriteStateForCurrentUser()
             isCloudKitAvailable = true
             self.error = nil
-            updateOfflineMode()
+            connectivityRecoveryTask = nil
+            markCloudHealthyIfNeeded()
             printD("iCloud user authenticated successfully")
         } catch {
             printD("Error setting up iCloud user: \(error.localizedDescription)")
@@ -346,6 +499,9 @@ class CloudKitManager: ObservableObject {
                 cloudStatusMessage = self.error
             } else if handleOfflineFallback(for: error) {
                 self.error = "Network unavailable. Using cached data."
+                if reachabilityStatus != .offline {
+                    scheduleCloudRecovery()
+                }
             } else {
                 self.error = "Failed to connect to iCloud"
             }
@@ -357,7 +513,7 @@ class CloudKitManager: ObservableObject {
         if let userIdentifier, !userIdentifier.isEmpty { return }
         do {
             let container = self.container
-            let userRecord = try await withTimeout(seconds: cloudRequestTimeoutSeconds, operationName: "iCloud user") {
+            let userRecord = try await performCloudRequest(operationName: "iCloud user") {
                 try await container.userRecordID()
             }
             userIdentifier = userRecord.recordName
@@ -926,6 +1082,9 @@ class CloudKitManager: ObservableObject {
         if error is CloudRequestTimeoutError {
             return true
         }
+        if let incompleteError = error as? IncompleteCloudQueryError {
+            return incompleteError.failures.values.contains { isNetworkRelatedError($0) }
+        }
         if let ckError = error as? CKError {
             switch ckError.code {
             case .networkUnavailable, .networkFailure, .serviceUnavailable, .requestRateLimited, .zoneBusy:
@@ -971,7 +1130,7 @@ class CloudKitManager: ObservableObject {
             recipes: cachedRecipes
         )
 
-        guard isCloudKitAvailable else {
+        guard canAttemptCloudRead else {
             return cachedSnapshot
         }
 
@@ -1002,8 +1161,7 @@ class CloudKitManager: ObservableObject {
                 in: context.database,
                 zoneID: context.zoneID
             )
-            let categories = categoryResults.compactMap { _, result -> Category? in
-                guard case .success(let record) = result else { return nil }
+            let categories = try decodeCompleteQueryResults(categoryResults, recordType: "Category") { record in
                 return Category.from(record)
             }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
@@ -1013,8 +1171,7 @@ class CloudKitManager: ObservableObject {
                 in: context.database,
                 zoneID: context.zoneID
             )
-            let tags = tagResults.compactMap { _, result -> Tag? in
-                guard case .success(let record) = result else { return nil }
+            let tags = try decodeCompleteQueryResults(tagResults, recordType: "Tag") { record in
                 return Tag.from(record)
             }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
@@ -1024,11 +1181,8 @@ class CloudKitManager: ObservableObject {
                 in: context.database,
                 zoneID: context.zoneID
             )
-            let recipes = recipeResults.compactMap { _, result -> Recipe? in
-                guard case .success(let record) = result,
-                      let recipe = Recipe.from(record) else {
-                    return nil
-                }
+            let recipes = try decodeCompleteQueryResults(recipeResults, recordType: "Recipe") { record -> Recipe? in
+                guard let recipe = Recipe.from(record) else { return nil }
                 return recipeWithCachedImage(recipe)
             }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
@@ -1089,7 +1243,11 @@ class CloudKitManager: ObservableObject {
     private func syncFavoriteOperation(_ operation: PendingFavoriteOperation) async throws {
         if operation.isFavorite {
             do {
-                _ = try await privateDatabase.save(favoriteRecord(for: operation.recipeID))
+                _ = try await saveRecord(
+                    favoriteRecord(for: operation.recipeID),
+                    in: privateDatabase,
+                    operationName: "save favorite"
+                )
             } catch {
                 if isExistingFavoriteRecordError(error) {
                     // The desired state is already present on the server.
@@ -1099,7 +1257,11 @@ class CloudKitManager: ObservableObject {
             }
         } else {
             do {
-                try await privateDatabase.deleteRecord(withID: favoriteRecordID(for: operation.recipeID))
+                try await deleteRecord(
+                    withID: favoriteRecordID(for: operation.recipeID),
+                    from: privateDatabase,
+                    operationName: "delete favorite"
+                )
             } catch let ckError as CKError where ckError.code == .unknownItem {
                 // Deleting an already-removed favorite is a valid converged state.
             }
@@ -1226,7 +1388,7 @@ class CloudKitManager: ObservableObject {
         normalizeFavoriteStateForCurrentUser()
         printD("[FavoritesTrace] loadFavorites start user=\(userIdentifier ?? "nil") cloudAvailable=\(isCloudKitAvailable) cached=\(favoriteRecipeKeys.count) pending=\(pendingFavoriteOperations.count)")
 
-        guard isCloudKitAvailable else {
+        guard canAttemptCloudRead else {
             favoriteRecipeKeys = effectiveFavoriteKeys(with: favoriteRecipeKeys)
             persistFavoriteRecipeKeysCache()
             printD("[FavoritesTrace] loadFavorites offline merged=\(favoriteRecipeKeys.count) keys=\(favoriteTraceKeys(favoriteRecipeKeys.sorted()))")
@@ -1272,6 +1434,7 @@ class CloudKitManager: ObservableObject {
 
     func setFavorite(_ isFavorite: Bool, for recipeID: CKRecord.ID) async -> Bool {
         error = nil
+        guard !rejectCloudMutationIfUnavailable() else { return false }
         applyFavoriteStateLocally(isFavorite, for: recipeID)
         queueFavoriteSync(isFavorite, for: recipeID)
         printD("[FavoritesTrace] setFavorite value=\(isFavorite) recipe=\(recipeID.recordName.suffix(8)) key=\(summarizedFavoriteKey(favoriteKey(for: recipeID))) local=\(favoriteRecipeKeys.count) pending=\(pendingFavoriteOperations.count)")
@@ -1401,6 +1564,10 @@ class CloudKitManager: ObservableObject {
     
     // MARK: - Source Management
     func loadSources() async {
+        guard reachabilityStatus != .offline else {
+            printD("Device is offline, keeping cached sources")
+            return
+        }
         await ensureUserIdentifier()
         normalizeFavoriteStateForCurrentUser()
 
@@ -1416,7 +1583,7 @@ class CloudKitManager: ObservableObject {
         let cachedSharedSources = sources.filter { !$0.isPersonal }
         
         // If CloudKit is not available, use local cache only
-        guard isCloudKitAvailable else {
+        guard canAttemptCloudRead else {
             printD("CloudKit not available, using cached sources only")
             return
         }
@@ -1434,22 +1601,12 @@ class CloudKitManager: ObservableObject {
             
             var allSources = personalSources
             
-            // Try to load shared sources from shared database
-            var sharedSources: [Source] = []
-            do {
-                sharedSources = try await fetchSourcesFromDatabase(sharedDatabase, isPersonal: false)
-            } catch {
-                let errorDesc = error.localizedDescription
-                // SharedDB doesn't support zone-wide queries, so this is expected
-                if !errorDesc.contains("SharedDB does not support Zone Wide queries") {
-                    printD("Note: Could not load shared sources: \(errorDesc)")
-                }
-            }
-            // If none returned (due to SharedDB query limitations), enumerate shared zones.
-            if sharedSources.isEmpty {
-                let zoneSources = await fetchSharedSourcesViaZones()
-                sharedSources.append(contentsOf: zoneSources)
-            }
+            // SharedDB zone-wide queries are not reliable. Enumerating every shared
+            // zone gives us an authoritative result or throws, so a failed request
+            // can never be confused with an empty shared collection list.
+            var sharedSources = try await fetchSharedSourcesViaZones()
+            let fetchedSharedIDs = Set(sharedSources.map(\.id))
+            sharedSources.append(contentsOf: cachedSharedSources.filter { !fetchedSharedIDs.contains($0.id) })
             allSources.append(contentsOf: sharedSources)
             
             // Clear any stale unshared flags for fetched shared sources before we normalize flags
@@ -1469,32 +1626,6 @@ class CloudKitManager: ObservableObject {
                 if !cleared.isEmpty {
                     recentlyUnsharedIDs.subtract(cleared)
                     printD("Cleared unshared flags for fetched shared sources: \(cleared)")
-                }
-            }
-            
-            // Remove any cached shared sources that no longer exist (revoked/removed)
-            let missingShared = cachedSharedSources.filter { cached in
-                !allSources.contains(where: { $0.id == cached.id })
-            }
-            if !missingShared.isEmpty {
-                printD("Pruning \(missingShared.count) missing shared sources from cache")
-                for missing in missingShared {
-                    sourceCache.removeValue(forKey: missing.id)
-                    unmarkSharedSource(id: missing.id)
-                    let key = cacheIdentifier(for: missing.id)
-                    recentlyUnsharedIDs.insert(key)
-                    // delete any cached files for this source
-                    let fm = FileManager.default
-                    let prefix = cacheIdentifier(for: missing.id)
-                    if let files = try? fm.contentsOfDirectory(atPath: cacheDirectoryURL.path) {
-                        for entry in files where entry.contains(prefix) {
-                            let url = cacheDirectoryURL.appendingPathComponent(entry)
-                            try? fm.removeItem(at: url)
-                        }
-                    }
-                    // also clear any recipe/category caches for this source
-                    categoryCache.removeValue(forKey: missing.id)
-                    recipeCache = recipeCache.filter { $0.key.zoneID != missing.id.zoneID }
                 }
             }
             
@@ -1598,6 +1729,7 @@ class CloudKitManager: ObservableObject {
             updateSharedEditabilityFlag()
         } catch {
             let errorDesc = error.localizedDescription
+            _ = handleOfflineFallback(for: error)
             // Silently handle schema/indexing errors - CloudKit is still setting up
             if !errorDesc.contains("Did not find record type") && !errorDesc.contains("not marked queryable") {
                 printD("Error loading sources: \(errorDesc)")
@@ -1614,11 +1746,8 @@ class CloudKitManager: ObservableObject {
         let zoneID: CKRecordZone.ID? = isPersonal ? personalZoneID : nil
         let results = try await fetchAllQueryMatchResults(matching: query, in: database, zoneID: zoneID)
         
-        return results.compactMap { _, result in
-            guard case .success(let record) = result,
-                  var source = Source.from(record) else {
-                return nil
-            }
+        return try decodeCompleteQueryResults(results, recordType: "Source") { record -> Source? in
+            guard var source = Source.from(record) else { return nil }
             if (source.owner.isEmpty || source.owner == "Unknown"),
                let userIdentifier, !userIdentifier.isEmpty {
                 source.owner = userIdentifier
@@ -1638,6 +1767,28 @@ class CloudKitManager: ObservableObject {
 
     private typealias QueryMatchResults = [CKRecord.ID: Result<CKRecord, Error>]
 
+    private func decodeCompleteQueryResults<Value>(
+        _ results: QueryMatchResults,
+        recordType: String,
+        transform: (CKRecord) -> Value?
+    ) throws -> [Value] {
+        var values: [Value] = []
+        values.reserveCapacity(results.count)
+
+        for (recordID, result) in results {
+            switch result {
+            case .success(let record):
+                guard let value = transform(record) else {
+                    throw CloudRecordDecodeError(recordType: recordType, recordID: recordID)
+                }
+                values.append(value)
+            case .failure(let error):
+                throw IncompleteCloudQueryError(recordType: recordType, failures: [recordID: error])
+            }
+        }
+        return values
+    }
+
     private func fetchAllQueryMatchResults(
         matching query: CKQuery,
         in database: CKDatabase,
@@ -1651,7 +1802,8 @@ class CloudKitManager: ObservableObject {
         let queryDatabase = database
         let queryZoneID = zoneID
         let initialQuery = query
-        let (initialResults, initialCursor) = try await withTimeout(seconds: cloudRequestTimeoutSeconds, operationName: "recipes") {
+        let operationName = "query \(query.recordType)"
+        let (initialResults, initialCursor) = try await performCloudRequest(operationName: operationName) {
             try await queryDatabase.records(matching: initialQuery, inZoneWith: queryZoneID)
         }
         allResults.merge(initialResults) { existing, _ in existing }
@@ -1660,11 +1812,19 @@ class CloudKitManager: ObservableObject {
         while let currentCursor = nextCursor {
             let pageDatabase = database
             let cursor = currentCursor
-            let (pageResults, fetchedNextCursor) = try await withTimeout(seconds: cloudRequestTimeoutSeconds, operationName: "recipes") {
+            let (pageResults, fetchedNextCursor) = try await performCloudRequest(operationName: operationName) {
                 try await pageDatabase.records(continuingMatchFrom: cursor)
             }
             allResults.merge(pageResults) { existing, _ in existing }
             nextCursor = fetchedNextCursor
+        }
+
+        let failures = allResults.compactMapValues { result -> Error? in
+            guard case .failure(let error) = result else { return nil }
+            return error
+        }
+        guard failures.isEmpty else {
+            throw IncompleteCloudQueryError(recordType: query.recordType, failures: failures)
         }
 
         markCloudHealthyIfNeeded()
@@ -1677,6 +1837,7 @@ class CloudKitManager: ObservableObject {
         // First-launch users can attempt creation before startup setup finishes.
         // Re-run auth setup to avoid a race with iCloud account initialization.
         await setupiCloudUser()
+        guard !rejectCloudMutationIfUnavailable() else { return false }
         guard isCloudKitAvailable else {
             self.error = "iCloud not available. Sign in to iCloud and try again."
             return false
@@ -1701,7 +1862,7 @@ class CloudKitManager: ObservableObject {
                 let database = isPersonal ? privateDatabase : sharedDatabase
                 let record = source.toCKRecord()
                 printD("Saving source to CloudKit: \(source.name) (record: \(record.recordID.recordName))")
-                let savedRecord = try await database.save(record)
+                let savedRecord = try await saveRecord(record, in: database, operationName: "create collection")
                 printD("Successfully saved to CloudKit: \(savedRecord.recordID.recordName)")
                 
                 if let savedSource = Source.from(savedRecord) {
@@ -1762,6 +1923,7 @@ class CloudKitManager: ObservableObject {
     
     func deleteSource(_ source: Source) async {
         error = nil
+        guard !rejectCloudMutationIfUnavailable() else { return }
         guard source.isPersonal || isSharedOwner(source) else {
             self.error = "Only collection owners can delete it."
             return
@@ -1773,7 +1935,7 @@ class CloudKitManager: ObservableObject {
             let zoneID = source.id.zoneID
             let childRecordIDs = try await fetchChildRecordIDs(for: source.id, in: database, zoneID: zoneID)
 
-            try await database.deleteRecord(withID: source.id)
+            try await deleteRecord(withID: source.id, from: database, operationName: "delete collection")
 
             removeDeletedSourceLocally(source, childRecordIDs: childRecordIDs)
 
@@ -1877,7 +2039,7 @@ class CloudKitManager: ObservableObject {
     private func deleteRecords(withIDs recordIDs: [CKRecord.ID], in database: CKDatabase) async throws {
         for recordID in recordIDs {
             do {
-                try await database.deleteRecord(withID: recordID)
+                try await deleteRecord(withID: recordID, from: database, operationName: "delete collection child")
             } catch let ckError as CKError where ckError.code == .unknownItem {
                 continue
             }
@@ -1908,10 +2070,7 @@ class CloudKitManager: ObservableObject {
     func updateSource(_ source: Source, newName: String) async {
         let trimmedName = newName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty else { return }
-        guard isCloudKitAvailable && !isOfflineMode else {
-            self.error = "You're offline. Renaming collections is disabled."
-            return
-        }
+        guard !rejectCloudMutationIfUnavailable() else { return }
         guard source.isPersonal || isSharedOwner(source) else {
             printD("Update source denied for collaborator: \(source.name)")
             self.error = "Only collection owners can rename it."
@@ -1920,11 +2079,11 @@ class CloudKitManager: ObservableObject {
         
         do {
             let database = source.isPersonal || isSharedOwner(source) ? privateDatabase : sharedDatabase
-            let serverRecord = try await database.record(for: source.id)
+            let serverRecord = try await fetchRecord(withID: source.id, from: database, operationName: "load collection for rename")
             serverRecord["name"] = trimmedName
             serverRecord["lastModified"] = Date()
             
-            let savedRecord = try await database.save(serverRecord)
+            let savedRecord = try await saveRecord(serverRecord, in: database, operationName: "rename collection")
             
             if var updatedSource = Source.from(savedRecord) {
                 // Preserve shared markers for owners so UI stays in sync
@@ -2057,6 +2216,7 @@ class CloudKitManager: ObservableObject {
 #if os(macOS)
     /// Participant leaves a shared source (removes themselves from the share).
     func leaveSharedSource(_ source: Source) async -> Bool {
+        guard !rejectCloudMutationIfUnavailable() else { return false }
         guard !isSharedOwner(source) else {
             printD("leaveSharedSource called for owner; ignoring.")
             return false
@@ -2066,10 +2226,10 @@ class CloudKitManager: ObservableObject {
         
         // Try to fetch the root record in the shared DB and use its share reference
         do {
-            let rootRecord = try await sharedDatabase.record(for: source.id)
+            let rootRecord = try await fetchRecord(withID: source.id, from: sharedDatabase, operationName: "load shared collection")
             if let shareRef = rootRecord.share {
                 do {
-                    try await sharedDatabase.deleteRecord(withID: shareRef.recordID)
+                    try await deleteRecord(withID: shareRef.recordID, from: sharedDatabase, operationName: "leave shared collection")
                     printD("Deleted share record \(shareRef.recordID.recordName) for source \(source.name) to leave share.")
                 } catch {
                     printD("Failed to delete share record for \(source.name): \(error.localizedDescription)")
@@ -2093,30 +2253,22 @@ class CloudKitManager: ObservableObject {
     }
 #endif
 
-    private func fetchSharedSourcesViaZones() async -> [Source] {
+    private func fetchSharedSourcesViaZones() async throws -> [Source] {
         var sharedSources: [Source] = []
-        do {
-            let zones = try await sharedDatabase.allRecordZones()
-            for zone in zones {
-                let predicate = NSPredicate(value: true)
-                let query = CKQuery(recordType: "Source", predicate: predicate)
-                do {
-                    let results = try await fetchAllQueryMatchResults(matching: query, in: sharedDatabase, zoneID: zone.zoneID)
-                    let sourcesInZone = results.compactMap { _, result -> Source? in
-                        guard case .success(let record) = result,
-                              var source = Source.from(record) else {
-                            return nil
-                        }
-                        source.isPersonal = false
-                        return source
-                    }
-                    sharedSources.append(contentsOf: sourcesInZone)
-                } catch {
-                    printD("Failed to query shared zone \(zone.zoneID.zoneName): \(error.localizedDescription)")
-                }
+        let database = sharedDatabase
+        let zones = try await performCloudRequest(operationName: "shared zones") {
+            try await database.allRecordZones()
+        }
+        for zone in zones {
+            let predicate = NSPredicate(value: true)
+            let query = CKQuery(recordType: "Source", predicate: predicate)
+            let results = try await fetchAllQueryMatchResults(matching: query, in: sharedDatabase, zoneID: zone.zoneID)
+            let sourcesInZone = try decodeCompleteQueryResults(results, recordType: "Source") { record -> Source? in
+                guard var source = Source.from(record) else { return nil }
+                source.isPersonal = false
+                return source
             }
-        } catch {
-            printD("Failed to list shared zones: \(error.localizedDescription)")
+            sharedSources.append(contentsOf: sourcesInZone)
         }
         return sharedSources
     }
@@ -2132,7 +2284,7 @@ class CloudKitManager: ObservableObject {
         self.categories = loadCategoriesLocalCache(for: source) ?? []
         self.recipeCounts = loadRecipeCountsLocalCache(for: source)
         
-        guard isCloudKitAvailable else {
+        guard canAttemptCloudRead else {
             return
         }
         
@@ -2148,11 +2300,8 @@ class CloudKitManager: ObservableObject {
             let zoneID = isOwner || source.isPersonal ? personalZoneID : source.id.zoneID
             do {
                 let results = try await fetchAllQueryMatchResults(matching: query, in: database, zoneID: zoneID)
-                let categories = results.compactMap { _, result -> Category? in
-                    guard case .success(let record) = result,
-                          let category = Category.from(record) else {
-                        return nil
-                    }
+                let categories = try decodeCompleteQueryResults(results, recordType: "Category") { record -> Category? in
+                    guard let category = Category.from(record) else { return nil }
                     categoryCache[category.id] = category
                     return category
                 }
@@ -2210,7 +2359,7 @@ class CloudKitManager: ObservableObject {
 
         self.tags = loadTagsLocalCache(for: source) ?? []
 
-        guard isCloudKitAvailable else {
+        guard canAttemptCloudRead else {
             return
         }
 
@@ -2223,11 +2372,8 @@ class CloudKitManager: ObservableObject {
             let zoneID = isOwner || source.isPersonal ? personalZoneID : source.id.zoneID
 
             let results = try await fetchAllQueryMatchResults(matching: query, in: database, zoneID: zoneID)
-            let fetchedTags = results.compactMap { _, result -> Tag? in
-                guard case .success(let record) = result,
-                      let tag = Tag.from(record) else {
-                    return nil
-                }
+            let fetchedTags = try decodeCompleteQueryResults(results, recordType: "Tag") { record -> Tag? in
+                guard let tag = Tag.from(record) else { return nil }
                 tagCache[tag.id] = tag
                 return tag
             }
@@ -2271,7 +2417,7 @@ class CloudKitManager: ObservableObject {
     }
     
     func loadRecipeCounts(for source: Source) async {
-        guard isCloudKitAvailable else {
+        guard canAttemptCloudRead else {
             recipeCounts = loadRecipeCountsLocalCache(for: source)
             return
         }
@@ -2325,7 +2471,7 @@ class CloudKitManager: ObservableObject {
     func totalRecipeCount(for source: Source) async -> Int {
         let cachedTotal = cachedTotalRecipeCount(for: source)
 
-        guard isCloudKitAvailable else {
+        guard canAttemptCloudRead else {
             return cachedTotal
         }
 
@@ -2374,6 +2520,7 @@ class CloudKitManager: ObservableObject {
     }
     
     func createCategory(name: String, icon: String, in source: Source) async {
+        guard !rejectCloudMutationIfUnavailable() else { return }
         do {
             if source.isPersonal {
                 await ensurePersonalZoneExists()
@@ -2388,7 +2535,7 @@ class CloudKitManager: ObservableObject {
             if shared, record.parent == nil {
                 record.parent = CKRecord.Reference(recordID: source.id, action: .none)
             }
-            let savedRecord = try await database.save(record)
+            let savedRecord = try await saveRecord(record, in: database, operationName: "create category")
             
             if let savedCategory = Category.from(savedRecord) {
                 categoryCache[savedCategory.id] = savedCategory
@@ -2406,18 +2553,19 @@ class CloudKitManager: ObservableObject {
     }
     
     func updateCategory(_ category: Category, in source: Source) async {
+        guard !rejectCloudMutationIfUnavailable() else { return }
         do {
             let owner = isSharedOwner(source)
             let shared = isSharedSource(source)
             let database = owner || !shared ? privateDatabase : sharedDatabase
             
             // Fetch the server record first to preserve metadata
-            let serverRecord = try await database.record(for: category.id)
+            let serverRecord = try await fetchRecord(withID: category.id, from: database, operationName: "load category for update")
             serverRecord["name"] = category.name
             serverRecord["icon"] = category.icon
             serverRecord["lastModified"] = Date()
             
-            let savedRecord = try await database.save(serverRecord)
+            let savedRecord = try await saveRecord(serverRecord, in: database, operationName: "update category")
             
             if let savedCategory = Category.from(savedRecord) {
                 categoryCache[savedCategory.id] = savedCategory
@@ -2433,9 +2581,10 @@ class CloudKitManager: ObservableObject {
     }
     
     func deleteCategory(_ category: Category, in source: Source) async {
+        guard !rejectCloudMutationIfUnavailable() else { return }
         do {
             let database = source.isPersonal ? privateDatabase : sharedDatabase
-            try await database.deleteRecord(withID: category.id)
+            try await deleteRecord(withID: category.id, from: database, operationName: "delete category")
             categoryCache.removeValue(forKey: category.id)
             // Remove from local array without re-querying CloudKit
             self.categories = categories.filter { $0.id != category.id }
@@ -2451,6 +2600,7 @@ class CloudKitManager: ObservableObject {
 
     // MARK: - Tag Management
     func createTag(name: String, in source: Source) async {
+        guard !rejectCloudMutationIfUnavailable() else { return }
         do {
             if source.isPersonal {
                 await ensurePersonalZoneExists()
@@ -2465,7 +2615,7 @@ class CloudKitManager: ObservableObject {
             if shared, record.parent == nil {
                 record.parent = CKRecord.Reference(recordID: source.id, action: .none)
             }
-            let savedRecord = try await database.save(record)
+            let savedRecord = try await saveRecord(record, in: database, operationName: "create tag")
 
             if let savedTag = Tag.from(savedRecord) {
                 tagCache[savedTag.id] = savedTag
@@ -2480,16 +2630,17 @@ class CloudKitManager: ObservableObject {
     }
 
     func updateTag(_ tag: Tag, in source: Source) async {
+        guard !rejectCloudMutationIfUnavailable() else { return }
         do {
             let owner = isSharedOwner(source)
             let shared = isSharedSource(source)
             let database = owner || !shared ? privateDatabase : sharedDatabase
 
-            let serverRecord = try await database.record(for: tag.id)
+            let serverRecord = try await fetchRecord(withID: tag.id, from: database, operationName: "load tag for update")
             serverRecord["name"] = tag.name
             serverRecord["lastModified"] = Date()
 
-            let savedRecord = try await database.save(serverRecord)
+            let savedRecord = try await saveRecord(serverRecord, in: database, operationName: "update tag")
 
             if let savedTag = Tag.from(savedRecord) {
                 tagCache[savedTag.id] = savedTag
@@ -2504,11 +2655,12 @@ class CloudKitManager: ObservableObject {
     }
 
     func deleteTag(_ tag: Tag, in source: Source) async {
+        guard !rejectCloudMutationIfUnavailable() else { return }
         do {
             let owner = isSharedOwner(source)
             let shared = isSharedSource(source)
             let database = owner || !shared ? privateDatabase : sharedDatabase
-            try await database.deleteRecord(withID: tag.id)
+            try await deleteRecord(withID: tag.id, from: database, operationName: "delete tag")
             tagCache.removeValue(forKey: tag.id)
             self.tags = tags.filter { $0.id != tag.id }
             saveTagsLocalCache(self.tags, for: source)
@@ -2529,7 +2681,7 @@ class CloudKitManager: ObservableObject {
            let cachedRecipes = loadRecipesLocalCache(for: source, categoryID: category?.id),
            !cachedRecipes.isEmpty {
             self.recipes = cachedRecipes
-            guard isCloudKitAvailable else { return }
+            guard canAttemptCloudRead else { return }
             
             Task { [weak self] in
                 guard let self else { return }
@@ -2538,7 +2690,7 @@ class CloudKitManager: ObservableObject {
             return
         }
         
-        guard isCloudKitAvailable else {
+        guard canAttemptCloudRead else {
             return
         }
         
@@ -2571,11 +2723,8 @@ class CloudKitManager: ObservableObject {
             let zoneID = isOwner || source.isPersonal ? personalZoneID : source.id.zoneID
             do {
                 let results = try await fetchAllQueryMatchResults(matching: query, in: database, zoneID: zoneID)
-                let recipes = results.compactMap { _, result -> Recipe? in
-                    guard case .success(let record) = result,
-                          let recipe = Recipe.from(record) else {
-                        return nil
-                    }
+                let recipes = try decodeCompleteQueryResults(results, recordType: "Recipe") { record -> Recipe? in
+                    guard let recipe = Recipe.from(record) else { return nil }
                     let recipeWithImage = recipeWithCachedImage(recipe)
                     recipeCache[recipeWithImage.id] = recipeWithImage
                     return recipeWithImage
@@ -2636,7 +2785,7 @@ class CloudKitManager: ObservableObject {
             self.recipes = cachedAllRecipes.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         }
         
-        guard isCloudKitAvailable else {
+        guard canAttemptCloudRead else {
             return
         }
         
@@ -2656,11 +2805,8 @@ class CloudKitManager: ObservableObject {
             let zoneID = isOwner || source.isPersonal ? personalZoneID : source.id.zoneID
             do {
                 let results = try await fetchAllQueryMatchResults(matching: query, in: database, zoneID: zoneID)
-                let recipes = results.compactMap { _, result -> Recipe? in
-                    guard case .success(let record) = result,
-                          let recipe = Recipe.from(record) else {
-                        return nil
-                    }
+                let recipes = try decodeCompleteQueryResults(results, recordType: "Recipe") { record -> Recipe? in
+                    guard let recipe = Recipe.from(record) else { return nil }
                     let recipeWithImage = recipeWithCachedImage(recipe)
                     recipeCache[recipeWithImage.id] = recipeWithImage
                     return recipeWithImage
@@ -2720,6 +2866,7 @@ class CloudKitManager: ObservableObject {
     }
     
     func createRecipe(_ recipe: Recipe, in source: Source) async {
+        guard !rejectCloudMutationIfUnavailable() else { return }
         do {
             let owner = isSharedOwner(source)
             let shared = isSharedSource(source)
@@ -2728,7 +2875,7 @@ class CloudKitManager: ObservableObject {
             if shared, record.parent == nil {
                 record.parent = CKRecord.Reference(recordID: source.id, action: .none)
             }
-            let savedRecord = try await database.save(record)
+            let savedRecord = try await saveRecord(record, in: database, operationName: "create recipe")
             
             if let savedRecipe = Recipe.from(savedRecord) {
                 let recipeWithImage = recipeWithCachedImage(savedRecipe)
@@ -2743,11 +2890,12 @@ class CloudKitManager: ObservableObject {
     }
     
     func updateRecipe(_ recipe: Recipe, in source: Source, removeImage: Bool = false) async {
+        guard !rejectCloudMutationIfUnavailable() else { return }
         do {
             let database = isSharedOwner(source) || source.isPersonal ? privateDatabase : sharedDatabase
             
             // Fetch the existing record first to properly update it
-            let existingRecord = try await database.record(for: recipe.id)
+            let existingRecord = try await fetchRecord(withID: recipe.id, from: database, operationName: "load recipe for update")
             
             // Update the fields from the recipe
             existingRecord["name"] = recipe.name
@@ -2782,7 +2930,7 @@ class CloudKitManager: ObservableObject {
             }
             
             // Save the updated record
-            let savedRecord = try await database.save(existingRecord)
+            let savedRecord = try await saveRecord(existingRecord, in: database, operationName: "update recipe")
             
             if let savedRecipe = Recipe.from(savedRecord) {
                 let recipeWithImage = recipeWithCachedImage(savedRecipe)
@@ -2797,9 +2945,10 @@ class CloudKitManager: ObservableObject {
     }
     
     func deleteRecipe(_ recipe: Recipe, in source: Source) async -> Bool {
+        guard !rejectCloudMutationIfUnavailable() else { return false }
         do {
             let database = source.isPersonal ? privateDatabase : sharedDatabase
-            try await database.deleteRecord(withID: recipe.id)
+            try await deleteRecord(withID: recipe.id, from: database, operationName: "delete recipe")
             recipeCache.removeValue(forKey: recipe.id)
             removeCachedImage(for: recipe.id)
             printD("Recipe deleted: \(recipe.name)")
