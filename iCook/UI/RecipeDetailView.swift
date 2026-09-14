@@ -23,6 +23,7 @@ struct RecipeDetailView: View {
     @State private var isShowingLinkedRecipePicker = false
     @State private var isUpdatingLinkedRecipes = false
     @State private var linkedRecipeUpdateErrorMessage: String?
+    @State private var showingImageViewer = false
     
     init(recipe: Recipe) {
         self.recipe = recipe
@@ -66,6 +67,12 @@ struct RecipeDetailView: View {
                     .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
                     .backgroundExtensionEffect()
                     .recipeFlexibleHeaderContent(baseHeight: baseHeight)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        showingImageViewer = true
+                    }
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityHint("Opens the photo viewer")
             case .failure:
                 ZStack {
                     Rectangle().opacity(0.08)
@@ -137,6 +144,26 @@ struct RecipeDetailView: View {
                 }
             )
         }
+#if os(iOS)
+        .fullScreenCover(isPresented: $showingImageViewer) {
+            if let imageURL = displayedRecipe.imageURL {
+                RecipeImageViewer(
+                    imageURL: imageURL,
+                    recipeName: displayedRecipe.name
+                )
+            }
+        }
+#elseif os(macOS)
+        .sheet(isPresented: $showingImageViewer) {
+            if let imageURL = displayedRecipe.imageURL {
+                RecipeImageViewer(
+                    imageURL: imageURL,
+                    recipeName: displayedRecipe.name
+                )
+                .frame(minWidth: 720, idealWidth: 1100, minHeight: 520, idealHeight: 800)
+            }
+        }
+#endif
         .onChange(of: editingRecipe) { oldValue, newValue in
             // When the edit sheet closes (newValue becomes nil), refresh the displayed recipe
             if newValue == nil, oldValue != nil {
