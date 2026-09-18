@@ -61,9 +61,9 @@ Just a clean, focused space for your cooking.
 
 ## 🖥️ Install & Minimum Requirements
 
-- macOS / iPadOS / iOS 26.0 or later  
+- macOS / iPadOS / iOS 26.0 or later
 - Apple Silicon & Intel
-- ~20 MB free disk space  
+- ~20 MB free disk space
 - Free space in iCloud for recipe storage
 
 
@@ -156,15 +156,24 @@ Import compatibility notes:
 
 ## 📝 Changelog
 
+### 1.1.0
+- Improved hero images on iOS & macOS 27.
+- Redesigned the tutorial on macOS 27.
+- Implemented Siri App Intents to use Siri to generate recipes directly in iCook
+ - Ask Siri "Generate a recipe in iCook" or "Generate a recipe in the Mexican Food category in iCook".
+- Improvements to the CloudKit sync engine.
+- Tap on the hero image in a recipe to see it full-screen.
+- Added search in the sidebar on iOS.
+
 ### 1.0.0
 - Initial Release.
 
 ## 📄 License
 
-MIT — free for personal and commercial use. 
+MIT — free for personal and commercial use.
 
 ## Privacy
 <a href="docs/PrivacyPolicy.html">Privacy Policy</a>
 
-## Support 
+## Support
 <a href="docs/Support.html">Support</a>
